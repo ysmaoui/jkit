@@ -1,0 +1,7 @@
+configuration-as-code
+workflow-aggregator
+pipeline-stage-view
+pipeline-rest-api
+blueocean-rest
+blueocean-pipeline-api-impl
+cloudbees-folder

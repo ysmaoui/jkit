@@ -1,0 +1,27 @@
+# Binary
+jk
+dist/
+
+# Environment
+.env
+.envrc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+*.coverprofile
+coverage.*
+
+# Dolt / beads / Claude
+.dolt/
+*.db
+.beads/
+.claude/
