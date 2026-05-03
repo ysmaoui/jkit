@@ -17,7 +17,7 @@ func pgvTreeHandler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/stages/tree") {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "ok",
 				"data": map[string]any{
 					"complete": true,
@@ -62,7 +62,7 @@ func TestGetPipelineStagesPrefersPGV(t *testing.T) {
 func TestGetPipelineStagesFallsBackToBlueOceanOn404(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/nodes/") {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "10", "displayName": "LegacyStage", "result": "SUCCESS", "durationInMillis": 1000},
 			})
 			return
@@ -87,7 +87,7 @@ func TestGetPipelineStagesForcedBlueOceanSkipsPGV(t *testing.T) {
 			return
 		}
 		if strings.Contains(r.URL.Path, "/nodes/") {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "10", "displayName": "BlueStage", "result": "SUCCESS"},
 			})
 			return

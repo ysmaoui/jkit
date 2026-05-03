@@ -34,7 +34,7 @@ func TestNormalizeBluePath(t *testing.T) {
 func TestGetPipelineStages(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/nodes/") {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "10", "displayName": "Build", "result": "SUCCESS", "durationInMillis": 5000},
 				{"id": "20", "displayName": "Test", "result": "FAILURE", "durationInMillis": 3000},
 			})
@@ -57,7 +57,7 @@ func TestGetPipelineStages(t *testing.T) {
 func TestGetPipelineStagesWithParentAndType(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/nodes/") {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "1", "displayName": "Build", "result": "SUCCESS", "durationInMillis": 5000, "type": "STAGE"},
 				{"id": "2", "displayName": "Parallel", "result": "SUCCESS", "durationInMillis": 10000, "firstParent": "1", "type": "PARALLEL"},
 				{"id": "3", "displayName": "branch-a", "result": "SUCCESS", "durationInMillis": 3000, "firstParent": "2", "type": "STAGE"},
@@ -132,7 +132,7 @@ func TestGetStageLogFallbackToSteps(t *testing.T) {
 		}
 		// Steps listing
 		if strings.Contains(path, "/nodes/10/steps/") && !strings.Contains(path, "/steps/101/") && !strings.Contains(path, "/steps/102/") {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "101", "displayName": "Shell Script"},
 				{"id": "102", "displayName": "Archive artifacts"},
 			})
@@ -168,7 +168,7 @@ func TestGetStageLogFallbackNoSteps(t *testing.T) {
 			return
 		}
 		if strings.Contains(path, "/steps/") {
-			json.NewEncoder(w).Encode([]map[string]any{})
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -189,7 +189,7 @@ func TestGetStageLogFallbackStepLogErrors(t *testing.T) {
 			return
 		}
 		if strings.Contains(path, "/steps/") && !strings.Contains(path, "/steps/101/") {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "101", "displayName": "Bad step"},
 			})
 			return
@@ -217,7 +217,7 @@ func TestGetStageLogFallbackPartialStepLogs(t *testing.T) {
 			return
 		}
 		if strings.Contains(path, "/nodes/10/steps/") && !strings.Contains(path, "/steps/201/") && !strings.Contains(path, "/steps/202/") {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "201", "displayName": "Good step"},
 				{"id": "202", "displayName": "Failed step"},
 			})

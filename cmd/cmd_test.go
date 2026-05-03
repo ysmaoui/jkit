@@ -87,7 +87,7 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 
 func TestListCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"jobs": []map[string]any{
 				{"name": "my-app", "url": "http://jenkins/job/my-app/", "color": "blue", "lastBuild": map[string]any{"number": 42, "result": "SUCCESS"}},
 				{"name": "my-lib", "url": "http://jenkins/job/my-lib/", "color": "red", "lastBuild": map[string]any{"number": 10, "result": "FAILURE"}},
@@ -107,7 +107,7 @@ func TestListCommand(t *testing.T) {
 
 func TestListCommandJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"jobs": []map[string]any{
 				{"name": "my-app", "url": "http://jenkins/job/my-app/", "color": "blue"},
 			},
@@ -126,7 +126,7 @@ func TestListCommandFolder(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"jobs": []map[string]any{
 				{"name": "svc-a", "url": "http://jenkins/job/team/job/svc-a/", "color": "blue"},
 			},
@@ -154,7 +154,7 @@ func TestListCommandNoConfig(t *testing.T) {
 
 func TestStatusCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"builds": []map[string]any{
 				{"number": 5, "result": "SUCCESS", "building": false, "duration": 30000, "timestamp": 1700000000000},
 				{"number": 4, "result": "FAILURE", "building": false, "duration": 15000, "timestamp": 1699900000000},
@@ -175,7 +175,7 @@ func TestStatusCommand(t *testing.T) {
 func TestStatusCommandSingleBuild(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/3/api/json") {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"number": 3, "result": "SUCCESS", "building": false,
 				"duration": 45000, "timestamp": 1700000000000,
 				"url": "http://jenkins/job/my-app/3/",
@@ -247,17 +247,17 @@ func TestRunCommandWait(t *testing.T) {
 		if strings.Contains(r.URL.Path, "/queue/item/10/api/json") {
 			queueCalls++
 			if queueCalls >= 2 {
-				json.NewEncoder(w).Encode(map[string]any{
+				_ = json.NewEncoder(w).Encode(map[string]any{
 					"id": 10, "executable": map[string]any{"number": 7, "url": srvURL + "/job/my-app/7/"},
 				})
 			} else {
-				json.NewEncoder(w).Encode(map[string]any{"id": 10, "why": "waiting"})
+				_ = json.NewEncoder(w).Encode(map[string]any{"id": 10, "why": "waiting"})
 			}
 			return
 		}
 		if strings.Contains(r.URL.Path, "/7/api/json") {
 			buildCalls++
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"number": 7, "result": "SUCCESS", "building": false, "duration": 5000, "timestamp": 1700000000000,
 			})
 			return
@@ -376,7 +376,7 @@ func TestLintCommandMissingFile(t *testing.T) {
 func TestLogCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/api/json") {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"builds": []map[string]any{
 					{"number": 5, "result": "SUCCESS", "building": false},
 				},
@@ -401,7 +401,7 @@ func TestLogCommand(t *testing.T) {
 
 func TestAuthStatusValid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
 	}))
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)
@@ -427,11 +427,11 @@ func TestAuthStatusInvalid(t *testing.T) {
 
 func TestAuthStatusHostOverride(t *testing.T) {
 	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
 	}))
 	defer srv1.Close()
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
 	}))
 	defer srv2.Close()
 
@@ -450,7 +450,7 @@ func TestAuthStatusHostOverride(t *testing.T) {
 
 func TestAuthStatusHostOverrideNotConfigured(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
 	}))
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)
@@ -465,7 +465,7 @@ func TestAuthStatusHostOverrideNotConfigured(t *testing.T) {
 func TestOpenCommandNoArgs(t *testing.T) {
 	// Without args and without .jk.yml / git, should fail with context error
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{})
+		_ = json.NewEncoder(w).Encode(map[string]any{})
 	}))
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)

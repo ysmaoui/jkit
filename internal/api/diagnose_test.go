@@ -13,7 +13,7 @@ import (
 
 func TestDiagnoseSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"number":   42,
 			"result":   "SUCCESS",
 			"building": false,
@@ -38,7 +38,7 @@ func TestDiagnoseFailure(t *testing.T) {
 		path := r.URL.Path
 		// Build detail
 		if path == "/job/test/42/api/json" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"number":   42,
 				"result":   "FAILURE",
 				"building": false,
@@ -70,7 +70,7 @@ func TestDiagnoseFailure(t *testing.T) {
 		}
 		// Blue Ocean stages
 		if path == "/blue/rest/organizations/jenkins/pipelines/test/runs/42/nodes/" {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "10", "displayName": "Build", "result": "SUCCESS", "durationInMillis": 30000},
 				{"id": "20", "displayName": "Test", "result": "FAILURE", "durationInMillis": 15000},
 			})
@@ -117,7 +117,7 @@ func TestDiagnoseNoStages(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/job/test/42/api/json" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"number":   42,
 				"result":   "FAILURE",
 				"building": false,
@@ -160,7 +160,7 @@ func TestDiagnoseNoStages(t *testing.T) {
 
 func TestDiagnoseBuilding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"number":   42,
 			"result":   nil,
 			"building": true,
@@ -182,14 +182,14 @@ func TestDiagnoseNestedParallel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/job/proj/1/api/json" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"number": 1, "result": "FAILURE", "building": false,
 				"duration": 60000, "url": "http://jenkins/job/proj/1/",
 			})
 			return
 		}
 		if path == "/blue/rest/organizations/jenkins/pipelines/proj/runs/1/nodes/" {
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "1", "displayName": "Build", "result": "SUCCESS", "durationInMillis": 5000},
 				// Parallel is a fan-out (2 children) → filtered
 				{"id": "2", "displayName": "Parallel", "result": "FAILURE", "durationInMillis": 30000, "firstParent": "1"},
