@@ -50,7 +50,7 @@ func TestCrumbFetchAndCache(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/crumbIssuer/api/json" {
 			atomic.AddInt32(&crumbCalls, 1)
-			json.NewEncoder(w).Encode(crumbInfo{
+			_ = json.NewEncoder(w).Encode(crumbInfo{
 				Crumb:             "test-crumb",
 				CrumbRequestField: "Jenkins-Crumb",
 			})
@@ -77,7 +77,7 @@ func TestCrumbInvalidateOn403(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/crumbIssuer/api/json" {
 			atomic.AddInt32(&crumbCalls, 1)
-			json.NewEncoder(w).Encode(crumbInfo{
+			_ = json.NewEncoder(w).Encode(crumbInfo{
 				Crumb:             "new-crumb",
 				CrumbRequestField: "Jenkins-Crumb",
 			})
@@ -166,7 +166,7 @@ func TestGetRetryMaxExceeded(t *testing.T) {
 func TestPostNoRetryOn503(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/crumbIssuer/api/json" {
-			json.NewEncoder(w).Encode(crumbInfo{
+			_ = json.NewEncoder(w).Encode(crumbInfo{
 				Crumb:             "c",
 				CrumbRequestField: "Jenkins-Crumb",
 			})
@@ -189,7 +189,7 @@ func TestPostCrumbRetryOnly403(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/crumbIssuer/api/json" {
 			atomic.AddInt32(&crumbCalls, 1)
-			json.NewEncoder(w).Encode(crumbInfo{
+			_ = json.NewEncoder(w).Encode(crumbInfo{
 				Crumb:             "c",
 				CrumbRequestField: "Jenkins-Crumb",
 			})

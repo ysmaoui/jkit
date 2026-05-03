@@ -15,7 +15,7 @@ func TestResolveFromJKYml(t *testing.T) {
 
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	ctx, err := resolveFromJKYml()
 	require.NoError(t, err)
@@ -28,7 +28,7 @@ func TestResolveFromJKYmlNotFound(t *testing.T) {
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	ctx, err := resolveFromJKYml()
 	assert.Error(t, err)
@@ -42,7 +42,7 @@ func TestResolveFromDirname(t *testing.T) {
 
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(sub))
-	defer os.Chdir(oldWd)
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	ctx, err := resolveFromDirname()
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestResolveChainError(t *testing.T) {
 	dir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(dir))
-	defer os.Chdir(oldWd)
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	// No .jk.yml, no git, dirname will work as fallback
 	ctx, err := Resolve()

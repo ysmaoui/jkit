@@ -145,7 +145,7 @@ func (c *Client) Get(path string, query url.Values) (*http.Response, error) {
 // CloseBody is a convenience helper to discard and close a response body.
 func CloseBody(resp *http.Response) {
 	if resp != nil && resp.Body != nil {
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 }
