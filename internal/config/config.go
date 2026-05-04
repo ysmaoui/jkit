@@ -33,7 +33,7 @@ func (c *Config) ResolveHost(hostOrAlias string) (string, *HostConfig, error) {
 			return host, hc, nil
 		}
 	}
-	return "", nil, fmt.Errorf("host %q not configured — run 'jk auth login --host %s'", hostOrAlias, hostOrAlias)
+	return "", nil, fmt.Errorf("host %q not configured — run 'jkit auth login --host %s'", hostOrAlias, hostOrAlias)
 }
 
 func Load() (*Config, error) {
@@ -77,7 +77,7 @@ func (c *Config) Save() error {
 
 func (c *Config) DefaultHost() (string, *HostConfig, error) {
 	if len(c.Hosts) == 0 {
-		return "", nil, errors.New("no hosts configured — run 'jk auth login'")
+		return "", nil, errors.New("no hosts configured — run 'jkit auth login'")
 	}
 	if len(c.Hosts) == 1 {
 		for host, hc := range c.Hosts {
@@ -89,19 +89,19 @@ func (c *Config) DefaultHost() (string, *HostConfig, error) {
 			return host, hc, nil
 		}
 	}
-	return "", nil, errors.New("multiple hosts configured, none marked default — run 'jk auth login --host HOST'")
+	return "", nil, errors.New("multiple hosts configured, none marked default — run 'jkit auth login --host HOST'")
 }
 
 func ConfigDir() (string, error) {
-	if d := os.Getenv("JK_CONFIG_DIR"); d != "" {
+	if d := os.Getenv("JKIT_CONFIG_DIR"); d != "" {
 		return d, nil
 	}
 	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
-		return filepath.Join(d, "jk"), nil
+		return filepath.Join(d, "jkit"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("determining home directory: %w", err)
 	}
-	return filepath.Join(home, ".config", "jk"), nil
+	return filepath.Join(home, ".config", "jkit"), nil
 }

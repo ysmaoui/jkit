@@ -6,16 +6,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var testCmd = &cobra.Command{
 	Use:   "test [job] [build#]",
 	Short: "Show test results",
-	Example: `  jk test my-app
-  jk test my-app 42
-  jk test my-app 42 --failed`,
+	Example: `  jkit test my-app
+  jkit test my-app 42
+  jkit test my-app 42 --failed`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runTest,
 }

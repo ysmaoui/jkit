@@ -11,7 +11,7 @@ import (
 
 func TestLoadEmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("JK_CONFIG_DIR", dir)
+	t.Setenv("JKIT_CONFIG_DIR", dir)
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.NotNil(t, cfg.Hosts)
@@ -20,7 +20,7 @@ func TestLoadEmptyDir(t *testing.T) {
 
 func TestSaveAndReload(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("JK_CONFIG_DIR", dir)
+	t.Setenv("JKIT_CONFIG_DIR", dir)
 
 	cfg := &Config{
 		Hosts: map[string]*HostConfig{
@@ -38,7 +38,7 @@ func TestSaveAndReload(t *testing.T) {
 
 func TestFilePermissions(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("JK_CONFIG_DIR", dir)
+	t.Setenv("JKIT_CONFIG_DIR", dir)
 
 	cfg := &Config{Hosts: map[string]*HostConfig{
 		"https://ci.example.com": {User: "u", Token: "t"},
@@ -114,9 +114,9 @@ func TestResolveHost(t *testing.T) {
 }
 
 func TestXDGConfigPath(t *testing.T) {
-	t.Setenv("JK_CONFIG_DIR", "")
+	t.Setenv("JKIT_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
 	dir, err := ConfigDir()
 	require.NoError(t, err)
-	assert.Equal(t, "/tmp/xdg/jk", dir)
+	assert.Equal(t, "/tmp/xdg/jkit", dir)
 }

@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/config"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/config"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var configCmd = &cobra.Command{
@@ -65,7 +65,7 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(cfg.Hosts) == 0 {
-		_, _ = fmt.Fprintln(os.Stderr, "No hosts configured — run 'jk auth login'")
+		_, _ = fmt.Fprintln(os.Stderr, "No hosts configured — run 'jkit auth login'")
 		return nil
 	}
 

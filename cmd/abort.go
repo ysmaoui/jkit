@@ -7,15 +7,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var abortCmd = &cobra.Command{
 	Use:   "abort [job] [build#]",
 	Short: "Abort a running build",
-	Example: `  jk abort my-app
-  jk abort my-app 42
-  jk abort my-app 42 --wait`,
+	Example: `  jkit abort my-app
+  jkit abort my-app 42
+  jkit abort my-app 42 --wait`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runAbort,
 }

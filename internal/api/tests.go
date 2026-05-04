@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 func (c *Client) GetTestReport(jobPath string, number int) (*jenkins.TestReport, error) {

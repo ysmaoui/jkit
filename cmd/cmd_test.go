@@ -16,13 +16,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 func setupTestConfig(t *testing.T, host string) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("JK_CONFIG_DIR", dir)
+	t.Setenv("JKIT_CONFIG_DIR", dir)
 	cfg := []byte("hosts:\n  " + host + ":\n    user: admin\n    token: secret\n    default: true\n")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), cfg, 0600))
 }
@@ -143,7 +143,7 @@ func TestListCommandFolder(t *testing.T) {
 
 func TestListCommandNoConfig(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("JK_CONFIG_DIR", dir)
+	t.Setenv("JKIT_CONFIG_DIR", dir)
 
 	_, err := executeCmd(t, "list")
 	assert.Error(t, err)
@@ -362,7 +362,7 @@ func TestLintCommandFailure(t *testing.T) {
 
 func TestLintCommandMissingFile(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("JK_CONFIG_DIR", dir)
+	t.Setenv("JKIT_CONFIG_DIR", dir)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"),
 		[]byte("hosts:\n  http://localhost:\n    user: a\n    token: b\n    default: true\n"), 0600))
 
@@ -437,7 +437,7 @@ func TestAuthStatusHostOverride(t *testing.T) {
 
 	// Config with two hosts
 	dir := t.TempDir()
-	t.Setenv("JK_CONFIG_DIR", dir)
+	t.Setenv("JKIT_CONFIG_DIR", dir)
 	cfg := fmt.Sprintf("hosts:\n  %s:\n    user: admin\n    token: secret\n    default: true\n  %s:\n    user: other\n    token: tok2\n", srv1.URL, srv2.URL)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(cfg), 0600))
 
@@ -463,7 +463,7 @@ func TestAuthStatusHostOverrideNotConfigured(t *testing.T) {
 // --- open ---
 
 func TestOpenCommandNoArgs(t *testing.T) {
-	// Without args and without .jk.yml / git, should fail with context error
+	// Without args and without .jkit.yml / git, should fail with context error
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{})
 	}))

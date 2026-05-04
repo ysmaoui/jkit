@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 func TestNormalizeJobPath(t *testing.T) {

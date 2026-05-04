@@ -8,7 +8,7 @@
 ## Build & Test
 
 ```bash
-go build -o jk .          # build binary
+go build -o jkit .          # build binary
 make test                  # unit tests
 make integration-test      # Docker Compose integration tests (starts Jenkins, runs 18 assertions, tears down)
 ```
@@ -29,28 +29,28 @@ Port defaults to 9090. Override with `JENKINS_PORT=8888 make integration-test`.
 main.go                     # entrypoint
 cmd/
   root.go                   # root command, global flags (--host, --json, --format, --verbose, --timeout), version
-  list.go                   # jk list
-  status.go                 # jk status
-  run.go                    # jk run
-  log.go                    # jk log
-  open.go                   # jk open
-  lint.go                   # jk lint
-  abort.go                  # jk abort
-  rebuild.go                # jk rebuild
-  test.go                   # jk test
-  artifacts.go              # jk artifacts
-  changes.go                # jk changes
-  diagnose.go               # jk diagnose
-  diff.go                   # jk diff
-  queue.go                  # jk queue / jk queue cancel
-  config.go                 # jk config list/set-default/remove/set-alias
-  completion.go             # jk completion
+  list.go                   # jkit list
+  status.go                 # jkit status
+  run.go                    # jkit run
+  log.go                    # jkit log
+  open.go                   # jkit open
+  lint.go                   # jkit lint
+  abort.go                  # jkit abort
+  rebuild.go                # jkit rebuild
+  test.go                   # jkit test
+  artifacts.go              # jkit artifacts
+  changes.go                # jkit changes
+  diagnose.go               # jkit diagnose
+  diff.go                   # jkit diff
+  queue.go                  # jkit queue / jkit queue cancel
+  config.go                 # jkit config list/set-default/remove/set-alias
+  completion.go             # jkit completion
   factory.go                # clientFromCmd — creates API client from cobra flags
   helpers.go                # shared helpers (formatDuration, newFetchLog, resolveJobArgs)
   auth/
     auth.go                 # auth subcommand group
-    login.go                # jk auth login
-    status.go               # jk auth status
+    login.go                # jkit auth login
+    status.go               # jkit auth status
 internal/
   api/
     client.go               # HTTP client, auth transport, cookie jar, retry, crumb handling
@@ -61,7 +61,7 @@ internal/
   config/
     config.go               # YAML config load/save, XDG path resolution
   context/
-    resolver.go             # Job auto-detection: .jk.yml → git remote → dirname
+    resolver.go             # Job auto-detection: .jkit.yml → git remote → dirname
     url_parser.go           # Parse Jenkins URLs (classic + Blue Ocean)
   jenkins/
     types.go                # Domain types: Job, Build, Stage, QueueItem, LogChunk, TestReport, etc.
@@ -122,8 +122,8 @@ Return typed errors from `internal/jenkins/errors.go`:
 
 | Error | HTTP | Message |
 |-------|------|---------|
-| `AuthError` | 401 | `not authenticated to {host} — run 'jk auth login'` |
-| `NotFoundError` | 404 | `{resource} not found on {host} — run 'jk list'` |
+| `AuthError` | 401 | `not authenticated to {host} — run 'jkit auth login'` |
+| `NotFoundError` | 404 | `{resource} not found on {host} — run 'jkit list'` |
 | `PermissionError` | 403 | `access denied for {resource} on {host}` |
 | `UnreachableError` | network | `cannot reach {host} — check network or VPN` |
 | `ServerError` | 5xx | `Jenkins error HTTP {code} on {path}` |

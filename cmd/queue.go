@@ -8,16 +8,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var queueCmd = &cobra.Command{
 	Use:   "queue",
 	Short: "Show pending builds in the queue",
-	Example: `  jk queue
-  jk queue --job my-app
-  jk queue cancel 12345`,
+	Example: `  jkit queue
+  jkit queue --job my-app
+  jkit queue cancel 12345`,
 	Args: cobra.NoArgs,
 	RunE: runQueue,
 }

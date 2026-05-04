@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 func (c *Client) GetQueue() ([]jenkins.QueueItem, error) {

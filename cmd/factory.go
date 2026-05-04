@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/api"
-	"github.com/ysmaoui/jk/internal/config"
+	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/config"
 )
 
 // hostFromCmd loads config, resolves --host override, returns the host URL without creating an API client.
@@ -70,7 +70,7 @@ func clientFromURL(cfg *config.Config, host string, opts ...api.ClientOption) (*
 		}
 	}
 
-	return nil, fmt.Errorf("no credentials for %q — run 'jk auth login --host %s'", host, host)
+	return nil, fmt.Errorf("no credentials for %q — run 'jkit auth login --host %s'", host, host)
 }
 
 func clientOpts(cmd *cobra.Command) []api.ClientOption {

@@ -1,13 +1,13 @@
 ---
 name: jenkins
-description: Query Jenkins builds, fetch stage logs, inspect pipeline metadata via the `jk` CLI. Use for CI/CD debugging, build analysis, Jenkins automation.
-allowed-tools: Bash(command:jk*)
+description: Query Jenkins builds, fetch stage logs, inspect pipeline metadata via the `jkit` CLI. Use for CI/CD debugging, build analysis, Jenkins automation.
+allowed-tools: Bash(command:jkit*)
 ---
 
-# Jenkins CLI (`jk`)
+# Jenkins CLI (`jkit`)
 
-Jenkins operations via the [`jk`](https://github.com/ysmaoui/jk) CLI. Auth is
-stored in `~/.config/jk/config.yml` — run `jk auth login` once before first use.
+Jenkins operations via the [`jkit`](https://github.com/ysmaoui/jkit) CLI. Auth is
+stored in `~/.config/jkit/config.yml` — run `jkit auth login` once before first use.
 
 ---
 
@@ -17,58 +17,58 @@ All commands accept a Jenkins URL as first arg, or `job [build#]` positional arg
 
 ```bash
 # Build status (detail: params, stages, cause)
-jk status URL
-jk status my-job 42
-jk status my-job --limit 5        # recent builds
+jkit status URL
+jkit status my-job 42
+jkit status my-job --limit 5        # recent builds
 
 # Build log
-jk log URL                        # full console
-jk log URL --stage "Build"        # stage log
-jk log URL --tail 50              # last 50 lines
-jk log URL --grep "ERROR" -i      # filter lines
-jk log -f my-job                  # stream (follow)
+jkit log URL                        # full console
+jkit log URL --stage "Build"        # stage log
+jkit log URL --tail 50              # last 50 lines
+jkit log URL --grep "ERROR" -i      # filter lines
+jkit log -f my-job                  # stream (follow)
 
 # Failure diagnosis (errors, failed stages, params, commits)
-jk diagnose URL
-jk diagnose URL --json
+jkit diagnose URL
+jkit diagnose URL --json
 
 # Compare two builds
-jk diff my-job 41 42              # explicit
-jk diff my-job 42                 # vs previous
-jk diff my-job                    # latest two
+jkit diff my-job 41 42              # explicit
+jkit diff my-job 42                 # vs previous
+jkit diff my-job                    # latest two
 
 # Test results
-jk test URL                       # all tests
-jk test URL --failed              # failures only
-jk test URL --new-failures        # regressions only
+jkit test URL                       # all tests
+jkit test URL --failed              # failures only
+jkit test URL --new-failures        # regressions only
 
 # SCM changes (commits)
-jk changes URL
+jkit changes URL
 
 # Trigger build
-jk run my-job -p KEY=VAL --wait --log
+jkit run my-job -p KEY=VAL --wait --log
 
 # Rebuild with same params
-jk rebuild my-job 42 --wait --log
+jkit rebuild my-job 42 --wait --log
 
 # Abort running build
-jk abort my-job 42 --wait
+jkit abort my-job 42 --wait
 
 # Artifacts
-jk artifacts URL                  # list
-jk artifacts URL -d report.xml    # download
+jkit artifacts URL                  # list
+jkit artifacts URL -d report.xml    # download
 
 # Queue
-jk queue                          # pending builds
-jk queue --job my-job             # filter
-jk queue cancel 12345             # cancel
+jkit queue                          # pending builds
+jkit queue --job my-job             # filter
+jkit queue cancel 12345             # cancel
 
 # List jobs
-jk list                           # current folder
-jk list -r                        # recursive
+jkit list                           # current folder
+jkit list -r                        # recursive
 
 # Open in browser
-jk open my-job 42
+jkit open my-job 42
 ```
 
 ---
@@ -88,12 +88,12 @@ jk open my-job 42
 
 ## Build Failure Analysis Workflow
 
-1. `jk diagnose URL` — overview: errors, failed stages, params, commits
-2. `jk log URL --stage "StageName"` — full stage log for failed stage
-3. `jk test URL --failed` — if UNSTABLE, show test failures
-4. `jk test URL --new-failures` — regressions vs previous build
-5. `jk changes URL` — what commits triggered the build
-6. `jk diff my-job 41 42` — compare with last good build
+1. `jkit diagnose URL` — overview: errors, failed stages, params, commits
+2. `jkit log URL --stage "StageName"` — full stage log for failed stage
+3. `jkit test URL --failed` — if UNSTABLE, show test failures
+4. `jkit test URL --new-failures` — regressions vs previous build
+5. `jkit changes URL` — what commits triggered the build
+6. `jkit diff my-job 41 42` — compare with last good build
 
 ---
 
@@ -113,7 +113,7 @@ Console:    https://jenkins.example.com/job/team/job/svc/42/console
 
 When a build is BUILDING but appears stuck:
 
-1. **Never run `jk log` in background on BUILDING jobs** — it hangs waiting for more output. Use a timeout or `jk log --stage` on completed stages instead.
+1. **Never run `jkit log` in background on BUILDING jobs** — it hangs waiting for more output. Use a timeout or `jkit log --stage` on completed stages instead.
 2. **Find the last log line, then reason about the code** — identify what step executes *after* the last visible output. That's where it's stuck.
 3. **Pod YAML printed = pod is running.** The hang is in whatever step follows pod allocation (e.g. a shell step in the wrong container), not in pod scheduling.
 4. **Wait for diagnostic commands to return before concluding.** If a command hasn't returned data yet, don't move on — either wait or try a different approach.
@@ -125,7 +125,7 @@ When a build is BUILDING but appears stuck:
 | Error | Fix |
 |---|---|
 | 404 Not Found | Check URL/job path. Branch names need URL encoding (`feature/x` → `feature%2Fx`) |
-| 401 Unauthorized | Run `jk auth login` to re-authenticate |
+| 401 Unauthorized | Run `jkit auth login` to re-authenticate |
 | 403 Forbidden | User lacks Jenkins permissions for this job |
 | 5xx Server Error | Retry. CLI auto-retries transient 502/503/504 |
 | No test results | JUnit plugin not configured, or build has no tests |

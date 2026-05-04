@@ -9,16 +9,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/api"
-	appctx "github.com/ysmaoui/jk/internal/context"
+	"github.com/ysmaoui/jkit/internal/api"
+	appctx "github.com/ysmaoui/jkit/internal/context"
 )
 
 var openCmd = &cobra.Command{
 	Use:   "open [job] [build#]",
 	Short: "Open Jenkins in browser",
-	Example: `  jk open
-  jk open my-app
-  jk open my-app 42`,
+	Example: `  jkit open
+  jkit open my-app
+  jkit open my-app 42`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runOpen,
 }

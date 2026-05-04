@@ -1,11 +1,11 @@
-# Design Notes — `jk`: A Developer-First Jenkins CLI
+# Design Notes — `jkit`: A Developer-First Jenkins CLI
 
-> Architectural and design context for `jk`. For user docs see [README.md](../README.md)
+> Architectural and design context for `jkit`. For user docs see [README.md](../README.md)
 > and [docs/quickstart.md](quickstart.md). For contributor onboarding see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Project Vision
 
-`jk` is a command-line interface for Jenkins, inspired by GitHub's `gh` CLI. Where `gh` transformed GitHub from a browser-first experience into a terminal-native workflow, `jk` does the same for Jenkins. The core insight is that developers interact with Jenkins in predictable, repetitive patterns — checking build status, reading logs, triggering builds, approving inputs — and all of these should be fast, scriptable, and zero-config from the terminal.
+`jkit` is a command-line interface for Jenkins, inspired by GitHub's `gh` CLI. Where `gh` transformed GitHub from a browser-first experience into a terminal-native workflow, `jkit` does the same for Jenkins. The core insight is that developers interact with Jenkins in predictable, repetitive patterns — checking build status, reading logs, triggering builds, approving inputs — and all of these should be fast, scriptable, and zero-config from the terminal.
 
 This is NOT an admin tool. This is NOT a wrapper around the Jenkins REST API. This is a developer productivity tool that thinks in workflows, not endpoints.
 
@@ -21,14 +21,14 @@ This is NOT an admin tool. This is NOT a wrapper around the Jenkins REST API. Th
 - **Terminal UI:** [lipgloss](https://github.com/charmbracelet/lipgloss) for styled output, [bubbles](https://github.com/charmbracelet/bubbletea) for interactive prompts
 - **Testing:** Standard `testing` package + [testify](https://github.com/stretchr/testify) for assertions
 - **Build:** GoReleaser for cross-platform binaries
-- **Module path:** `github.com/ysmaoui/jk`
+- **Module path:** `github.com/ysmaoui/jkit`
 
 ---
 
 ## Project Structure
 
 ```
-jk/
+jkit/
 ├── docs/DESIGN.md             # This file — architecture & design notes
 ├── README.md                  # User-facing documentation
 ├── go.mod
@@ -37,20 +37,20 @@ jk/
 ├── cmd/
 │   ├── root.go                # Root command, global flags (--host, --json, --format)
 │   ├── auth/
-│   │   ├── login.go           # jk auth login
-│   │   └── status.go          # jk auth status
-│   ├── run.go                 # jk run <job> [-p KEY=VALUE] [--wait] [--log]
-│   ├── status.go              # jk status [job] [--all] [--branch]
-│   ├── log.go                 # jk log <job> [build#] [--follow] [--stage]
-│   ├── open.go                # jk open <job> [build#]
-│   ├── lint.go                # jk lint [Jenkinsfile]
-│   ├── stages.go              # jk stages <job> [build#]
-│   ├── cancel.go              # jk cancel <job> [build#]
-│   ├── restart.go             # jk restart <job> [build#]
-│   ├── input.go               # jk input / jk approve / jk deny
-│   ├── queue.go               # jk queue
-│   ├── list.go                # jk list [--folder]
-│   └── artifacts.go           # jk artifacts <job> [build#]
+│   │   ├── login.go           # jkit auth login
+│   │   └── status.go          # jkit auth status
+│   ├── run.go                 # jkit run <job> [-p KEY=VALUE] [--wait] [--log]
+│   ├── status.go              # jkit status [job] [--all] [--branch]
+│   ├── log.go                 # jkit log <job> [build#] [--follow] [--stage]
+│   ├── open.go                # jkit open <job> [build#]
+│   ├── lint.go                # jkit lint [Jenkinsfile]
+│   ├── stages.go              # jkit stages <job> [build#]
+│   ├── cancel.go              # jkit cancel <job> [build#]
+│   ├── restart.go             # jkit restart <job> [build#]
+│   ├── input.go               # jkit input / jkit approve / jkit deny
+│   ├── queue.go               # jkit queue
+│   ├── list.go                # jkit list [--folder]
+│   └── artifacts.go           # jkit artifacts <job> [build#]
 ├── internal/
 │   ├── api/
 │   │   ├── client.go          # Jenkins HTTP client (auth, retries, error handling)
@@ -61,7 +61,7 @@ jk/
 │   │   ├── queue.go           # Queue APIs
 │   │   └── crumb.go           # CSRF crumb handling (Jenkins-specific)
 │   ├── config/
-│   │   ├── config.go          # Config file read/write (~/.config/jk/)
+│   │   ├── config.go          # Config file read/write (~/.config/jkit/)
 │   │   ├── config_test.go
 │   │   └── auth.go            # Credential storage and retrieval
 │   ├── context/
@@ -164,17 +164,17 @@ POST /pipeline-model-converter/validate  # body: jenkinsfile=<contents>
 
 ### Git-to-Job Resolution (`internal/context/resolver.go`)
 
-This is the "magic" that makes `jk status` work without arguments. Resolution order:
+This is the "magic" that makes `jkit status` work without arguments. Resolution order:
 
-1. **Explicit config:** Check `.jk.yml` in repo root for `job` field
+1. **Explicit config:** Check `.jkit.yml` in repo root for `job` field
 2. **Git remote matching:** Extract org/repo from git remote URL, search Jenkins for matching multibranch pipeline jobs
 3. **Job name heuristic:** Try the repo directory name as a job name
-4. **Prompt:** If ambiguous, show candidates and let user pick (then offer to save to `.jk.yml`)
+4. **Prompt:** If ambiguous, show candidates and let user pick (then offer to save to `.jkit.yml`)
 
 The current git branch is used to resolve the specific branch build within a multibranch pipeline.
 
 ```yaml
-# .jk.yml — optional per-repo config
+# .jkit.yml — optional per-repo config
 jenkins:
   host: jenkins.company.com     # override default host
   job: /folder/team-backend/my-service
@@ -182,10 +182,10 @@ jenkins:
 
 ### Configuration & Auth (`internal/config/`)
 
-Config location follows XDG: `~/.config/jk/config.yml` (or `$JK_CONFIG_DIR`).
+Config location follows XDG: `~/.config/jkit/config.yml` (or `$JKIT_CONFIG_DIR`).
 
 ```yaml
-# ~/.config/jk/config.yml
+# ~/.config/jkit/config.yml
 hosts:
   jenkins.company.com:
     user: jane.doe
@@ -199,7 +199,7 @@ defaults:
   output: table    # table | json
 ```
 
-For MVP, store tokens in plaintext in the config file (with 0600 permissions). Keychain integration is a post-MVP feature. Warn users about plaintext storage during `jk auth login`.
+For MVP, store tokens in plaintext in the config file (with 0600 permissions). Keychain integration is a post-MVP feature. Warn users about plaintext storage during `jkit auth login`.
 
 ### Output Formatting (`internal/output/`)
 
@@ -210,7 +210,7 @@ All commands must support three output modes:
 - **Template (`--format '{{.Number}} {{.Result}}'`):** Go template for scripting
 
 ```go
-// Example: jk status output
+// Example: jkit status output
 //
 // Table mode:
 // #   RESULT   DURATION  BRANCH   STARTED
@@ -239,9 +239,9 @@ Jenkins exposes progressive console output via `X-Text-Size` and `X-More-Data` h
 
 ### MVP Commands (implement these first, in this order)
 
-#### 1. `jk auth login`
+#### 1. `jkit auth login`
 ```
-Usage: jk auth login [--host HOST] [--user USER] [--token TOKEN]
+Usage: jkit auth login [--host HOST] [--user USER] [--token TOKEN]
 
 Interactive flow (no flags):
   1. Prompt for Jenkins URL
@@ -254,17 +254,17 @@ Interactive flow (no flags):
 Non-interactive: all three flags provided, skip prompts.
 ```
 
-#### 2. `jk auth status`
+#### 2. `jkit auth status`
 ```
-Usage: jk auth status
+Usage: jkit auth status
 
 Output: Current host, username, and whether credentials are valid.
 Exit code 1 if not authenticated.
 ```
 
-#### 3. `jk status [job] [build#]`
+#### 3. `jkit status [job] [build#]`
 ```
-Usage: jk status [job] [build#] [--all] [--branch BRANCH]
+Usage: jkit status [job] [build#] [--all] [--branch BRANCH]
 
 No args: resolve job from git context, show builds for current branch.
 With job: show recent builds for that job.
@@ -274,9 +274,9 @@ With build#: show detailed status for a specific build.
 Default: show last 10 builds.
 ```
 
-#### 4. `jk run [job] [-p KEY=VALUE...] [--wait] [--log]`
+#### 4. `jkit run [job] [-p KEY=VALUE...] [--wait] [--log]`
 ```
-Usage: jk run [job] [-p KEY=VALUE]... [--wait] [--log] [--branch BRANCH]
+Usage: jkit run [job] [-p KEY=VALUE]... [--wait] [--log] [--branch BRANCH]
 
 Trigger a build. If no job specified, resolve from git context.
 -p: build parameters (repeatable)
@@ -289,9 +289,9 @@ With --wait: "Build #47 completed: SUCCESS (2m 31s)"
 Exit codes: 0=SUCCESS, 1=FAILURE/ERROR, 2=UNSTABLE, 3=ABORTED
 ```
 
-#### 5. `jk log [job] [build#] [--follow] [--stage STAGE]`
+#### 5. `jkit log [job] [build#] [--follow] [--stage STAGE]`
 ```
-Usage: jk log [job] [build#] [--follow] [--stage STAGE]
+Usage: jkit log [job] [build#] [--follow] [--stage STAGE]
 
 Show build console output. Defaults to latest build.
 --follow: stream live output (poll until complete)
@@ -301,18 +301,18 @@ No build#: defaults to latest build.
 If build is in progress: automatically follows unless piped to a file.
 ```
 
-#### 6. `jk open [job] [build#]`
+#### 6. `jkit open [job] [build#]`
 ```
-Usage: jk open [job] [build#]
+Usage: jkit open [job] [build#]
 
 Open the Jenkins page in the default browser.
 No args: open the job page.
 With build#: open the specific build page.
 ```
 
-#### 7. `jk lint [file]`
+#### 7. `jkit lint [file]`
 ```
-Usage: jk lint [file]
+Usage: jkit lint [file]
 
 Validate a Jenkinsfile using Jenkins' pipeline linter API.
 Default file: ./Jenkinsfile
@@ -322,14 +322,14 @@ Print validation errors to stderr.
 
 ### Post-MVP Commands (implement after MVP is validated)
 
-- `jk stages <job> [build#]` — visual pipeline stage display
-- `jk cancel <job> [build#]` — abort a running build
-- `jk restart <job> [build#]` — replay a build
-- `jk input <job> [build#]` / `jk approve` / `jk deny` — input step interaction
-- `jk queue` — view and manage the build queue
-- `jk list [--folder]` — list jobs
-- `jk artifacts <job> [build#]` — download build artifacts
-- `jk config set` — manage defaults
+- `jkit stages <job> [build#]` — visual pipeline stage display
+- `jkit cancel <job> [build#]` — abort a running build
+- `jkit restart <job> [build#]` — replay a build
+- `jkit input <job> [build#]` / `jkit approve` / `jkit deny` — input step interaction
+- `jkit queue` — view and manage the build queue
+- `jkit list [--folder]` — list jobs
+- `jkit artifacts <job> [build#]` — download build artifacts
+- `jkit config set` — manage defaults
 
 ---
 
@@ -362,12 +362,12 @@ User-facing errors should be helpful:
 fmt.Errorf("404")
 
 // Good
-fmt.Errorf("job %q not found on %s — check the job path or run 'jk list'", jobPath, host)
+fmt.Errorf("job %q not found on %s — check the job path or run 'jkit list'", jobPath, host)
 ```
 
 Common error scenarios to handle well:
-- Not authenticated → "Run 'jk auth login' to set up credentials"
-- Job not found → "Job %q not found — run 'jk list' to see available jobs"
+- Not authenticated → "Run 'jkit auth login' to set up credentials"
+- Job not found → "Job %q not found — run 'jkit list' to see available jobs"
 - Build not found → "Build #%d not found for %q"
 - Jenkins unreachable → "Cannot reach %s — check your network or VPN connection"
 - CSRF crumb failure → Retry once with fresh crumb, then error
@@ -385,7 +385,7 @@ Common error scenarios to handle well:
 
 - **Target:** Jenkins LTS (latest 2 releases) + Jenkins 2.400+
 - **Required plugins:** Pipeline (assumed installed on any modern Jenkins)
-- **Optional plugins:** Blue Ocean (needed for `jk stages` and stage-level logs — gracefully degrade without it)
+- **Optional plugins:** Blue Ocean (needed for `jkit stages` and stage-level logs — gracefully degrade without it)
 - **Multibranch pipelines:** First-class support. This is the most common modern Jenkins setup.
 - **Freestyle jobs:** Basic support (trigger, status, logs). No pipeline-specific features.
 - **Folder plugin:** Support nested folder paths in job references.
@@ -394,7 +394,7 @@ Common error scenarios to handle well:
 
 ## Distribution
 
-- **Homebrew:** `brew install jk` (tap initially: `brew install ysmaoui/tap/jk`)
+- **Homebrew:** `brew install jkit` (tap initially: `brew install ysmaoui/tap/jkit`)
 - **Binary releases:** GitHub Releases via GoReleaser (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64)
 - **Shell completions:** Generate for bash, zsh, fish, PowerShell via Cobra's built-in support
 - **Docker:** Not a priority — this is a local developer tool
@@ -406,11 +406,11 @@ Common error scenarios to handle well:
 ```bash
 # Setup
 go mod tidy
-go build -o jk .
+go build -o jkit .
 
 # Run locally
-./jk auth login
-./jk status
+./jkit auth login
+./jkit status
 
 # Test
 go test ./...
@@ -435,13 +435,13 @@ Build in this order. Each step should result in a working (if incomplete) binary
 1. **Scaffold:** `main.go`, `cmd/root.go`, Go module, basic Cobra setup, `--version` flag
 2. **Config & auth:** `internal/config/`, `cmd/auth/login.go`, `cmd/auth/status.go` — get credentials working
 3. **API client foundation:** `internal/api/client.go` with auth, crumb handling, error wrapping
-4. **`jk list`** (small command, validates the API client works end-to-end)
-5. **`jk status`** — requires `internal/api/builds.go` and output formatting
-6. **`jk run`** — trigger builds, with `--wait` support (requires queue polling → build polling)
-7. **`jk log`** — progressive log streaming, `--follow` mode
-8. **Git context resolution** — `internal/context/resolver.go`, `.jk.yml` support
-9. **`jk open`** — simple browser launcher
-10. **`jk lint`** — Jenkinsfile validation
+4. **`jkit list`** (small command, validates the API client works end-to-end)
+5. **`jkit status`** — requires `internal/api/builds.go` and output formatting
+6. **`jkit run`** — trigger builds, with `--wait` support (requires queue polling → build polling)
+7. **`jkit log`** — progressive log streaming, `--follow` mode
+8. **Git context resolution** — `internal/context/resolver.go`, `.jkit.yml` support
+9. **`jkit open`** — simple browser launcher
+10. **`jkit lint`** — Jenkinsfile validation
 11. **Shell completions, `--json`/`--format` on all commands, error message polish**
 12. **GoReleaser config, Homebrew formula, README**
 
@@ -453,7 +453,7 @@ Build in this order. Each step should result in a working (if incomplete) binary
 - Jenkins installation or upgrade
 - Jenkinsfile generation or scaffolding (beyond linting)
 - Visual/TUI dashboard (keep it CLI-first, not a terminal UI app)
-- Plugin system for `jk` itself (premature — revisit after v1.0)
+- Plugin system for `jkit` itself (premature — revisit after v1.0)
 - Groovy script execution
 - Credential management within Jenkins
 - Webhook configuration

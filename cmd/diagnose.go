@@ -6,17 +6,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/api"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var diagnoseCmd = &cobra.Command{
 	Use:   "diagnose [job] [build#]",
 	Short: "Analyze a failed build and show failure summary",
 	Long:  "Fetches build metadata, identifies failed stages, extracts error lines, and shows commits and parameters. Defaults to latest build if no build number given.",
-	Example: `  jk diagnose my-app 42
-  jk diagnose https://jenkins.example.com/job/team/job/svc/42/
-  jk diagnose my-app --json`,
+	Example: `  jkit diagnose my-app 42
+  jkit diagnose https://jenkins.example.com/job/team/job/svc/42/
+  jkit diagnose my-app --json`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runDiagnose,
 }
@@ -123,6 +123,6 @@ func printDiagnosis(r *api.DiagnoseResult) {
 		for i, fs := range r.FailedStages {
 			names[i] = fs.Name
 		}
-		_, _ = fmt.Fprintf(os.Stdout, "\nUse 'jk log <job> %d --stage \"%s\"' for full stage log\n", r.Build, names[0])
+		_, _ = fmt.Fprintf(os.Stdout, "\nUse 'jkit log <job> %d --stage \"%s\"' for full stage log\n", r.Build, names[0])
 	}
 }

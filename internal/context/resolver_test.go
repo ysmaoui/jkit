@@ -11,7 +11,7 @@ import (
 
 func TestResolveFromJKYml(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".jk.yml"), []byte("job: team/my-service\nhost: https://ci.example.com\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".jkit.yml"), []byte("job: team/my-service\nhost: https://ci.example.com\n"), 0644))
 
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(dir))
@@ -56,7 +56,7 @@ func TestResolveChainError(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	// No .jk.yml, no git, dirname will work as fallback
+	// No .jkit.yml, no git, dirname will work as fallback
 	ctx, err := Resolve()
 	// Should succeed via dirname fallback
 	require.NoError(t, err)

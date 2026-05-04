@@ -1,4 +1,4 @@
-module github.com/ysmaoui/jk
+module github.com/ysmaoui/jkit
 
 go 1.25.0
 

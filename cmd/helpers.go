@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/api"
-	"github.com/ysmaoui/jk/internal/config"
-	appctx "github.com/ysmaoui/jk/internal/context"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/config"
+	appctx "github.com/ysmaoui/jkit/internal/context"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 // newFetchLog creates a FetchLogFunc from an API client.
@@ -71,9 +71,9 @@ func resolveJobArgs(cmd *cobra.Command, args []string, needBuild bool) (*api.Cli
 		jobPath = resolved.JobPath
 		switch resolved.Source {
 		case "git-remote":
-			_, _ = fmt.Fprintf(os.Stderr, "warning: guessed job from git remote: %s — use .jk.yml or pass job arg if incorrect\n", jobPath)
+			_, _ = fmt.Fprintf(os.Stderr, "warning: guessed job from git remote: %s — use .jkit.yml or pass job arg if incorrect\n", jobPath)
 		case "dirname":
-			_, _ = fmt.Fprintf(os.Stderr, "warning: guessed job from directory name: %s — use .jk.yml or pass job arg if incorrect\n", jobPath)
+			_, _ = fmt.Fprintf(os.Stderr, "warning: guessed job from directory name: %s — use .jkit.yml or pass job arg if incorrect\n", jobPath)
 		}
 	}
 	return client, jobPath, buildNum, nil

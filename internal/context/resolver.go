@@ -14,7 +14,7 @@ import (
 type ResolvedContext struct {
 	JobPath string
 	Host    string
-	Source  string // "jk.yml", "git-remote", "dirname"
+	Source  string // "jkit.yml", "git-remote", "dirname"
 }
 
 type jkConfig struct {
@@ -23,7 +23,7 @@ type jkConfig struct {
 }
 
 func Resolve() (*ResolvedContext, error) {
-	// 1. Check .jk.yml
+	// 1. Check .jkit.yml
 	if ctx, err := resolveFromJKYml(); err == nil && ctx != nil {
 		return ctx, nil
 	}
@@ -38,7 +38,7 @@ func Resolve() (*ResolvedContext, error) {
 		return ctx, nil
 	}
 
-	return nil, fmt.Errorf("could not detect Jenkins job — specify job arg or create .jk.yml")
+	return nil, fmt.Errorf("could not detect Jenkins job — specify job arg or create .jkit.yml")
 }
 
 func resolveFromJKYml() (*ResolvedContext, error) {
@@ -48,7 +48,7 @@ func resolveFromJKYml() (*ResolvedContext, error) {
 	}
 
 	for {
-		path := filepath.Join(dir, ".jk.yml")
+		path := filepath.Join(dir, ".jkit.yml")
 		data, err := os.ReadFile(path)
 		if err == nil {
 			var cfg jkConfig
@@ -56,7 +56,7 @@ func resolveFromJKYml() (*ResolvedContext, error) {
 				return nil, err
 			}
 			if cfg.Job != "" {
-				return &ResolvedContext{JobPath: cfg.Job, Host: cfg.Host, Source: "jk.yml"}, nil
+				return &ResolvedContext{JobPath: cfg.Job, Host: cfg.Host, Source: "jkit.yml"}, nil
 			}
 		}
 		parent := filepath.Dir(dir)
@@ -65,7 +65,7 @@ func resolveFromJKYml() (*ResolvedContext, error) {
 		}
 		dir = parent
 	}
-	return nil, fmt.Errorf(".jk.yml not found")
+	return nil, fmt.Errorf(".jkit.yml not found")
 }
 
 // ParseGitRemote extracts org/repo from a git remote URL string.

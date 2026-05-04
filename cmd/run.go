@@ -10,16 +10,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var runCmd = &cobra.Command{
 	Use:   "run [job]",
 	Short: "Trigger a build",
-	Example: `  jk run my-app
-  jk run my-app -p BRANCH=main -p ENV=staging
-  jk run my-app --wait --log`,
+	Example: `  jkit run my-app
+  jkit run my-app -p BRANCH=main -p ENV=staging
+  jkit run my-app --wait --log`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRun,
 }

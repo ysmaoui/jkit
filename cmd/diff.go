@@ -7,18 +7,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/api"
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var diffCmd = &cobra.Command{
 	Use:   "diff [job] [build1] [build2]",
 	Short: "Compare two builds of the same job",
 	Long:  "Shows differences in parameters, stage outcomes, test results, and commits between two builds. If only one build is given, compares with the previous build. With no build numbers, compares the latest two.",
-	Example: `  jk diff my-app 41 42
-  jk diff my-app 42
-  jk diff my-app`,
+	Example: `  jkit diff my-app 41 42
+  jkit diff my-app 42
+  jkit diff my-app`,
 	Args: cobra.MaximumNArgs(3),
 	RunE: runDiff,
 }
@@ -72,7 +72,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	var b1, b2 int
 	switch {
 	case buildNum > 0 && len(args) >= 3:
-		// jk diff job 41 42 — buildNum is from args[1], args[2] is the second
+		// jkit diff job 41 42 — buildNum is from args[1], args[2] is the second
 		b1 = buildNum
 		n, err := parseIntArg(args[2])
 		if err != nil {
@@ -80,11 +80,11 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		}
 		b2 = n
 	case buildNum > 0:
-		// jk diff job 42 — compare with previous
+		// jkit diff job 42 — compare with previous
 		b2 = buildNum
 		b1 = buildNum - 1
 	default:
-		// jk diff job — latest two
+		// jkit diff job — latest two
 		builds, err := client.GetBuilds(jobPath, 2)
 		if err != nil {
 			return err

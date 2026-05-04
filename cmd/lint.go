@@ -9,15 +9,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 var lintCmd = &cobra.Command{
 	Use:   "lint [file]",
 	Short: "Validate a declarative Jenkinsfile (scripted pipelines not supported)",
 	Long:  "Validates a declarative Jenkinsfile against the Jenkins server's Pipeline Model Definition plugin. Only declarative syntax (pipeline { }) is supported — scripted pipelines (node { }) cannot be validated server-side.",
-	Example: `  jk lint
-  jk lint path/to/Jenkinsfile`,
+	Example: `  jkit lint
+  jkit lint path/to/Jenkinsfile`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runLint,
 }

@@ -7,9 +7,9 @@ JENKINS_TOKEN=admin
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
-JK="$PROJECT_DIR/jk"
+JK="$PROJECT_DIR/jkit"
 
-export JK_CONFIG_DIR=$(mktemp -d)
+export JKIT_CONFIG_DIR=$(mktemp -d)
 export NO_COLOR=1
 
 PASS=0
@@ -17,7 +17,7 @@ FAIL=0
 ERRORS=""
 
 cleanup() {
-    rm -rf "$JK_CONFIG_DIR"
+    rm -rf "$JKIT_CONFIG_DIR"
     echo ""
     echo "================================"
     echo "Results: $PASS passed, $FAIL failed"
@@ -97,8 +97,8 @@ echo "Waiting for init scripts..."
 sleep 10
 
 # Build binary
-echo "Building jk..."
-(cd "$PROJECT_DIR" && go build -o jk .)
+echo "Building jkit..."
+(cd "$PROJECT_DIR" && go build -o jkit .)
 
 echo ""
 echo "Running integration tests..."

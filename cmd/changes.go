@@ -6,15 +6,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var changesCmd = &cobra.Command{
 	Use:   "changes [job] [build#]",
 	Short: "Show SCM changes in a build",
-	Example: `  jk changes my-app
-  jk changes my-app 42`,
+	Example: `  jkit changes my-app
+  jkit changes my-app 42`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runChanges,
 }

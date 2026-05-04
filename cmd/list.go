@@ -6,16 +6,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List Jenkins jobs",
-	Example: `  jk list
-  jk list --folder team/frontend
-  jk list --json`,
+	Example: `  jkit list
+  jkit list --folder team/frontend
+  jkit list --json`,
 	RunE: runList,
 }
 

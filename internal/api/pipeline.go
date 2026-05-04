@@ -9,13 +9,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 // GetPipelineStages returns the flat stage list for a build. It prefers the
 // Pipeline Graph View plugin (`/stages/tree`, v803+) and falls back to Blue
 // Ocean (`/blue/rest/.../nodes/`) on 404 or when the client is pinned to
-// Blue Ocean via JK_PIPELINE_SOURCE / WithPipelineSource.
+// Blue Ocean via JKIT_PIPELINE_SOURCE / WithPipelineSource.
 func (c *Client) GetPipelineStages(jobPath string, number int) ([]jenkins.Stage, error) {
 	if c.pipelineSource != PipelineSourceBlueOcean {
 		stages, err := c.getPipelineStagesPGV(jobPath, number)

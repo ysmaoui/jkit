@@ -6,7 +6,7 @@
 
 - [ ] `go test ./...` passes
 - [ ] `make integration-test` passes (if behavior change)
-- [ ] Manual smoke: `jk ...`
+- [ ] Manual smoke: `jkit ...`
 
 ## Notes
 

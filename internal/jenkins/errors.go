@@ -7,7 +7,7 @@ type AuthError struct {
 }
 
 func (e *AuthError) Error() string {
-	return fmt.Sprintf("not authenticated to %s — run 'jk auth login'", e.Host)
+	return fmt.Sprintf("not authenticated to %s — run 'jkit auth login'", e.Host)
 }
 
 type NotFoundError struct {
@@ -17,7 +17,7 @@ type NotFoundError struct {
 }
 
 func (e *NotFoundError) Error() string {
-	return fmt.Sprintf("%s %q not found on %s — run 'jk list'", e.Resource, e.Name, e.Host)
+	return fmt.Sprintf("%s %q not found on %s — run 'jkit list'", e.Resource, e.Name, e.Host)
 }
 
 type PermissionError struct {

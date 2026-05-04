@@ -8,17 +8,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/api"
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var artifactsCmd = &cobra.Command{
 	Use:   "artifacts [job] [build#]",
 	Short: "List or download build artifacts",
-	Example: `  jk artifacts my-app 42
-  jk artifacts my-app 42 -d report.xml
-  jk artifacts my-app 42 -d report.xml -o /tmp/report.xml`,
+	Example: `  jkit artifacts my-app 42
+  jkit artifacts my-app 42 -d report.xml
+  jkit artifacts my-app 42 -d report.xml -o /tmp/report.xml`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runArtifacts,
 }

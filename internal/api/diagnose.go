@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 // DiagnoseResult is the structured output of build failure analysis.

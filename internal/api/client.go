@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 // PipelineSource selects which backend to use for pipeline stage/log queries.
@@ -122,7 +122,7 @@ func NewClient(host, user, token string, opts ...ClientOption) *Client {
 		token: token,
 	}
 	c.crumbs = newCrumbIssuer(c)
-	c.pipelineSource = parsePipelineSource(os.Getenv("JK_PIPELINE_SOURCE"))
+	c.pipelineSource = parsePipelineSource(os.Getenv("JKIT_PIPELINE_SOURCE"))
 	for _, opt := range opts {
 		opt(c)
 	}

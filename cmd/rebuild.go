@@ -9,16 +9,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var rebuildCmd = &cobra.Command{
 	Use:   "rebuild [job] [build#]",
 	Short: "Retrigger a build with the same parameters",
-	Example: `  jk rebuild my-app 42
-  jk rebuild my-app 42 --wait
-  jk rebuild my-app 42 --log`,
+	Example: `  jkit rebuild my-app 42
+  jkit rebuild my-app 42 --wait
+  jkit rebuild my-app 42 --log`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runRebuild,
 }

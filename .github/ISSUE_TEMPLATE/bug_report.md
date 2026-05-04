@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug in jk
+about: Report a bug in jkit
 labels: bug
 ---
 
@@ -8,12 +8,12 @@ labels: bug
 A clear description of what is broken.
 
 **To reproduce**
-1. Command run: `jk ...`
+1. Command run: `jkit ...`
 2. Expected: ...
 3. Got: ...
 
 **Environment**
-- `jk --version`:
+- `jkit --version`:
 - OS / arch:
 - Jenkins version:
 

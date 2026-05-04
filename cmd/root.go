@@ -7,14 +7,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/cmd/auth"
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/cmd/auth"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 var version = "dev"
 
 var rootCmd = &cobra.Command{
-	Use:           "jk",
+	Use:           "jkit",
 	Short:         "A developer-first Jenkins CLI",
 	Version:       version,
 	SilenceErrors: true,
@@ -27,14 +27,14 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.SetVersionTemplate("jk version {{.Version}}\n")
+	rootCmd.SetVersionTemplate("jkit version {{.Version}}\n")
 	rootCmd.PersistentFlags().String("host", "", "Jenkins host URL")
 	rootCmd.PersistentFlags().Bool("json", false, "Output as JSON")
 	rootCmd.PersistentFlags().String("format", "", "Output format (Go template, use {{range .}}...{{end}} for lists)")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable color output")
 	rootCmd.PersistentFlags().Bool("verbose", false, "Show HTTP request/response details")
 	rootCmd.PersistentFlags().String("timeout", "30s", "HTTP client timeout")
-	rootCmd.PersistentFlags().String("pipeline-source", "", "Pipeline backend: auto|pgv|blueocean (env JK_PIPELINE_SOURCE)")
+	rootCmd.PersistentFlags().String("pipeline-source", "", "Pipeline backend: auto|pgv|blueocean (env JKIT_PIPELINE_SOURCE)")
 	rootCmd.AddCommand(auth.AuthCmd)
 }
 

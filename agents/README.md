@@ -1,6 +1,6 @@
 # AI agent integration
 
-Drop-in artifacts that let an AI coding agent drive `jk` competently — a
+Drop-in artifacts that let an AI coding agent drive `jkit` competently — a
 skill, a slash command, and a sub-agent. Authored for
 [Claude Code](https://docs.claude.com/en/docs/claude-code/overview); the
 prompts and workflows transfer cleanly to other agent runtimes that accept
@@ -10,30 +10,30 @@ free-form system prompts.
 
 | Path | Type | Purpose |
 |---|---|---|
-| [`skills/jenkins/SKILL.md`](skills/jenkins/SKILL.md) | Skill | Reference for the full `jk` command surface — auto-loaded when the agent reasons about Jenkins. |
-| [`commands/jenkins-monitor.md`](commands/jenkins-monitor.md) | Slash command | `/jenkins-monitor URL` — wait for a build, then summarize the result (with `jk diagnose` on failure). |
+| [`skills/jenkins/SKILL.md`](skills/jenkins/SKILL.md) | Skill | Reference for the full `jkit` command surface — auto-loaded when the agent reasons about Jenkins. |
+| [`commands/jenkins-monitor.md`](commands/jenkins-monitor.md) | Slash command | `/jenkins-monitor URL` — wait for a build, then summarize the result (with `jkit diagnose` on failure). |
 | [`subagents/jenkins-build-analyzer.md`](subagents/jenkins-build-analyzer.md) | Sub-agent | Specialized failure-triage agent. Delegated to from the main thread when the user asks "why did the build fail?". |
 
-All three assume `jk` is on `$PATH` and `jk auth login` has been run.
+All three assume `jkit` is on `$PATH` and `jkit auth login` has been run.
 
 ## Install (Claude Code)
 
 User-wide (recommended):
 
 ```bash
-git clone https://github.com/ysmaoui/jk
-cp -r jk/agents/skills/jenkins                ~/.claude/skills/
-cp    jk/agents/commands/jenkins-monitor.md   ~/.claude/commands/
-cp    jk/agents/subagents/jenkins-build-analyzer.md ~/.claude/agents/
+git clone https://github.com/ysmaoui/jkit
+cp -r jkit/agents/skills/jenkins                ~/.claude/skills/
+cp    jkit/agents/commands/jenkins-monitor.md   ~/.claude/commands/
+cp    jkit/agents/subagents/jenkins-build-analyzer.md ~/.claude/agents/
 ```
 
 Per-project (commit alongside your repo):
 
 ```bash
 mkdir -p .claude/{skills,commands,agents}
-cp -r jk/agents/skills/jenkins                .claude/skills/
-cp    jk/agents/commands/jenkins-monitor.md   .claude/commands/
-cp    jk/agents/subagents/jenkins-build-analyzer.md .claude/agents/
+cp -r jkit/agents/skills/jenkins                .claude/skills/
+cp    jkit/agents/commands/jenkins-monitor.md   .claude/commands/
+cp    jkit/agents/subagents/jenkins-build-analyzer.md .claude/agents/
 ```
 
 Restart Claude Code (or `/reload`) to pick them up.
@@ -57,13 +57,13 @@ sub-task system prompt with a `Bash`-equivalent tool.
   (main thread delegates to jenkins-build-analyzer)
 
 > Trigger my-service with FOO=bar and tail the log
-  (skill kicks in, agent runs `jk run my-service -p FOO=bar --wait --log`)
+  (skill kicks in, agent runs `jkit run my-service -p FOO=bar --wait --log`)
 ```
 
 ## Customizing
 
-- **Restrict hosts** — change `allowed-tools: Bash(command:jk*)` in `SKILL.md`
-  to e.g. `Bash(command:jk status*, command:jk log*)` for a read-only profile.
+- **Restrict hosts** — change `allowed-tools: Bash(command:jkit*)` in `SKILL.md`
+  to e.g. `Bash(command:jkit status*, command:jkit log*)` for a read-only profile.
 - **Swap the model** — `jenkins-build-analyzer` uses `haiku` for cost; bump to
   a larger model for trickier failure analysis.
 - **Add your own** — see the [Claude Code skill docs](https://docs.claude.com/en/docs/claude-code/skills)
@@ -71,5 +71,5 @@ sub-task system prompt with a `Bash`-equivalent tool.
 
 ## Contributing
 
-PRs welcome. Keep skills CLI-flag-accurate against the current `jk` release —
+PRs welcome. Keep skills CLI-flag-accurate against the current `jkit` release —
 if a flag changes, update `SKILL.md` in the same PR.

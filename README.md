@@ -1,6 +1,6 @@
-# jk — a Jenkins CLI for developers
+# jkit — a Jenkins CLI for developers
 
-`jk` is `gh` for Jenkins. Trigger builds, tail logs, inspect stages, lint
+`jkit` is `gh` for Jenkins. Trigger builds, tail logs, inspect stages, lint
 `Jenkinsfile`s, and approve inputs from your terminal — fast, scriptable,
 zero-config.
 
@@ -8,12 +8,12 @@ This is **not** a Jenkins admin tool. It's a developer productivity tool
 that thinks in workflows, not endpoints.
 
 ```bash
-jk run my-app --wait --log     # trigger, wait, stream log
-jk status my-app               # recent builds
-jk log my-app -f               # tail live build log
-jk diagnose my-app             # summarize the failure
-jk lint                        # validate ./Jenkinsfile
-jk open my-app                 # open in browser
+jkit run my-app --wait --log     # trigger, wait, stream log
+jkit status my-app               # recent builds
+jkit log my-app -f               # tail live build log
+jkit diagnose my-app             # summarize the failure
+jkit lint                        # validate ./Jenkinsfile
+jkit open my-app                 # open in browser
 ```
 
 ## Install
@@ -21,47 +21,47 @@ jk open my-app                 # open in browser
 From source (Go 1.24+):
 
 ```bash
-go install github.com/ysmaoui/jk@latest
+go install github.com/ysmaoui/jkit@latest
 ```
 
 Or build a checkout:
 
 ```bash
-git clone https://github.com/ysmaoui/jk && cd jk
-go build -o jk .
-sudo mv jk /usr/local/bin/
+git clone https://github.com/ysmaoui/jkit && cd jkit
+go build -o jkit .
+sudo mv jkit /usr/local/bin/
 ```
 
 Pre-built binaries for Linux / macOS / Windows (amd64 + arm64) are published
-on the [Releases](https://github.com/ysmaoui/jk/releases) page once a tag is cut.
+on the [Releases](https://github.com/ysmaoui/jkit/releases) page once a tag is cut.
 
 ## Authenticate
 
 ```bash
-jk auth login                                              # interactive
-jk auth login --host https://jenkins.example.com \
+jkit auth login                                              # interactive
+jkit auth login --host https://jenkins.example.com \
               --user me --token "$JENKINS_TOKEN"           # non-interactive
-jk auth status
+jkit auth status
 ```
 
-Credentials are stored in `~/.config/jk/config.yml`. Multiple hosts are
+Credentials are stored in `~/.config/jkit/config.yml`. Multiple hosts are
 supported via `--alias`.
 
 ## Zero-config job detection
 
 Commands like `run`, `status`, `log`, and `open` resolve the job from:
 
-1. `.jk.yml` in the current or parent directory
+1. `.jkit.yml` in the current or parent directory
 2. Git remote `origin` (`org/repo`)
 3. Current directory basename
 
 ```yaml
-# .jk.yml
+# .jkit.yml
 job: team/backend/my-service
 host: https://jenkins.example.com  # optional
 ```
 
-Then `jk run`, `jk status`, `jk log -f` Just Work.
+Then `jkit run`, `jkit status`, `jkit log -f` Just Work.
 
 ## Documentation
 
@@ -75,7 +75,7 @@ Then `jk run`, `jk status`, `jk log -f` Just Work.
 ## Use with AI agents
 
 Drop-in skill, slash command, and sub-agent that let an AI coding agent drive
-`jk` end-to-end (status, log streaming, failure triage). Authored for
+`jkit` end-to-end (status, log streaming, failure triage). Authored for
 [Claude Code](https://docs.claude.com/en/docs/claude-code/overview); the
 prompts transfer to other agent runtimes. See [`agents/`](agents/README.md).
 

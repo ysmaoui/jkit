@@ -15,12 +15,12 @@ All commands support these flags:
 
 ---
 
-## `jk auth login`
+## `jkit auth login`
 
 Authenticate with a Jenkins host.
 
 ```
-jk auth login [--host HOST] [--user USER] [--token TOKEN] [--alias ALIAS]
+jkit auth login [--host HOST] [--user USER] [--token TOKEN] [--alias ALIAS]
 ```
 
 | Flag | Description |
@@ -32,22 +32,22 @@ jk auth login [--host HOST] [--user USER] [--token TOKEN] [--alias ALIAS]
 
 - Validates credentials before saving
 - First host configured becomes the default
-- Config stored at `~/.config/jk/config.yml` (see [configuration](configuration.md))
+- Config stored at `~/.config/jkit/config.yml` (see [configuration](configuration.md))
 
 ```bash
-jk auth login                                        # interactive
-jk auth login --host https://ci.co --user me --token abc  # non-interactive
-jk auth login --host https://ci.co --user me --token abc --alias prod
+jkit auth login                                        # interactive
+jkit auth login --host https://ci.co --user me --token abc  # non-interactive
+jkit auth login --host https://ci.co --user me --token abc --alias prod
 ```
 
 ---
 
-## `jk auth status`
+## `jkit auth status`
 
 Show authentication status.
 
 ```
-jk auth status [--host HOST]
+jkit auth status [--host HOST]
 ```
 
 Exits 0 if valid, 1 if invalid.
@@ -60,12 +60,12 @@ Auth:  valid
 
 ---
 
-## `jk list`
+## `jkit list`
 
 List Jenkins jobs.
 
 ```
-jk list [--folder FOLDER] [-r|--recursive]
+jkit list [--folder FOLDER] [-r|--recursive]
 ```
 
 | Flag | Description |
@@ -76,21 +76,21 @@ jk list [--folder FOLDER] [-r|--recursive]
 Table columns: NAME, STATUS, LAST BUILD. Folders shown with trailing `/`.
 
 ```bash
-jk list                          # all top-level jobs
-jk list --folder team/frontend   # jobs in folder
-jk list -r                       # all jobs recursively
-jk list --json                   # JSON output
-jk list --format '{{range .}}{{.Name}}{{"\n"}}{{end}}'
+jkit list                          # all top-level jobs
+jkit list --folder team/frontend   # jobs in folder
+jkit list -r                       # all jobs recursively
+jkit list --json                   # JSON output
+jkit list --format '{{range .}}{{.Name}}{{"\n"}}{{end}}'
 ```
 
 ---
 
-## `jk status`
+## `jkit status`
 
 Show build status.
 
 ```
-jk status [job] [build#] [--limit N]
+jkit status [job] [build#] [--limit N]
 ```
 
 | Flag | Description | Default |
@@ -123,20 +123,20 @@ Stages:
 Stages displayed for pipeline jobs via Blue Ocean REST API.
 
 ```bash
-jk status my-app            # last 10 builds
-jk status my-app --limit 3  # last 3 builds
-jk status my-app 47         # build detail
-jk status my-app 47 --json  # JSON detail
+jkit status my-app            # last 10 builds
+jkit status my-app --limit 3  # last 3 builds
+jkit status my-app 47         # build detail
+jkit status my-app 47 --json  # JSON detail
 ```
 
 ---
 
-## `jk run`
+## `jkit run`
 
 Trigger a build.
 
 ```
-jk run [job] [-p KEY=VALUE]... [--wait] [--log]
+jkit run [job] [-p KEY=VALUE]... [--wait] [--log]
 ```
 
 | Flag | Description |
@@ -158,21 +158,21 @@ jk run [job] [-p KEY=VALUE]... [--wait] [--log]
 Progress messages go to stderr, log output to stdout. Ctrl+C interrupts gracefully. Queue timeout: 5 minutes. Build timeout: 2 hours.
 
 ```bash
-jk run my-app                              # fire and forget
-jk run my-app -p BRANCH=main -p ENV=prod   # with parameters
-jk run my-app --wait                       # wait for result
-jk run my-app --wait --log                 # wait + stream log
-jk run --log                               # auto-detect job
+jkit run my-app                              # fire and forget
+jkit run my-app -p BRANCH=main -p ENV=prod   # with parameters
+jkit run my-app --wait                       # wait for result
+jkit run my-app --wait --log                 # wait + stream log
+jkit run --log                               # auto-detect job
 ```
 
 ---
 
-## `jk log`
+## `jkit log`
 
 View build console output.
 
 ```
-jk log [job] [build#] [-f|--follow] [--stage STAGE] [--grep PATTERN] [--tail N] [--head N]
+jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--grep PATTERN] [--tail N] [--head N]
 ```
 
 | Flag | Description |
@@ -190,24 +190,24 @@ jk log [job] [build#] [-f|--follow] [--stage STAGE] [--grep PATTERN] [--tail N] 
 - `--tail` and `--head` are incompatible with `--follow`
 
 ```bash
-jk log my-app                    # latest build, full log
-jk log my-app 42                 # specific build
-jk log my-app -f                 # follow live
-jk log my-app --stage Build      # specific stage log
-jk log my-app --grep ERROR       # filter lines
-jk log my-app --grep error -i    # case-insensitive filter
-jk log my-app --tail 50          # last 50 lines
-jk log my-app --head 20          # first 20 lines
+jkit log my-app                    # latest build, full log
+jkit log my-app 42                 # specific build
+jkit log my-app -f                 # follow live
+jkit log my-app --stage Build      # specific stage log
+jkit log my-app --grep ERROR       # filter lines
+jkit log my-app --grep error -i    # case-insensitive filter
+jkit log my-app --tail 50          # last 50 lines
+jkit log my-app --head 20          # first 20 lines
 ```
 
 ---
 
-## `jk open`
+## `jkit open`
 
 Open Jenkins page in browser.
 
 ```
-jk open [job] [build#]
+jkit open [job] [build#]
 ```
 
 - No build# opens the job page
@@ -216,19 +216,19 @@ jk open [job] [build#]
 - Works on Linux (`xdg-open`), macOS (`open`), Windows (`rundll32`)
 
 ```bash
-jk open                  # current job (from .jk.yml or context)
-jk open my-app           # job page
-jk open my-app 47        # build page
+jkit open                  # current job (from .jkit.yml or context)
+jkit open my-app           # job page
+jkit open my-app 47        # build page
 ```
 
 ---
 
-## `jk abort`
+## `jkit abort`
 
 Abort a running build.
 
 ```
-jk abort [job] [build#] [-w|--wait]
+jkit abort [job] [build#] [-w|--wait]
 ```
 
 | Flag | Description |
@@ -238,19 +238,19 @@ jk abort [job] [build#] [-w|--wait]
 Defaults to the latest build. Checks if the build is running before sending the stop signal.
 
 ```bash
-jk abort my-app              # abort latest build
-jk abort my-app 42           # abort specific build
-jk abort my-app 42 --wait    # abort and wait for it to stop
+jkit abort my-app              # abort latest build
+jkit abort my-app 42           # abort specific build
+jkit abort my-app 42 --wait    # abort and wait for it to stop
 ```
 
 ---
 
-## `jk rebuild`
+## `jkit rebuild`
 
 Retrigger a build with the same parameters.
 
 ```
-jk rebuild [job] [build#] [--wait] [--log]
+jkit rebuild [job] [build#] [--wait] [--log]
 ```
 
 | Flag | Description |
@@ -258,22 +258,22 @@ jk rebuild [job] [build#] [--wait] [--log]
 | `--wait` | Wait for build to complete |
 | `--log` | Stream build log (implies `--wait`) |
 
-Defaults to the latest build. Retrieves the source build's parameters and triggers a new build with the same values. Exit codes match `jk run --wait`.
+Defaults to the latest build. Retrieves the source build's parameters and triggers a new build with the same values. Exit codes match `jkit run --wait`.
 
 ```bash
-jk rebuild my-app 42            # retrigger build 42
-jk rebuild my-app 42 --wait     # retrigger and wait
-jk rebuild my-app 42 --log      # retrigger and stream log
+jkit rebuild my-app 42            # retrigger build 42
+jkit rebuild my-app 42 --wait     # retrigger and wait
+jkit rebuild my-app 42 --log      # retrigger and stream log
 ```
 
 ---
 
-## `jk test`
+## `jkit test`
 
 Show test results.
 
 ```
-jk test [job] [build#] [--failed] [--new-failures]
+jkit test [job] [build#] [--failed] [--new-failures]
 ```
 
 | Flag | Description |
@@ -284,20 +284,20 @@ jk test [job] [build#] [--failed] [--new-failures]
 Defaults to the latest build. Displays test cases with class, name, status, and duration. Failed tests include error details. Summary shows pass/fail/skip counts.
 
 ```bash
-jk test my-app                   # all test results
-jk test my-app 42                # specific build
-jk test my-app 42 --failed       # only failures
-jk test my-app --new-failures    # regressions from previous build
+jkit test my-app                   # all test results
+jkit test my-app 42                # specific build
+jkit test my-app 42 --failed       # only failures
+jkit test my-app --new-failures    # regressions from previous build
 ```
 
 ---
 
-## `jk artifacts`
+## `jkit artifacts`
 
 List or download build artifacts.
 
 ```
-jk artifacts [job] [build#] [-d FILENAME] [-o PATH]
+jkit artifacts [job] [build#] [-d FILENAME] [-o PATH]
 ```
 
 | Flag | Description |
@@ -308,55 +308,55 @@ jk artifacts [job] [build#] [-d FILENAME] [-o PATH]
 Defaults to the latest build. Without `-d`, lists artifacts as a table.
 
 ```bash
-jk artifacts my-app 42                          # list artifacts
-jk artifacts my-app 42 -d report.xml            # download to ./report.xml
-jk artifacts my-app 42 -d report.xml -o /tmp/   # download to /tmp/report.xml
+jkit artifacts my-app 42                          # list artifacts
+jkit artifacts my-app 42 -d report.xml            # download to ./report.xml
+jkit artifacts my-app 42 -d report.xml -o /tmp/   # download to /tmp/report.xml
 ```
 
 ---
 
-## `jk changes`
+## `jkit changes`
 
 Show SCM changes in a build.
 
 ```
-jk changes [job] [build#]
+jkit changes [job] [build#]
 ```
 
 Defaults to the latest build. Displays commit hash (7 chars), author, and message.
 
 ```bash
-jk changes my-app               # latest build changes
-jk changes my-app 42            # specific build
-jk changes my-app --json        # JSON output
+jkit changes my-app               # latest build changes
+jkit changes my-app 42            # specific build
+jkit changes my-app --json        # JSON output
 ```
 
 ---
 
-## `jk diagnose`
+## `jkit diagnose`
 
 Analyze a failed build and show failure summary.
 
 ```
-jk diagnose [job] [build#]
+jkit diagnose [job] [build#]
 ```
 
 Fetches build metadata, identifies failed stages, extracts error lines, and shows commits and parameters. Defaults to the latest build. Accepts full Jenkins URLs.
 
 ```bash
-jk diagnose my-app 42
-jk diagnose https://jenkins.example.com/job/team/job/svc/42/
-jk diagnose my-app --json
+jkit diagnose my-app 42
+jkit diagnose https://jenkins.example.com/job/team/job/svc/42/
+jkit diagnose my-app --json
 ```
 
 ---
 
-## `jk diff`
+## `jkit diff`
 
 Compare two builds of the same job.
 
 ```
-jk diff [job] [build1] [build2]
+jkit diff [job] [build1] [build2]
 ```
 
 Shows differences in parameters, stage outcomes, test results, and commits between two builds.
@@ -366,19 +366,19 @@ Shows differences in parameters, stage outcomes, test results, and commits betwe
 - No build numbers: compares the latest two builds
 
 ```bash
-jk diff my-app 41 42        # compare builds 41 and 42
-jk diff my-app 42           # compare build 42 with build 41
-jk diff my-app              # compare latest two builds
+jkit diff my-app 41 42        # compare builds 41 and 42
+jkit diff my-app 42           # compare build 42 with build 41
+jkit diff my-app              # compare latest two builds
 ```
 
 ---
 
-## `jk queue`
+## `jkit queue`
 
 Show pending builds in the queue.
 
 ```
-jk queue [--job FILTER]
+jkit queue [--job FILTER]
 ```
 
 | Flag | Description |
@@ -388,71 +388,71 @@ jk queue [--job FILTER]
 Displays queue ID, job name, and reason for each pending build.
 
 ```bash
-jk queue                    # all queued builds
-jk queue --job my-app       # filter by job name
-jk queue --json             # JSON output
+jkit queue                    # all queued builds
+jkit queue --job my-app       # filter by job name
+jkit queue --json             # JSON output
 ```
 
-### `jk queue cancel`
+### `jkit queue cancel`
 
 Cancel a queued build.
 
 ```
-jk queue cancel <queue-id>
+jkit queue cancel <queue-id>
 ```
 
 ```bash
-jk queue cancel 12345
+jkit queue cancel 12345
 ```
 
 ---
 
-## `jk config`
+## `jkit config`
 
 Manage CLI configuration.
 
-### `jk config list`
+### `jkit config list`
 
 Show all configured hosts with user, alias, and default status.
 
 ```bash
-jk config list
+jkit config list
 ```
 
-### `jk config set-default`
+### `jkit config set-default`
 
 Set the default Jenkins host.
 
 ```bash
-jk config set-default https://jenkins.prod.com
-jk config set-default prod    # by alias
+jkit config set-default https://jenkins.prod.com
+jkit config set-default prod    # by alias
 ```
 
-### `jk config remove`
+### `jkit config remove`
 
 Remove a configured host.
 
 ```bash
-jk config remove https://jenkins.staging.com
-jk config remove staging    # by alias
+jkit config remove https://jenkins.staging.com
+jkit config remove staging    # by alias
 ```
 
-### `jk config set-alias`
+### `jkit config set-alias`
 
 Set or change an alias for a host.
 
 ```bash
-jk config set-alias https://jenkins.prod.com prod
+jkit config set-alias https://jenkins.prod.com prod
 ```
 
 ---
 
-## `jk lint`
+## `jkit lint`
 
 Validate a declarative Jenkinsfile against Jenkins. Scripted pipelines (`node { }`) are not supported.
 
 ```
-jk lint [file]
+jkit lint [file]
 ```
 
 - Defaults to `./Jenkinsfile` if no file given
@@ -460,23 +460,23 @@ jk lint [file]
 - Exit 0 if valid, exit 1 with error details if invalid
 
 ```bash
-jk lint                         # validate ./Jenkinsfile
-jk lint path/to/Jenkinsfile     # validate specific file
+jkit lint                         # validate ./Jenkinsfile
+jkit lint path/to/Jenkinsfile     # validate specific file
 ```
 
 ---
 
-## `jk completion`
+## `jkit completion`
 
 Generate shell completion script.
 
 ```
-jk completion [bash|zsh|fish|powershell]
+jkit completion [bash|zsh|fish|powershell]
 ```
 
 ```bash
-jk completion bash >> ~/.bashrc
-jk completion zsh >> ~/.zshrc
-jk completion fish > ~/.config/fish/completions/jk.fish
-jk completion powershell >> $PROFILE
+jkit completion bash >> ~/.bashrc
+jkit completion zsh >> ~/.zshrc
+jkit completion fish > ~/.config/fish/completions/jkit.fish
+jkit completion powershell >> $PROFILE
 ```

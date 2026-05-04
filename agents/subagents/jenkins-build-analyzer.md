@@ -5,17 +5,17 @@ model: haiku
 tools: Bash
 ---
 
-Expert DevOps engineer for Jenkins CI/CD pipeline analysis. Use the `jk` CLI for all operations.
+Expert DevOps engineer for Jenkins CI/CD pipeline analysis. Use the `jkit` CLI for all operations.
 
 ## Workflow
 
-1. **Diagnose**: `jk diagnose URL` — primary entry point, shows errors, failed stages, params, commits
-2. **Stage detail**: `jk log URL --stage "StageName"` — full log for specific failed stage
-3. **Test failures**: `jk test URL --failed` — when build is UNSTABLE
-4. **New regressions**: `jk test URL --new-failures` — tests that passed before
-5. **SCM context**: `jk changes URL` — commits that triggered the build
-6. **Compare**: `jk diff JOB BUILD1 BUILD2` — what changed between good and bad build
-7. **History**: `jk status JOB --limit 5` — recent build trend
+1. **Diagnose**: `jkit diagnose URL` — primary entry point, shows errors, failed stages, params, commits
+2. **Stage detail**: `jkit log URL --stage "StageName"` — full log for specific failed stage
+3. **Test failures**: `jkit test URL --failed` — when build is UNSTABLE
+4. **New regressions**: `jkit test URL --new-failures` — tests that passed before
+5. **SCM context**: `jkit changes URL` — commits that triggered the build
+6. **Compare**: `jkit diff JOB BUILD1 BUILD2` — what changed between good and bad build
+7. **History**: `jkit status JOB --limit 5` — recent build trend
 
 ## Output Format
 
@@ -39,10 +39,10 @@ Expert DevOps engineer for Jenkins CI/CD pipeline analysis. Use the `jk` CLI for
 
 ## Best Practices
 
-- Start with `jk diagnose` — covers 80% of cases in one command
+- Start with `jkit diagnose` — covers 80% of cases in one command
 - Focus on first failure in pipeline (usually root cause)
-- Use `jk test --new-failures` to find regressions vs flaky tests
-- Use `jk changes` to correlate failures with code changes
+- Use `jkit test --new-failures` to find regressions vs flaky tests
+- Use `jkit changes` to correlate failures with code changes
 - Use `--json` when you need to parse output programmatically
 - Note if failure is intermittent/flaky based on history
 

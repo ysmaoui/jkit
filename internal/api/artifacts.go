@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/url"
 
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 func (c *Client) GetArtifacts(jobPath string, number int) ([]jenkins.Artifact, error) {

@@ -9,17 +9,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/api"
-	"github.com/ysmaoui/jk/internal/jenkins"
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var statusCmd = &cobra.Command{
 	Use:   "status [job] [build#]",
 	Short: "Show build status",
-	Example: `  jk status my-app
-  jk status my-app 42
-  jk status --limit 5`,
+	Example: `  jkit status my-app
+  jkit status my-app 42
+  jkit status --limit 5`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runStatus,
 }

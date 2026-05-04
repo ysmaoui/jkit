@@ -9,15 +9,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/output"
+	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var logCmd = &cobra.Command{
 	Use:   "log [job] [build#]",
 	Short: "View build log",
-	Example: `  jk log my-app
-  jk log my-app 42
-  jk log -f my-app`,
+	Example: `  jkit log my-app
+  jkit log my-app 42
+  jkit log -f my-app`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runLog,
 }

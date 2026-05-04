@@ -37,7 +37,7 @@ Types: `STAGE, PARALLEL, PARALLEL_BLOCK` (explicit container type — no heurist
 malformed. Emit a single request per call — no dual-fetch. Users on older PGV
 stay on Blue Ocean transparently.
 
-Opt-out env var `JK_PIPELINE_SOURCE=auto|pgv|blueocean` (default `auto`) so
+Opt-out env var `JKIT_PIPELINE_SOURCE=auto|pgv|blueocean` (default `auto`) so
 latency-sensitive users can pin Blue Ocean until PGV performance improves.
 
 ## Tasks
@@ -68,7 +68,7 @@ latency-sensitive users can pin Blue Ocean until PGV performance improves.
 ### Task 4: GetPipelineStages — PGV-first with fallback
 - **Type:** task
 - **Priority:** P1
-- **Description:** Refactor `GetPipelineStages` in `internal/api/pipeline.go`: build classic `/job/...` URL via `NormalizeJobPath`, GET `/stages/tree`. On 200: decode + `FlattenPGVTree`. On 404 (old PGV or missing plugin): fall through to existing Blue Ocean path. Respect env `JK_PIPELINE_SOURCE`: `pgv` → no fallback (return error), `blueocean` → skip PGV entirely, `auto`/unset → current default.
+- **Description:** Refactor `GetPipelineStages` in `internal/api/pipeline.go`: build classic `/job/...` URL via `NormalizeJobPath`, GET `/stages/tree`. On 200: decode + `FlattenPGVTree`. On 404 (old PGV or missing plugin): fall through to existing Blue Ocean path. Respect env `JKIT_PIPELINE_SOURCE`: `pgv` → no fallback (return error), `blueocean` → skip PGV entirely, `auto`/unset → current default.
 - **Acceptance:** Existing `diagnose_test.go` / pipeline tests pass. New test with httptest mocks both endpoints and asserts PGV preferred, fallback on 404.
 - **Files:** `internal/api/pipeline.go`, `internal/api/diagnose_test.go`, new test
 - **Deps:** Task 3
@@ -84,15 +84,15 @@ latency-sensitive users can pin Blue Ocean until PGV performance improves.
 ### Task 6: Source selector env var + --pipeline-source flag
 - **Type:** feature
 - **Priority:** P2
-- **Description:** Read `JK_PIPELINE_SOURCE` in client init; accept `--pipeline-source=auto|pgv|blueocean` on commands that hit pipeline APIs (`diagnose`, `status`, `log`). Passes through to `GetPipelineStages` / `GetStageLog`. Default `auto` (PGV-first). Document in README.
-- **Acceptance:** `JK_PIPELINE_SOURCE=blueocean jk diagnose ...` only hits `/blue/rest/`; `pgv` only hits `/stages/`; `auto` tries PGV then Blue.
+- **Description:** Read `JKIT_PIPELINE_SOURCE` in client init; accept `--pipeline-source=auto|pgv|blueocean` on commands that hit pipeline APIs (`diagnose`, `status`, `log`). Passes through to `GetPipelineStages` / `GetStageLog`. Default `auto` (PGV-first). Document in README.
+- **Acceptance:** `JKIT_PIPELINE_SOURCE=blueocean jkit diagnose ...` only hits `/blue/rest/`; `pgv` only hits `/stages/`; `auto` tries PGV then Blue.
 - **Files:** `cmd/diagnose.go`, `cmd/status.go`, `cmd/log.go`, `internal/api/client.go`
 - **Deps:** Tasks 4, 5
 
 ### Task 7: Integration smoke + README
 - **Type:** chore
 - **Priority:** P2
-- **Description:** Run `jk diagnose` and `jk status` against the validated build on all three modes (`auto`, `pgv`, `blueocean`); record timings and any output deltas. Update README section on supported plugins.
+- **Description:** Run `jkit diagnose` and `jkit status` against the validated build on all three modes (`auto`, `pgv`, `blueocean`); record timings and any output deltas. Update README section on supported plugins.
 - **Acceptance:** Three runs succeed, output matches within state-mapping tolerances, timings noted.
 - **Deps:** Task 6
 
@@ -100,11 +100,11 @@ latency-sensitive users can pin Blue Ocean until PGV performance improves.
 
 E2E against a real pipeline build with nested parallel stages:
 
-1. `JK_PIPELINE_SOURCE=pgv jk diagnose <job> <build#>`
-2. `JK_PIPELINE_SOURCE=blueocean jk diagnose ...` — same command
-3. `JK_PIPELINE_SOURCE=auto jk diagnose ...` — default path
-4. `jk status ... <build#> --stages` — verify nested parallel rendering
-5. `jk log ... <build#> --stage <nodeId>` — leaf, parallel branch, `PARALLEL_BLOCK` (should yield empty or fall back cleanly)
+1. `JKIT_PIPELINE_SOURCE=pgv jkit diagnose <job> <build#>`
+2. `JKIT_PIPELINE_SOURCE=blueocean jkit diagnose ...` — same command
+3. `JKIT_PIPELINE_SOURCE=auto jkit diagnose ...` — default path
+4. `jkit status ... <build#> --stages` — verify nested parallel rendering
+5. `jkit log ... <build#> --stage <nodeId>` — leaf, parallel branch, `PARALLEL_BLOCK` (should yield empty or fall back cleanly)
 
 ## Unresolved questions
 

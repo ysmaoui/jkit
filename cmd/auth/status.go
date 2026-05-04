@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jk/internal/api"
-	"github.com/ysmaoui/jk/internal/config"
-	"github.com/ysmaoui/jk/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/config"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 var statusCmd = &cobra.Command{
@@ -36,7 +36,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		if c, ok := cfg.Hosts[h]; ok {
 			hc = c
 		} else {
-			return fmt.Errorf("host %q not configured — run 'jk auth login --host %s'", h, h)
+			return fmt.Errorf("host %q not configured — run 'jkit auth login --host %s'", h, h)
 		}
 	}
 
