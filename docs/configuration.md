@@ -28,14 +28,26 @@ Created automatically by `jkit auth login`. First host added becomes the default
 
 ## Pipeline backend
 
-Stage trees and stage logs are served by two plugins:
+Stage trees and stage logs (`jkit log --stage`, `jkit diagnose`, the stage
+column in `jkit status`) come from one of two Jenkins plugins:
 
-- **Pipeline Graph View** (v803+) — preferred. Native tree, step-level logs, actively maintained.
-- **Blue Ocean** — fallback. Deprecated but widely installed.
+| Plugin | Endpoint | Status | Used by jkit |
+|---|---|---|---|
+| `pipeline-graph-view` v803+ | `/stages/tree`, `/stages/log` | Preferred. Maintained replacement for Blue Ocean. | Default |
+| `blueocean-rest` | `/blue/rest/...` | Deprecated by the Jenkins project. | Fallback |
+
+> Note: jkit does **not** use the older `pipeline-rest-api` (`/wfapi/**`)
+> plugin. PGV's tree model is simpler — explicit `PARALLEL_BLOCK` typing for
+> nested parallel stages, and a single `/stages/log?nodeId=` endpoint that
+> accepts both stage IDs and step IDs.
 
 Default is `auto`: try PGV first, fall back to Blue Ocean on 404. Override with
-`--pipeline-source=pgv|blueocean|auto` or the env var above. PGV is typically
-slower per request but the payload is smaller and the tree model is simpler.
+`--pipeline-source=pgv|blueocean|auto` or `JKIT_PIPELINE_SOURCE`. Pin to
+`blueocean` if your controller has neither PGV ≥ 803 nor a recent enough
+Jenkins core; pin to `pgv` to fail fast instead of falling back.
+
+On instances with neither plugin, basic build info still works (jkit hits the
+classic `/api/json` endpoints) — only stage-level commands degrade.
 
 Config directory precedence: `JKIT_CONFIG_DIR` > `$XDG_CONFIG_HOME/jkit` > `~/.config/jkit`
 

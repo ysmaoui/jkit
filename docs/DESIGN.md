@@ -137,10 +137,17 @@ POST /job/{path}/buildWithParameters             # with params
 GET /job/{path}/{number}/logText/progressiveText?start={byte-offset}
 # Response headers: X-Text-Size (current size), X-More-Data (true/false)
 
-# Pipeline stages (Blue Ocean REST API — different base path!)
-GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/
+# Pipeline stages — Pipeline Graph View (preferred, plugin v803+)
+GET /job/{path}/{number}/stages/tree
+# Returns: { status, data: { complete, stages: [ {id, name, state, type,
+#           pauseDurationMillis, startTimeMillis, totalDurationMillis,
+#           children[], isSequential, synthetic, placeholder, agent, url } ] } }
 
-# Pipeline stage log
+# Pipeline stage / step log (single endpoint, accepts stage IDs and step IDs)
+GET /job/{path}/{number}/stages/log?nodeId={id}
+
+# Pipeline stages — Blue Ocean (fallback for instances without PGV ≥ 803)
+GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/log/
 
 # Pending input steps
@@ -160,7 +167,22 @@ GET /queue/api/json?tree=items[id,task[name,url],why,inQueueSince]
 POST /pipeline-model-converter/validate  # body: jenkinsfile=<contents>
 ```
 
-**Critical note on Blue Ocean API:** Pipeline stage information comes from the Blue Ocean REST API, which uses a completely different URL structure (`/blue/rest/...`). The client must handle both API styles. Not all Jenkins instances have Blue Ocean installed — gracefully degrade if unavailable.
+**Pipeline data sources.** Jenkins exposes pipeline stage/step data through three
+different plugin generations. jkit prefers the newest:
+
+| Generation | Plugin | Endpoint | Status |
+|---|---|---|---|
+| 1 | `pipeline-rest-api` | `/wfapi/**` | Older, ubiquitous. jkit does **not** use it. |
+| 2 | `blueocean-rest` | `/blue/rest/...` | Deprecated. jkit uses as fallback. |
+| 3 | `pipeline-graph-view` v803+ | `/stages/tree`, `/stages/log` | **Preferred.** Maintained replacement. |
+
+Default selection is `auto` (PGV first, fall back to Blue Ocean on 404). Override
+via `--pipeline-source=pgv|blueocean|auto` or `JKIT_PIPELINE_SOURCE`. PGV's
+single `/stages/log?nodeId=` endpoint accepts both stage IDs and step IDs and
+gives explicit `PARALLEL_BLOCK` typing for nested parallel stages — no
+client-side heuristics. On instances with neither plugin available,
+pipeline-detail commands degrade gracefully (basic build info still works via
+the classic `/api/json` endpoints).
 
 ### Git-to-Job Resolution (`internal/context/resolver.go`)
 
