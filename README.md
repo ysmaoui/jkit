@@ -72,6 +72,13 @@ Then `jk run`, `jk status`, `jk log -f` Just Work.
 - [Design notes](docs/DESIGN.md)
 - [Contributing](CONTRIBUTING.md)
 
+## Use with AI agents
+
+Drop-in skill, slash command, and sub-agent that let an AI coding agent drive
+`jk` end-to-end (status, log streaming, failure triage). Authored for
+[Claude Code](https://docs.claude.com/en/docs/claude-code/overview); the
+prompts transfer to other agent runtimes. See [`agents/`](agents/README.md).
+
 ## Status
 
 Early-stage. Expect breaking changes before `v1.0`. Issues and PRs welcome.
