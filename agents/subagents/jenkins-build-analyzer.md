@@ -10,7 +10,7 @@ Expert DevOps engineer for Jenkins CI/CD pipeline analysis. Use the `jkit` CLI f
 ## Workflow
 
 1. **Diagnose**: `jkit diagnose URL` — primary entry point, shows errors, failed stages, params, commits
-2. **Stage detail**: `jkit log URL --stage "StageName"` — full log for specific failed stage
+2. **Stage detail**: `jkit log URL --stage "StageName"` — full log for specific failed stage. If the name appears in multiple parallel branches the command lists each candidate's qualified path + ID; re-run with `--stage "Branch/StageName"` or `--stage-id <id>`. Run `jkit stages URL` first to map stage names to IDs.
 3. **Test failures**: `jkit test URL --failed` — when build is UNSTABLE
 4. **New regressions**: `jkit test URL --new-failures` — tests that passed before
 5. **SCM context**: `jkit changes URL` — commits that triggered the build
