@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,6 +73,7 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	runCmd.Flags().Bool("log", false, "Stream build log (implies --wait)")
 	logCmd.Flags().BoolP("follow", "f", false, "Follow log output")
 	logCmd.Flags().String("stage", "", "Show log for a specific pipeline stage")
+	logCmd.Flags().String("stage-id", "", "Show log for a stage by exact node ID")
 	logCmd.Flags().String("grep", "", "Filter log lines matching pattern")
 	logCmd.Flags().BoolP("ignore-case", "i", false, "Case-insensitive --grep matching")
 	listCmd.Flags().String("folder", "", "Folder path to list")
@@ -395,6 +397,148 @@ func TestLogCommand(t *testing.T) {
 	out, err := executeCmd(t, "log", "my-app", "5")
 	require.NoError(t, err)
 	assert.Contains(t, out, "hello world")
+}
+
+// --- stage selection (duplicate names) ---
+
+// parallelStagesServer serves a PGV tree with two parallel branches
+// ("RemoteExec", "RemoteCache") that each contain a stage named
+// "Run Bazel Build", plus per-node stage logs. execState/cacheState set the
+// branch stage states (e.g. "running" vs "success").
+func parallelStagesServer(t *testing.T, execState, cacheState string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data": map[string]any{
+					"complete": true,
+					"stages": []map[string]any{
+						{"id": "1", "name": "Parallel", "type": "PARALLEL_BLOCK", "state": "success", "children": []map[string]any{
+							{"id": "2", "name": "RemoteExec", "type": "PARALLEL", "state": execState, "children": []map[string]any{
+								{"id": "4", "name": "Run Bazel Build", "type": "STAGE", "state": execState, "totalDurationMillis": 5000},
+							}},
+							{"id": "3", "name": "RemoteCache", "type": "PARALLEL", "state": cacheState, "children": []map[string]any{
+								{"id": "5", "name": "Run Bazel Build", "type": "STAGE", "state": cacheState, "totalDurationMillis": 3000},
+							}},
+						}},
+					},
+				},
+			})
+		case strings.Contains(r.URL.Path, "/stages/log"):
+			switch r.URL.Query().Get("nodeId") {
+			case "4":
+				_, _ = fmt.Fprint(w, "remote exec branch log")
+			case "5":
+				_, _ = fmt.Fprint(w, "remote cache branch log")
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestLogStageAmbiguousName(t *testing.T) {
+	srv := parallelStagesServer(t, "success", "success")
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Run Bazel Build")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ambiguous")
+	// Both candidates listed by qualified path + ID.
+	assert.Contains(t, err.Error(), "RemoteExec/Run Bazel Build")
+	assert.Contains(t, err.Error(), "RemoteCache/Run Bazel Build")
+	assert.Contains(t, err.Error(), "id=4")
+	assert.Contains(t, err.Error(), "id=5")
+}
+
+func TestLogStageQualifiedPath(t *testing.T) {
+	srv := parallelStagesServer(t, "success", "success")
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage", "RemoteExec/Run Bazel Build")
+	require.NoError(t, err)
+	assert.Contains(t, out, "remote exec branch log")
+	assert.NotContains(t, out, "remote cache branch log")
+}
+
+func TestLogStageByID(t *testing.T) {
+	srv := parallelStagesServer(t, "success", "success")
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "remote cache branch log")
+	assert.NotContains(t, out, "remote exec branch log")
+}
+
+func TestLogStageAndStageIDConflict(t *testing.T) {
+	srv := parallelStagesServer(t, "success", "success")
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "RemoteExec", "--stage-id", "4")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot use --stage and --stage-id together")
+}
+
+func TestLogStageNotFound(t *testing.T) {
+	srv := parallelStagesServer(t, "success", "success")
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Nonexistent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+	assert.Contains(t, err.Error(), "RemoteExec/Run Bazel Build")
+}
+
+func TestLogStageFollow(t *testing.T) {
+	// Stage already terminal → streamer prints once and exits.
+	srv := parallelStagesServer(t, "success", "success")
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	old := stagePollInterval
+	stagePollInterval = 5 * time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	assert.Contains(t, out, "remote exec branch log")
+}
+
+// --- stages command ---
+
+func TestStagesCommand(t *testing.T) {
+	srv := parallelStagesServer(t, "success", "success")
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "RemoteExec/Run Bazel Build")
+	assert.Contains(t, out, "RemoteCache/Run Bazel Build")
+	assert.Contains(t, out, "4")
+	assert.Contains(t, out, "5")
+}
+
+func TestStagesCommandJSON(t *testing.T) {
+	srv := parallelStagesServer(t, "success", "success")
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5", "--json")
+	require.NoError(t, err)
+	assert.Contains(t, out, `"path"`)
+	assert.Contains(t, out, "RemoteExec/Run Bazel Build")
+	assert.Contains(t, out, `"id"`)
 }
 
 // --- auth status ---

@@ -11,6 +11,7 @@ that thinks in workflows, not endpoints.
 jkit run my-app --wait --log     # trigger, wait, stream log
 jkit status my-app               # recent builds
 jkit log my-app -f               # tail live build log
+jkit stages my-app               # list stages w/ IDs + paths
 jkit diagnose my-app             # summarize the failure
 jkit lint                        # validate ./Jenkinsfile
 jkit open my-app                 # open in browser

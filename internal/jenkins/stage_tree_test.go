@@ -68,6 +68,74 @@ func TestNonContainerStages_Empty(t *testing.T) {
 	assert.Empty(t, NonContainerStages([]Stage{}))
 }
 
+func TestQualifiedStagePaths_Flat(t *testing.T) {
+	// Sequential chain — bare names, no qualifying prefix.
+	stages := []Stage{
+		{ID: "1", Name: "Build"},
+		{ID: "2", Name: "Test", FirstParent: "1"},
+		{ID: "3", Name: "Deploy", FirstParent: "2"},
+	}
+	paths := QualifiedStagePaths(stages)
+	assert.Equal(t, "Build", paths["1"])
+	assert.Equal(t, "Test", paths["2"])
+	assert.Equal(t, "Deploy", paths["3"])
+}
+
+func TestQualifiedStagePaths_ParallelDuplicateNames(t *testing.T) {
+	// Two parallel branches each containing a stage with the same name.
+	stages := []Stage{
+		{ID: "1", Name: "Parallel"},
+		{ID: "2", Name: "RemoteExec", FirstParent: "1"},
+		{ID: "3", Name: "RemoteCache", FirstParent: "1"},
+		{ID: "4", Name: "Run Bazel Build", FirstParent: "2"},
+		{ID: "5", Name: "Run Bazel Build", FirstParent: "3"},
+	}
+	paths := QualifiedStagePaths(stages)
+	// Branch heads get their bare name.
+	assert.Equal(t, "RemoteExec", paths["2"])
+	assert.Equal(t, "RemoteCache", paths["3"])
+	// Inner stages are disambiguated by their enclosing branch.
+	assert.Equal(t, "RemoteExec/Run Bazel Build", paths["4"])
+	assert.Equal(t, "RemoteCache/Run Bazel Build", paths["5"])
+}
+
+func TestQualifiedStagePaths_SequentialWithinBranch(t *testing.T) {
+	// A branch with two sequential stages — only the branch head qualifies,
+	// the sequential successor inherits the same branch prefix.
+	stages := []Stage{
+		{ID: "1", Name: "Parallel"},
+		{ID: "2", Name: "Linux", FirstParent: "1"},
+		{ID: "3", Name: "Windows", FirstParent: "1"},
+		{ID: "4", Name: "Compile", FirstParent: "2"},
+		{ID: "5", Name: "Package", FirstParent: "4"},
+	}
+	paths := QualifiedStagePaths(stages)
+	assert.Equal(t, "Linux", paths["2"])
+	assert.Equal(t, "Linux/Compile", paths["4"])
+	assert.Equal(t, "Linux/Package", paths["5"])
+}
+
+func TestQualifiedStagePaths_NestedParallel(t *testing.T) {
+	// Parallel inside a parallel branch yields a multi-segment path.
+	stages := []Stage{
+		{ID: "1", Name: "Outer"},
+		{ID: "2", Name: "X", FirstParent: "1"},
+		{ID: "3", Name: "Y", FirstParent: "1"},
+		{ID: "4", Name: "Inner", FirstParent: "2"},
+		{ID: "5", Name: "A", FirstParent: "4"},
+		{ID: "6", Name: "B", FirstParent: "4"},
+	}
+	paths := QualifiedStagePaths(stages)
+	assert.Equal(t, "X", paths["2"])
+	assert.Equal(t, "X/A", paths["5"])
+	assert.Equal(t, "X/B", paths["6"])
+}
+
+func TestQualifiedStagePaths_Empty(t *testing.T) {
+	assert.Empty(t, QualifiedStagePaths(nil))
+	assert.Empty(t, QualifiedStagePaths([]Stage{}))
+}
+
 func TestBuildStageTree_Empty(t *testing.T) {
 	assert.Nil(t, BuildStageTree(nil))
 	assert.Nil(t, BuildStageTree([]Stage{}))

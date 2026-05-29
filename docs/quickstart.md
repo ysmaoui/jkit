@@ -47,8 +47,10 @@ jkit run my-app                  # trigger a build
 jkit run my-app --wait           # trigger and wait for result
 jkit status my-app               # recent build history
 jkit status my-app 42            # build #42 detail + stages
+jkit stages my-app 42            # stage IDs + qualified paths
 jkit log my-app -f               # stream live build log
 jkit log my-app --grep ERROR     # filter log lines
+jkit log my-app --stage "Build"  # one stage's log
 jkit test my-app --failed        # show failed tests
 jkit abort my-app                # abort running build
 jkit diagnose my-app             # analyze failed build

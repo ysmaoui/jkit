@@ -8,6 +8,10 @@ All data commands support `--json` for machine-readable output:
 jkit list --json | jq '.[].name'
 jkit status my-app --json | jq '.[0].result'
 jkit status my-app 42 --json | jq '.url'
+
+# Resolve a stage's node ID by its qualified path, then fetch just that log
+id=$(jkit stages my-app 42 --json | jq -r '.[] | select(.path=="Linux/Test") | .id')
+jkit log my-app 42 --stage-id "$id"
 ```
 
 ## Go Template Output
