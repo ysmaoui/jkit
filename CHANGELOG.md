@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-29
+
 ### Added
 - `jkit stages` command — list pipeline stages with node IDs and qualified
   paths that disambiguate duplicate names across parallel branches.
@@ -16,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - `jkit log --stage` now errors and lists candidates when a bare name matches
   multiple stages, instead of silently picking one.
+
+### Dependencies
+- Bump `golang.org/x/term` from 0.42.0 to 0.43.0.
 
 ## [0.1.0] - 2026-05-03
 
