@@ -311,14 +311,18 @@ With --wait: "Build #47 completed: SUCCESS (2m 31s)"
 Exit codes: 0=SUCCESS, 1=FAILURE/ERROR, 2=UNSTABLE, 3=ABORTED
 ```
 
-#### 5. `jkit log [job] [build#] [--follow] [--stage STAGE]`
+#### 5. `jkit log [job] [build#] [--follow] [--stage STAGE | --stage-id ID]`
 ```
-Usage: jkit log [job] [build#] [--follow] [--stage STAGE]
+Usage: jkit log [job] [build#] [--follow] [--stage STAGE] [--stage-id ID]
 
 Show build console output. Defaults to latest build.
 --follow: stream live output (poll until complete)
---stage: filter to a specific pipeline stage (requires Blue Ocean API)
+--stage: filter to a specific pipeline stage by name or qualified path
+         (e.g. "Branch/Stage"); ambiguous bare names error with candidates
+--stage-id: select a stage by exact node ID (see `jkit stages`)
+--stage/--stage-id combine with --follow to tail one stage of a running build
 
+Requires the Pipeline Graph View or Blue Ocean API for stage logs.
 No build#: defaults to latest build.
 If build is in progress: automatically follows unless piped to a file.
 ```
@@ -344,7 +348,7 @@ Print validation errors to stderr.
 
 ### Post-MVP Commands (implement after MVP is validated)
 
-- `jkit stages <job> [build#]` — visual pipeline stage display
+- `jkit stages <job> [build#]` — list stages with node IDs and qualified paths (implemented)
 - `jkit cancel <job> [build#]` — abort a running build
 - `jkit restart <job> [build#]` — replay a build
 - `jkit input <job> [build#]` / `jkit approve` / `jkit deny` — input step interaction

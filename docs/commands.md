@@ -172,13 +172,14 @@ jkit run --log                               # auto-detect job
 View build console output.
 
 ```
-jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--grep PATTERN] [--tail N] [--head N]
+jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PATTERN] [--tail N] [--head N]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `-f, --follow` | Follow live output |
-| `--stage` | Show log for a specific pipeline stage |
+| `--stage` | Show log for a stage by name or qualified path (e.g. `"Branch/Stage"`) |
+| `--stage-id` | Show log for a stage by exact node ID (see `jkit stages`) |
 | `--grep` | Filter log lines matching pattern |
 | `-i, --ignore-case` | Case-insensitive `--grep` matching |
 | `--tail N` | Show only the last N lines |
@@ -186,18 +187,49 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--grep PATTERN] [--tail N
 
 - Defaults to latest build if no build# given
 - Auto-follows if build is in progress (disabled when `--grep`, `--tail`, or `--head` active)
-- `--stage` requires Blue Ocean plugin
+- `--stage` requires the Pipeline Graph View or Blue Ocean plugin
+- When a bare `--stage` name matches multiple stages (e.g. the same stage in two
+  parallel branches), the command errors and lists each candidate's qualified
+  path and ID. Pass a qualified path (`--stage "RemoteExec/Run Bazel Build"`) or
+  `--stage-id` to disambiguate.
+- `--stage`/`--stage-id` combine with `-f` to tail a single stage of a running
+  build; `--stage` and `--stage-id` are mutually exclusive
 - `--tail` and `--head` are incompatible with `--follow`
 
 ```bash
-jkit log my-app                    # latest build, full log
-jkit log my-app 42                 # specific build
-jkit log my-app -f                 # follow live
-jkit log my-app --stage Build      # specific stage log
-jkit log my-app --grep ERROR       # filter lines
-jkit log my-app --grep error -i    # case-insensitive filter
-jkit log my-app --tail 50          # last 50 lines
-jkit log my-app --head 20          # first 20 lines
+jkit log my-app                                  # latest build, full log
+jkit log my-app 42                               # specific build
+jkit log my-app -f                               # follow live
+jkit log my-app --stage Build                    # specific stage log
+jkit log my-app --stage "RemoteExec/Run Bazel Build"  # disambiguate by branch
+jkit log my-app --stage-id 17 -f                 # tail one stage by ID
+jkit log my-app --grep ERROR                     # filter lines
+jkit log my-app --grep error -i                  # case-insensitive filter
+jkit log my-app --tail 50                        # last 50 lines
+jkit log my-app --head 20                        # first 20 lines
+```
+
+---
+
+## `jkit stages`
+
+List the pipeline stages of a build with their node IDs and qualified paths.
+
+```
+jkit stages [job] [build#]
+```
+
+- Defaults to latest build if no build# given
+- Requires the Pipeline Graph View or Blue Ocean plugin
+- The `STAGE` column shows a qualified path that disambiguates duplicate names
+  across parallel branches (e.g. `RemoteExec/Run Bazel Build`)
+- Feed a path to `jkit log --stage` or an ID to `jkit log --stage-id`
+- Honors `--json` / `--format` for scripting (the JSON includes `id` and `path`)
+
+```bash
+jkit stages my-app             # latest build
+jkit stages my-app 42          # specific build
+jkit stages my-app 42 --json   # machine-readable (id, name, path, type, status)
 ```
 
 ---
