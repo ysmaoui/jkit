@@ -25,15 +25,16 @@ jkit status my-job --limit 5        # recent builds
 jkit stages URL                     # list stages: ID, path, type, status
 jkit stages URL --json              # machine-readable (id, name, path, …)
 
-# Build log
-jkit log URL                        # full console
+# Build log  (--tail/--head/--grep cover the ENTIRE log — no head/tail-buffer limit)
+jkit log URL --tail 50              # last 50 lines (cheap server-side tail window)
+jkit log URL --head 20              # first 20 lines (stops reading early)
+jkit log URL --grep "ERROR" -i      # search the WHOLE console for matches
 jkit log URL --stage "Build"        # stage log by name
 jkit log URL --stage "Linux/Test"   # by qualified path (disambiguates branches)
 jkit log URL --stage-id 6710        # by exact node ID (from `jkit stages`)
 jkit log URL --stage "Test" -f      # follow one stage of a running build
-jkit log URL --tail 50              # last 50 lines
-jkit log URL --grep "ERROR" -i      # filter lines
 jkit log -f my-job                  # stream (follow)
+jkit log URL                        # full console — refused if >50MB; use --tail/--grep/--head, redirect, or --max-bytes 0
 
 # Failure diagnosis (errors, failed stages, params, commits)
 jkit diagnose URL
@@ -106,6 +107,15 @@ jkit open my-job 42
 5. `jkit changes URL` — what commits triggered the build
 6. `jkit diff my-job 41 42` — compare with last good build
 
+**Searching a large console:** `--grep` streams the *entire* log (even multi-GB
+ones) with bounded memory — use it to find an error anywhere, e.g.
+`jkit log URL -i --grep "exception"`. `--tail N` reads the true end of the log,
+not a buffer. Don't assume `jkit log` only returns the head/tail or fabricate
+console-tail workarounds; a plain unfiltered dump is *refused* for big logs, so
+always narrow with `--grep`/`--tail`/`--head` (matches are line-oriented
+substring matches, not regex — grep a single distinctive token, not a
+multi-line phrase).
+
 ---
 
 ## URL Input
@@ -141,4 +151,5 @@ When a build is BUILDING but appears stuck:
 | 5xx Server Error | Retry. CLI auto-retries transient 502/503/504 |
 | No test results | JUnit plugin not configured, or build has no tests |
 | Stage log empty | Pipeline Graph View or Blue Ocean plugin required for stage-level logs |
+| `console log is … — refusing to dump it whole` | Log exceeds `--max-bytes` (default 50MB). Narrow with `--tail`/`--head`/`--grep`, redirect to a file, or pass `--max-bytes 0` |
 | `stage "X" is ambiguous` | Same name in multiple parallel branches — re-run with the qualified path (`--stage "Branch/X"`) or `--stage-id` from `jkit stages` |

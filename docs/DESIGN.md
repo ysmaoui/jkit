@@ -250,10 +250,20 @@ Jenkins exposes progressive console output via `X-Text-Size` and `X-More-Data` h
 
 1. Poll `/logText/progressiveText?start=N` where N starts at 0
 2. Print new content to stdout as it arrives
-3. Use the `X-Text-Size` response header as the next `start` value
-4. Stop when `X-More-Data` header is `false` (or missing)
+3. Advance `start` by the number of bytes **actually read**, not by `X-Text-Size`.
+   Jenkins streams the whole log from `start` in one response, so a per-request
+   read cap (10 MB) means a single response may not contain everything up to
+   `X-Text-Size`; trusting that header as the next offset silently skips the
+   unread remainder (the large-log truncation bug).
+4. Keep paging while `X-More-Data` is `true` **or** unread bytes remain
+   (`start < X-Text-Size`). Stop only when caught up and the build is complete.
 5. Poll interval: 1 second while building, stop when complete
 6. Support `Ctrl+C` to stop following without killing the process ungracefully
+
+> Non-follow consumers (`jkit log`, `--grep`, `--tail`, `diagnose`) page the same
+> way with bounded memory rather than buffering the full console. `--tail` reads
+> only a server-side tail window; an unfiltered dump over `--max-bytes` is
+> refused rather than truncated. See `internal/api/builds.go`.
 
 ---
 

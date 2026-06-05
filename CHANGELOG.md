@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Large completed-build consoles are no longer silently truncated. `GetBuildLog`
+  previously read only the first 10 MB chunk and reported the build's full size
+  as the next offset, so any console over 10 MB stopped after one chunk. It now
+  pages on bytes actually read, so `jkit log`, `--grep`, and `diagnose` see the
+  whole log.
+- `jkit diagnose` console fallback now scans the tail (where failures surface)
+  instead of the head.
+
+### Added
+- `jkit log --max-bytes N` — refuse to dump an unfiltered console larger than N
+  bytes (default 50 MB; `0` = unlimited) rather than streaming a huge log.
+- Windowed/streaming log handling: `--tail` fetches only a server-side tail
+  window, `--head` stops reading early, and `--grep` streams the full log with
+  bounded memory (early exit under `--head`).
+
+### Changed
+- Stage-log reads emit a stderr warning when they hit the 10 MB cap, so
+  truncation is never silent.
+
 ## [0.3.0] - 2026-05-29
 
 ### Added
