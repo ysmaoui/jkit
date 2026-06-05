@@ -6,11 +6,23 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
 )
+
+// maxStageLog bounds how many bytes a single stage log read buffers.
+const maxStageLog = 10 << 20 // 10 MB
+
+// warnIfStageLogTruncated emits a stderr notice when a stage log read hit the
+// cap, so truncation is never silent.
+func warnIfStageLogTruncated(n int, nodeID string) {
+	if n >= maxStageLog {
+		_, _ = fmt.Fprintf(os.Stderr, "warning: stage %s log reached %d MB cap — output truncated\n", nodeID, maxStageLog>>20)
+	}
+}
 
 // GetPipelineStages returns the flat stage list for a build. It prefers the
 // Pipeline Graph View plugin (`/stages/tree`, v803+) and falls back to Blue
@@ -103,11 +115,11 @@ func (c *Client) getStageLogPGV(jobPath string, number int, nodeID string) (stri
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	const maxLog = 10 << 20 // 10 MB
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxLog))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxStageLog))
 	if err != nil {
 		return "", fmt.Errorf("reading PGV stage log: %w", err)
 	}
+	warnIfStageLogTruncated(len(data), nodeID)
 	return string(data), nil
 }
 
@@ -130,11 +142,11 @@ func (c *Client) getStageLogBlueOcean(jobPath string, number int, nodeID string)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	const maxLog = 10 << 20 // 10 MB
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxLog))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxStageLog))
 	if err != nil {
 		return "", fmt.Errorf("reading stage log: %w", err)
 	}
+	warnIfStageLogTruncated(len(data), nodeID)
 	return string(data), nil
 }
 

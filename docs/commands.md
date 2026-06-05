@@ -172,7 +172,7 @@ jkit run --log                               # auto-detect job
 View build console output.
 
 ```
-jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PATTERN] [--tail N] [--head N]
+jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PATTERN] [--tail N] [--head N] [--max-bytes N]
 ```
 
 | Flag | Description |
@@ -184,9 +184,15 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 | `-i, --ignore-case` | Case-insensitive `--grep` matching |
 | `--tail N` | Show only the last N lines |
 | `--head N` | Show only the first N lines |
+| `--max-bytes N` | Refuse to dump an unfiltered console larger than N bytes (default 50 MB; `0` = unlimited) |
 
 - Defaults to latest build if no build# given
 - Auto-follows if build is in progress (disabled when `--grep`, `--tail`, or `--head` active)
+- Large logs are handled without buffering the whole console in memory:
+  - `--tail N` fetches only a tail window from the server (cheap even on multi-GB logs)
+  - `--head N` stops reading once N lines are seen
+  - `--grep` streams the full log with bounded memory and exits early under `--head`
+  - an unfiltered `jkit log` over `--max-bytes` is refused with guidance (use `--tail`/`--head`/`--grep`, redirect, or `--max-bytes 0`) rather than silently truncated
 - `--stage` requires the Pipeline Graph View or Blue Ocean plugin
 - When a bare `--stage` name matches multiple stages (e.g. the same stage in two
   parallel branches), the command errors and lists each candidate's qualified
@@ -205,8 +211,9 @@ jkit log my-app --stage "RemoteExec/Run Bazel Build"  # disambiguate by branch
 jkit log my-app --stage-id 17 -f                 # tail one stage by ID
 jkit log my-app --grep ERROR                     # filter lines
 jkit log my-app --grep error -i                  # case-insensitive filter
-jkit log my-app --tail 50                        # last 50 lines
-jkit log my-app --head 20                        # first 20 lines
+jkit log my-app --tail 50                        # last 50 lines (tail window, cheap)
+jkit log my-app --head 20                        # first 20 lines (stops early)
+jkit log my-app --max-bytes 0 > build.log        # force a full dump to a file
 ```
 
 ---

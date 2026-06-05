@@ -128,13 +128,16 @@ func (c *Client) Diagnose(jobPath string, number int) (*DiagnoseResult, error) {
 	return res, nil
 }
 
-// diagnoseFallbackConsole extracts errors from the full console log when stages aren't available.
+// diagnoseFallbackConsole extracts errors from the console log when stages
+// aren't available. It scans the tail, not the head — build failures surface at
+// the end, and on a large log the head holds only setup noise.
 func diagnoseFallbackConsole(c *Client, jobPath string, number int) []FailedStage {
-	chunk, err := c.GetBuildLog(jobPath, number, 0)
-	if err != nil || chunk.Text == "" {
+	const tailWindow = 4 << 20 // 4 MB
+	text, err := c.GetBuildLogTail(jobPath, number, tailWindow)
+	if err != nil || text == "" {
 		return nil
 	}
-	log := output.SanitizeLog(chunk.Text)
+	log := output.SanitizeLog(text)
 	errors := extractErrors(log)
 	if len(errors) == 0 {
 		return nil
