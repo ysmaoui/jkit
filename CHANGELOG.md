@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-05
+
 ### Fixed
 - Large completed-build consoles are no longer silently truncated. `GetBuildLog`
   previously read only the first 10 MB chunk and reported the build's full size
