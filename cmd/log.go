@@ -38,6 +38,7 @@ func init() {
 	logCmd.Flags().BoolP("ignore-case", "i", false, "Case-insensitive --grep matching")
 	logCmd.Flags().Int("tail", 0, "Show only the last N lines")
 	logCmd.Flags().Int("head", 0, "Show only the first N lines")
+	logCmd.Flags().Int64("max-bytes", 50<<20, "Refuse to dump an unfiltered console larger than this (0 = unlimited)")
 	rootCmd.AddCommand(logCmd)
 }
 
@@ -190,6 +191,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 
 	tail, _ := cmd.Flags().GetInt("tail")
 	head, _ := cmd.Flags().GetInt("head")
+	maxBytes, _ := cmd.Flags().GetInt64("max-bytes")
 	follow, _ := cmd.Flags().GetBool("follow")
 
 	if (tail > 0 || head > 0) && follow {
@@ -269,8 +271,104 @@ func runLog(cmd *cobra.Command, args []string) error {
 		return streamer.Stream(ctx)
 	}
 
-	// Non-follow: fetch complete log, then apply filters
-	var buf strings.Builder
+	// Completed build (or one-shot with filters): stream the log rather than
+	// buffering it whole, so a multi-hundred-MB console neither blows up memory
+	// nor gets silently truncated.
+	switch {
+	case grepPattern != "":
+		return runConsoleGrep(client, jobPath, buildNum, grepPattern, grepI, tail, head, os.Stdout)
+
+	case tail > 0:
+		lines, err := consoleTailLines(client, jobPath, buildNum, tail)
+		if err != nil {
+			return err
+		}
+		if head > 0 && head < len(lines) {
+			lines = lines[:head]
+		}
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+		return nil
+
+	case head > 0:
+		printed := 0
+		return forEachLogLine(client, jobPath, buildNum, func(line string) bool {
+			fmt.Println(line)
+			printed++
+			return printed < head
+		})
+
+	default:
+		// Unfiltered full dump: refuse a giant console unless explicitly allowed.
+		size, err := client.GetBuildLogSize(jobPath, buildNum)
+		if err != nil {
+			return err
+		}
+		if maxBytes > 0 && size > maxBytes {
+			return fmt.Errorf("console log is %s — refusing to dump it whole\n"+
+				"  narrow with --tail N, --head N, or --grep PATTERN, redirect to a file,\n"+
+				"  or pass --max-bytes 0 to override", humanBytes(size))
+		}
+		return streamConsoleChunks(client, jobPath, buildNum, os.Stdout)
+	}
+}
+
+// matcher returns a line predicate matching the existing --grep substring
+// semantics (optionally case-insensitive).
+func matcher(pattern string, ignoreCase bool) func(string) bool {
+	if ignoreCase {
+		pattern = strings.ToLower(pattern)
+	}
+	return func(line string) bool {
+		if ignoreCase {
+			return strings.Contains(strings.ToLower(line), pattern)
+		}
+		return strings.Contains(line, pattern)
+	}
+}
+
+// forEachLogLine streams the console log line by line with bounded memory,
+// carrying partial lines across chunk boundaries and sanitizing each complete
+// line. fn returns false to stop early. It stops at end-of-log or once the
+// server reports no forward progress (caught up to a still-running build).
+func forEachLogLine(client *api.Client, jobPath string, buildNum int, fn func(line string) bool) error {
+	var offset int64
+	var carry strings.Builder
+	for {
+		chunk, err := client.GetBuildLog(jobPath, buildNum, offset)
+		if err != nil {
+			return err
+		}
+		carry.WriteString(chunk.Text)
+		data := carry.String()
+		idx := 0
+		for {
+			nl := strings.IndexByte(data[idx:], '\n')
+			if nl < 0 {
+				break
+			}
+			if !fn(output.SanitizeLog(data[idx : idx+nl])) {
+				return nil
+			}
+			idx += nl + 1
+		}
+		carry.Reset()
+		carry.WriteString(data[idx:])
+
+		advanced := chunk.Offset > offset
+		offset = chunk.Offset
+		if !chunk.HasMore || !advanced {
+			if carry.Len() > 0 {
+				fn(output.SanitizeLog(carry.String()))
+			}
+			return nil
+		}
+	}
+}
+
+// streamConsoleChunks writes the full console log to w in bounded-memory chunks.
+func streamConsoleChunks(client *api.Client, jobPath string, buildNum int, w io.Writer) error {
 	var offset int64
 	for {
 		chunk, err := client.GetBuildLog(jobPath, buildNum, offset)
@@ -278,15 +376,104 @@ func runLog(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if chunk.Text != "" {
-			buf.WriteString(output.SanitizeLog(chunk.Text))
+			_, _ = fmt.Fprint(w, output.SanitizeLog(chunk.Text))
 		}
+		advanced := chunk.Offset > offset
 		offset = chunk.Offset
-		if !chunk.HasMore {
-			break
+		if !chunk.HasMore || !advanced {
+			return nil
 		}
 	}
+}
 
-	text := filterLines(buf.String(), grepPattern, grepI)
-	fmt.Print(applyTailHead(text, tail, head))
-	return nil
+// runConsoleGrep streams the log and prints matching lines. With tail>0 it keeps
+// only the last N matches (ring buffer); with head>0 (and no tail) it stops
+// after N matches. Memory stays bounded regardless of total log size.
+func runConsoleGrep(client *api.Client, jobPath string, buildNum int, pattern string, ignoreCase bool, tail, head int, w io.Writer) error {
+	match := matcher(pattern, ignoreCase)
+
+	if tail > 0 {
+		ring := make([]string, 0, tail)
+		err := forEachLogLine(client, jobPath, buildNum, func(line string) bool {
+			if match(line) {
+				if len(ring) == tail {
+					ring = ring[1:]
+				}
+				ring = append(ring, line)
+			}
+			return true
+		})
+		if err != nil {
+			return err
+		}
+		if head > 0 && head < len(ring) {
+			ring = ring[:head]
+		}
+		for _, l := range ring {
+			_, _ = fmt.Fprintln(w, l)
+		}
+		return nil
+	}
+
+	count := 0
+	return forEachLogLine(client, jobPath, buildNum, func(line string) bool {
+		if match(line) {
+			_, _ = fmt.Fprintln(w, line)
+			count++
+			if head > 0 && count >= head {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+// consoleTailLines returns the last n lines of the console, fetching only a
+// tail window (not the whole log) and growing it when the window holds fewer
+// than n lines (e.g. very long lines).
+func consoleTailLines(client *api.Client, jobPath string, buildNum, n int) ([]string, error) {
+	size, err := client.GetBuildLogSize(jobPath, buildNum)
+	if err != nil {
+		return nil, err
+	}
+	const maxWindow = 64 << 20 // 64 MB
+	window := int64(2 << 20)   // 2 MB
+	for {
+		text, err := client.GetBuildLogTail(jobPath, buildNum, window)
+		if err != nil {
+			return nil, err
+		}
+		lines := splitLogLines(output.SanitizeLog(text))
+		if len(lines) >= n || window >= size || window >= maxWindow {
+			if n < len(lines) {
+				lines = lines[len(lines)-n:]
+			}
+			return lines, nil
+		}
+		window *= 2
+	}
+}
+
+// splitLogLines splits text into lines, dropping a single trailing newline so a
+// log ending in "\n" doesn't yield a phantom empty last line.
+func splitLogLines(text string) []string {
+	text = strings.TrimSuffix(text, "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
+}
+
+// humanBytes formats a byte count as a human-readable size.
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for x := n / unit; x >= unit; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
