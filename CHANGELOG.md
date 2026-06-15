@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-15
+
+### Added
+- `--branch <name>` flag for multibranch pipeline jobs. The `org/name build#`
+  shorthand has no place for a branch, and branch names with slashes (e.g.
+  `feature/foo/bar`) can't be expressed positionally. `--branch` encodes the
+  branch as a single job segment, so `jkit log SANDBOX/app 6 --branch feature/foo`
+  resolves the same path as the full classic URL.
+
+### Fixed
+- `jkit diagnose` no longer reports `Duration: < 1s` for an in-progress build.
+  Jenkins reports `duration=0` while building; diagnose now shows elapsed time
+  (`now - start`) labelled `(running)`.
+- Requesting a build on a multibranch pipeline or folder container (which have
+  no builds of their own) now returns an error that names the container and lists
+  its branches/child jobs, instead of a bare 404 ("run 'jkit list'") or a
+  misleading "blue ocean plugin required". Applies to `log`, `diagnose`,
+  `status`, `stages`, and other build commands.
+
 ## [0.4.0] - 2026-06-05
 
 ### Fixed

@@ -52,6 +52,9 @@ func runStages(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if len(builds) == 0 {
+			if hint := client.ContainerHint(jobPath); hint != nil {
+				return hint
+			}
 			return fmt.Errorf("no builds found for %s", jobPath)
 		}
 		buildNum = builds[0].Number
@@ -62,6 +65,9 @@ func runStages(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if len(stages) == 0 {
+		if hint := client.ContainerHint(jobPath); hint != nil {
+			return hint
+		}
 		return fmt.Errorf("no stages found — pipeline graph view or blue ocean plugin required")
 	}
 

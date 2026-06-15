@@ -21,6 +21,18 @@ func (j Job) IsFolder() bool {
 	return strings.Contains(j.Class, "Folder") || strings.Contains(j.Class, "OrganizationFolder")
 }
 
+// IsMultibranch returns true if the job is a multibranch pipeline container.
+// Such a job has no builds of its own — only its branch child-jobs do.
+func (j Job) IsMultibranch() bool {
+	return strings.Contains(j.Class, "MultiBranch")
+}
+
+// IsContainer returns true if the job holds child jobs rather than builds
+// (a folder or a multibranch pipeline).
+func (j Job) IsContainer() bool {
+	return j.IsFolder() || j.IsMultibranch()
+}
+
 type Build struct {
 	Number     int           `json:"number"`
 	Result     string        `json:"result"`

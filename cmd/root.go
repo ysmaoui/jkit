@@ -29,6 +29,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.SetVersionTemplate("jkit version {{.Version}}\n")
 	rootCmd.PersistentFlags().String("host", "", "Jenkins host URL")
+	rootCmd.PersistentFlags().String("branch", "", "Branch name for a multibranch pipeline job (e.g. feature/foo); slashes are encoded automatically")
 	rootCmd.PersistentFlags().Bool("json", false, "Output as JSON")
 	rootCmd.PersistentFlags().String("format", "", "Output format (Go template, use {{range .}}...{{end}} for lists)")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable color output")
