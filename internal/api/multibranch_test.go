@@ -16,10 +16,10 @@ import (
 // ContainerBuildError listing the branches rather than a bare 404.
 func TestGetBuildOnMultibranchContainer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/job/SANDBOX-VEMB/job/vemb/6/api/json":
+		switch r.URL.Path {
+		case "/job/SANDBOX-VEMB/job/vemb/6/api/json":
 			http.NotFound(w, r)
-		case r.URL.Path == "/job/SANDBOX-VEMB/job/vemb/api/json":
+		case "/job/SANDBOX-VEMB/job/vemb/api/json":
 			_, _ = w.Write([]byte(`{
 				"_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
 				"name": "vemb",
