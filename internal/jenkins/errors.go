@@ -1,6 +1,9 @@
 package jenkins
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type AuthError struct {
 	Host string
@@ -18,6 +21,40 @@ type NotFoundError struct {
 
 func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("%s %q not found on %s — run 'jkit list'", e.Resource, e.Name, e.Host)
+}
+
+// ContainerBuildError is returned when a build is requested on a job that is
+// actually a container (folder or multibranch pipeline) and therefore has no
+// builds of its own. It lists the available child jobs (branches) so the caller
+// can retry with the correct target.
+type ContainerBuildError struct {
+	JobPath  string
+	Kind     string // human label, e.g. "multibranch pipeline" or "folder"
+	Children []string
+	Host     string
+}
+
+func (e *ContainerBuildError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%q is a %s, not a buildable job — only its branches have builds.\n", e.JobPath, e.Kind)
+	if e.Kind == "folder" {
+		fmt.Fprintf(&b, "Pick a job inside it, e.g.:  jkit log %s/<job> <build>\n", e.JobPath)
+	} else {
+		fmt.Fprintf(&b, "Retry with a branch, e.g.:  jkit log %s <build> --branch <name>\n", e.JobPath)
+	}
+	if len(e.Children) == 0 {
+		b.WriteString("No child jobs found — run 'jkit list --folder " + e.JobPath + "'")
+		return b.String()
+	}
+	label := "branches"
+	if e.Kind == "folder" {
+		label = "jobs"
+	}
+	fmt.Fprintf(&b, "Available %s (%d):", label, len(e.Children))
+	for _, c := range e.Children {
+		b.WriteString("\n  " + c)
+	}
+	return b.String()
 }
 
 type PermissionError struct {

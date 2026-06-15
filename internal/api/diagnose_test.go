@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,13 +160,17 @@ func TestDiagnoseNoStages(t *testing.T) {
 }
 
 func TestDiagnoseBuilding(t *testing.T) {
+	// Jenkins reports duration=0 mid-build; diagnose must compute elapsed from the
+	// start timestamp instead of showing "< 1s".
+	startedMs := time.Now().Add(-10 * time.Minute).UnixMilli()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"number":   42,
-			"result":   nil,
-			"building": true,
-			"duration": 0,
-			"url":      "http://jenkins/job/test/42/",
+			"number":    42,
+			"result":    nil,
+			"building":  true,
+			"duration":  0,
+			"timestamp": startedMs,
+			"url":       "http://jenkins/job/test/42/",
 		})
 	}))
 	defer srv.Close()
@@ -175,6 +180,9 @@ func TestDiagnoseBuilding(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "BUILDING", result.Result)
 	assert.Empty(t, result.FailedStages)
+	assert.NotEqual(t, "< 1s", result.Duration)
+	assert.Contains(t, result.Duration, "(running)")
+	assert.Contains(t, result.Duration, "m") // ~10 minutes elapsed
 }
 
 func TestDiagnoseNestedParallel(t *testing.T) {
