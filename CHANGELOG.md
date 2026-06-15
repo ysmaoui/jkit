@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-15
+
 ### Added
 - `--branch <name>` flag for multibranch pipeline jobs. The `org/name build#`
   shorthand has no place for a branch, and branch names with slashes (e.g.
