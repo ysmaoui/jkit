@@ -76,6 +76,14 @@ func resolveJobArgs(cmd *cobra.Command, args []string, needBuild bool) (*api.Cli
 			_, _ = fmt.Fprintf(os.Stderr, "warning: guessed job from directory name: %s — use .jkit.yml or pass job arg if incorrect\n", jobPath)
 		}
 	}
+	if branch, _ := cmd.Flags().GetString("branch"); branch != "" {
+		// Encode the branch as a single job segment: a multibranch branch like
+		// "feature/foo" is one job whose name contains slashes. Marking them as
+		// %2F lets NormalizeJobPath treat the branch as one segment instead of
+		// splitting it into nested jobs.
+		seg := strings.ReplaceAll(strings.Trim(branch, "/"), "/", "%2F")
+		jobPath = strings.TrimRight(jobPath, "/") + "/" + seg
+	}
 	return client, jobPath, buildNum, nil
 }
 

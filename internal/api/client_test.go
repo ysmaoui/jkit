@@ -217,6 +217,10 @@ func TestNormalizeJobPathSpecialChars(t *testing.T) {
 		{"team/my job (copy)", "/job/team/job/my%20job%20%28copy%29"},
 		{"folder/build & deploy", "/job/folder/job/build%20&%20deploy"},
 		{"org/feature#1", "/job/org/job/feature%231"},
+		// Multibranch branch segment: %2F marks slashes internal to the branch
+		// name (as produced by --branch / URL parsing) and must survive as a
+		// single job segment, double-encoded to %252F.
+		{"SANDBOX-VEMB/vemb/feature%2Fvembpmto-0%2Fbuild", "/job/SANDBOX-VEMB/job/vemb/job/feature%252Fvembpmto-0%252Fbuild"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

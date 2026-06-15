@@ -70,6 +70,26 @@ func flattenJobs(jobs []jenkins.Job) []jenkins.Job {
 	return flat
 }
 
+// inspectContainer fetches a job's class and immediate child jobs. It is used to
+// turn a bare 404 on a build request into a helpful error when the job is really
+// a folder or multibranch pipeline (which have no builds of their own).
+func (c *Client) inspectContainer(jobPath string) (*jenkins.Job, error) {
+	path := NormalizeJobPath(jobPath) + "/api/json"
+	query := url.Values{"tree": {"_class,name,fullName,jobs[name,_class]"}}
+
+	resp, err := c.Get(path, query)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var job jenkins.Job
+	if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
 func (c *Client) GetJob(jobPath string) (*jenkins.Job, error) {
 	path := NormalizeJobPath(jobPath) + "/api/json"
 	query := url.Values{"tree": {"name,fullName,url,color,lastBuild[number,result,timestamp,duration,building],inQueue"}}

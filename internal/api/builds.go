@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -10,6 +11,46 @@ import (
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
 )
+
+// ContainerHint returns a ContainerBuildError if jobPath is actually a folder or
+// multibranch pipeline (neither has builds of its own), listing its child jobs so
+// the caller can retry with the right target. It returns nil if jobPath is a
+// normal job or cannot be inspected. Callers use it to turn a bare 404 or an
+// empty result into actionable guidance.
+func (c *Client) ContainerHint(jobPath string) *jenkins.ContainerBuildError {
+	job, err := c.inspectContainer(jobPath)
+	if err != nil || job == nil || !job.IsContainer() {
+		return nil
+	}
+	kind := "folder"
+	if job.IsMultibranch() {
+		kind = "multibranch pipeline"
+	}
+	children := make([]string, 0, len(job.Jobs))
+	for _, child := range job.Jobs {
+		children = append(children, child.Name)
+	}
+	return &jenkins.ContainerBuildError{
+		JobPath:  jobPath,
+		Kind:     kind,
+		Children: children,
+		Host:     c.host,
+	}
+}
+
+// enrichNotFound upgrades a NotFoundError on a build request into a
+// ContainerBuildError when jobPath is really a container. Any other error (or a
+// normal job) is returned unchanged.
+func (c *Client) enrichNotFound(jobPath string, err error) error {
+	var nfe *jenkins.NotFoundError
+	if !errors.As(err, &nfe) {
+		return err
+	}
+	if hint := c.ContainerHint(jobPath); hint != nil {
+		return hint
+	}
+	return err
+}
 
 func (c *Client) GetBuilds(jobPath string, limit int) ([]jenkins.Build, error) {
 	path := NormalizeJobPath(jobPath) + "/api/json"
@@ -37,6 +78,9 @@ func (c *Client) GetBuild(jobPath string, number int) (*jenkins.Build, error) {
 
 	resp, err := c.Get(path, query)
 	if err != nil {
+		if e := c.enrichNotFound(jobPath, err); e != err {
+			return nil, e
+		}
 		return nil, fmt.Errorf("getting build: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -117,6 +161,9 @@ func (c *Client) GetBuildLog(jobPath string, number int, start int64) (*jenkins.
 
 	resp, err := c.Get(path, query)
 	if err != nil {
+		if e := c.enrichNotFound(jobPath, err); e != err {
+			return nil, e
+		}
 		return nil, fmt.Errorf("getting build log: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
