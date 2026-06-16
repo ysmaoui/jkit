@@ -14,6 +14,8 @@ stored in `~/.config/jkit/config.yml` — run `jkit auth login` once before firs
 ## Quick Reference
 
 All commands accept a Jenkins URL as first arg, or `job [build#]` positional args.
+For a **multibranch pipeline**, the `job build#` form needs the branch via
+`--branch` (a URL already includes it) — see [Multibranch pipelines](#multibranch-pipelines).
 
 ```bash
 # Build status (detail: params, stages, cause)
@@ -88,6 +90,7 @@ jkit open my-job 42
 | `--json` | Structured JSON output |
 | `--format TMPL` | Go template output |
 | `--host URL` | Override Jenkins host (or alias) |
+| `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x`); slashes encoded automatically. Not needed when passing a URL |
 | `--verbose` | Show HTTP request/response on stderr |
 | `--timeout DUR` | HTTP timeout (default 30s) |
 | `--no-color` | Disable ANSI colors |
@@ -130,6 +133,27 @@ Console:    https://jenkins.example.com/job/team/job/svc/42/console
 
 ---
 
+## Multibranch pipelines
+
+A multibranch pipeline job (e.g. `team/svc`) is a *container* — only its branch
+child-jobs have builds. Two ways to address a branch build:
+
+```bash
+# 1. Full URL (branch is already encoded in the path) — works as-is
+jkit log "https://jenkins.example.com/job/team/job/svc/job/feature%2Fx/42/"
+
+# 2. job build# + --branch (slashes in the branch are encoded for you)
+jkit log team/svc 42 --branch feature/x
+jkit diagnose team/svc 42 --branch feature/x
+```
+
+Don't hand-encode the branch into the `job` arg (`team/svc/feature%2Fx`) — pass
+`--branch` instead. If you target the container without a branch, the command
+returns an error **listing the available branches** — pick one and re-run with
+`--branch`. To browse branches up front: `jkit list --folder team/svc`.
+
+---
+
 ## Diagnosing Stuck/Hanging Builds
 
 When a build is BUILDING but appears stuck:
@@ -145,11 +169,11 @@ When a build is BUILDING but appears stuck:
 
 | Error | Fix |
 |---|---|
-| 404 Not Found | Check URL/job path. Branch names need URL encoding (`feature/x` → `feature%2Fx`) |
+| 404 Not Found | Check URL/job path. For a multibranch job, pass the branch with `--branch feature/x` (don't hand-encode it). Aiming the `job build#` form at a multibranch/folder container returns an error listing its branches — re-run with one |
 | 401 Unauthorized | Run `jkit auth login` to re-authenticate |
 | 403 Forbidden | User lacks Jenkins permissions for this job |
 | 5xx Server Error | Retry. CLI auto-retries transient 502/503/504 |
 | No test results | JUnit plugin not configured, or build has no tests |
-| Stage log empty | Pipeline Graph View or Blue Ocean plugin required for stage-level logs |
+| Stage log empty / `no stages found` | Pipeline Graph View or Blue Ocean plugin required for stage-level logs. If you targeted a multibranch container, the error instead lists its branches — re-run with `--branch` |
 | `console log is … — refusing to dump it whole` | Log exceeds `--max-bytes` (default 50MB). Narrow with `--tail`/`--head`/`--grep`, redirect to a file, or pass `--max-bytes 0` |
 | `stage "X" is ambiguous` | Same name in multiple parallel branches — re-run with the qualified path (`--stage "Branch/X"`) or `--stage-id` from `jkit stages` |
