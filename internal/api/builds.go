@@ -72,6 +72,32 @@ func (c *Client) GetBuilds(jobPath string, limit int) ([]jenkins.Build, error) {
 	return result.Builds, nil
 }
 
+// GetBuildHistory returns the last `limit` builds with trigger causes included,
+// for trend/history views. Unlike GetBuilds it fetches the CauseAction so each
+// build's Cause() is populated.
+func (c *Client) GetBuildHistory(jobPath string, limit int) ([]jenkins.Build, error) {
+	path := NormalizeJobPath(jobPath) + "/api/json"
+	tree := fmt.Sprintf("builds[number,result,timestamp,duration,building,actions[_class,causes[shortDescription,_class]]]{0,%d}", limit)
+	query := url.Values{"tree": {tree}}
+
+	resp, err := c.Get(path, query)
+	if err != nil {
+		if e := c.enrichNotFound(jobPath, err); e != err {
+			return nil, e
+		}
+		return nil, fmt.Errorf("getting build history: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		Builds []jenkins.Build `json:"builds"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding build history: %w", err)
+	}
+	return result.Builds, nil
+}
+
 func (c *Client) GetBuild(jobPath string, number int) (*jenkins.Build, error) {
 	path := fmt.Sprintf("%s/%d/api/json", NormalizeJobPath(jobPath), number)
 	query := url.Values{"tree": {"number,result,timestamp,duration,building,url,actions[_class,parameters[name,value],causes[shortDescription,_class]],changeSets[items[commitId,msg,author[fullName],timestamp]]"}}
@@ -90,6 +116,35 @@ func (c *Client) GetBuild(jobPath string, number int) (*jenkins.Build, error) {
 		return nil, fmt.Errorf("decoding build: %w", err)
 	}
 	return &build, nil
+}
+
+// GetBuildEnv returns the injected environment variables for a build, read from
+// the EnvInject plugin's /injectedEnvVars endpoint. A 404 (build missing or the
+// EnvInject plugin not installed) is turned into an explanatory error rather than
+// a bare not-found.
+func (c *Client) GetBuildEnv(jobPath string, number int) (map[string]string, error) {
+	path := fmt.Sprintf("%s/%d/injectedEnvVars/api/json", NormalizeJobPath(jobPath), number)
+
+	resp, err := c.Get(path, nil)
+	if err != nil {
+		var nfe *jenkins.NotFoundError
+		if errors.As(err, &nfe) {
+			if hint := c.ContainerHint(jobPath); hint != nil {
+				return nil, hint
+			}
+			return nil, fmt.Errorf("no injected env vars for %s #%d — the build may not exist, or the EnvInject plugin (which exposes /injectedEnvVars) is not installed", jobPath, number)
+		}
+		return nil, fmt.Errorf("getting build env: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		EnvMap map[string]string `json:"envMap"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding build env: %w", err)
+	}
+	return result.EnvMap, nil
 }
 
 func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, error) {
