@@ -1,8 +1,7 @@
 # jkit — a Jenkins CLI for developers
 
-`jkit` is `gh` for Jenkins. Trigger builds, tail logs, inspect stages, lint
-`Jenkinsfile`s, and approve inputs from your terminal — fast, scriptable,
-zero-config.
+`jkit` is `gh` for Jenkins. Trigger builds, tail logs, inspect stages, and lint
+`Jenkinsfile`s from your terminal — fast, scriptable, zero-config.
 
 This is **not** a Jenkins admin tool. It's a developer productivity tool
 that thinks in workflows, not endpoints.
@@ -13,6 +12,10 @@ jkit status my-app               # recent builds
 jkit log my-app -f               # tail live build log
 jkit stages my-app               # list stages w/ IDs + paths
 jkit diagnose my-app             # summarize the failure
+jkit params my-app               # what params does it accept?
+jkit search backend              # find jobs by name
+jkit history my-app              # success rate + duration trend
+jkit env my-app                  # a build's injected env vars
 jkit lint                        # validate ./Jenkinsfile
 jkit open my-app                 # open in browser
 ```

@@ -483,11 +483,27 @@ Build in this order. Each step should result in a working (if incomplete) binary
 
 ---
 
+## Scope guard: observe + trigger, never mutate or elevate
+
+`jkit` observes existing jobs and triggers builds of them. Two hard lines keep
+the tool focused and safe for ordinary users:
+
+- **Never mutates a job's definition.** Reading a job's `config.xml` is fine;
+  writing it is not — job definitions belong in code (jobDSL / seed-job-as-code),
+  not in an ad-hoc CLI push.
+- **Never needs permissions beyond a normal build user.** Features that require
+  elevated rights most users lack (e.g. pipeline *replay*) are out of scope. New
+  read/discovery commands should be plain `GET`s.
+
+Filter every proposed feature through these before building it.
+
 ## Non-Goals (explicitly out of scope)
 
 - Jenkins administration (user management, plugin management, system config)
 - Jenkins installation or upgrade
 - Jenkinsfile generation or scaffolding (beyond linting)
+- Job definition writes (create/update `config.xml`) — use jobDSL instead
+- Pipeline replay and anything requiring rights beyond a normal build user
 - Visual/TUI dashboard (keep it CLI-first, not a terminal UI app)
 - Plugin system for `jkit` itself (premature — revisit after v1.0)
 - Groovy script execution

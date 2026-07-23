@@ -90,6 +90,35 @@ func (c *Client) inspectContainer(jobPath string) (*jenkins.Job, error) {
 	return &job, nil
 }
 
+// GetJobParameters returns the parameter definitions a job accepts. A job with no
+// ParametersDefinitionProperty returns an empty slice (not an error).
+func (c *Client) GetJobParameters(jobPath string) ([]jenkins.ParameterDefinition, error) {
+	path := NormalizeJobPath(jobPath) + "/api/json"
+	query := url.Values{"tree": {"property[parameterDefinitions[_class,name,type,description,defaultParameterValue[value],choices]]"}}
+
+	resp, err := c.Get(path, query)
+	if err != nil {
+		return nil, fmt.Errorf("getting job parameters: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		Property []struct {
+			ParameterDefinitions []jenkins.ParameterDefinition `json:"parameterDefinitions"`
+		} `json:"property"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding job parameters: %w", err)
+	}
+
+	for _, p := range result.Property {
+		if len(p.ParameterDefinitions) > 0 {
+			return p.ParameterDefinitions, nil
+		}
+	}
+	return nil, nil
+}
+
 func (c *Client) GetJob(jobPath string) (*jenkins.Job, error) {
 	path := NormalizeJobPath(jobPath) + "/api/json"
 	query := url.Values{"tree": {"name,fullName,url,color,lastBuild[number,result,timestamp,duration,building],inQueue"}}
