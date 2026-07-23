@@ -85,6 +85,31 @@ jkit list --format '{{range .}}{{.Name}}{{"\n"}}{{end}}'
 
 ---
 
+## `jkit search`
+
+Find jobs across the instance by name. Walks every folder (recursively) and
+prints the full paths of jobs whose name matches a case-insensitive substring.
+
+```
+jkit search <pattern> [--folder FOLDER] [--limit N]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--folder` | Limit the search to a folder subtree | (whole instance) |
+| `--limit` | Maximum results (0 = no limit); omitted matches are noted on stderr | 0 |
+
+Table columns: JOB (full path), TYPE (`pipeline`, `multibranch`, `freestyle`, …), STATUS.
+
+```bash
+jkit search backend                # match anywhere in the instance
+jkit search my-svc --folder team   # scope to a subtree
+jkit search deploy --limit 50      # cap results
+jkit search api --json             # JSON output
+```
+
+---
+
 ## `jkit status`
 
 Show build status.
@@ -127,6 +152,88 @@ jkit status my-app            # last 10 builds
 jkit status my-app --limit 3  # last 3 builds
 jkit status my-app 47         # build detail
 jkit status my-app 47 --json  # JSON detail
+```
+
+---
+
+## `jkit params`
+
+List the build parameters a job accepts — so you know what to pass to
+`jkit run -p KEY=VALUE` without opening the Jenkins UI.
+
+```
+jkit params [job]
+```
+
+Table columns: NAME, TYPE, DEFAULT, CHOICES, DESCRIPTION. `TYPE` is the
+friendly kind (`string`, `choice`, `boolean`, `password`, `text`, …).
+Password defaults are masked. A job that is not parameterized prints a notice.
+
+```bash
+jkit params my-app                 # list parameters
+jkit params team/backend/my-svc    # nested job
+jkit params my-app --json          # JSON output
+```
+
+---
+
+## `jkit history`
+
+Show a job's recent builds with a trend summary: success rate over the window
+and how the latest build's duration compares to the median.
+
+```
+jkit history [job] [--limit N]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--limit` | Number of recent builds to include | 20 |
+
+Table columns: #, RESULT, DURATION, STARTED, CAUSE. A summary line follows:
+
+```
+#   RESULT   DURATION  STARTED       CAUSE
+48  SUCCESS  2m10s     Jan 02 15:04  Started by user Yacine
+47  FAILURE  1m02s     Jan 02 14:00  Started by GitHub push
+
+Success rate: 8/10 (80%)   Median duration: 2m05s   Last vs median: +4%
+```
+
+In-progress and zero-duration builds are excluded from the duration median.
+
+```bash
+jkit history my-app             # last 20 builds + trend
+jkit history my-app --limit 50  # wider window
+jkit history my-app --json      # JSON output
+```
+
+---
+
+## `jkit env`
+
+Dump the environment variables injected into a build (via the EnvInject plugin's
+`/injectedEnvVars` endpoint) — useful for answering "why did this build behave
+differently". When build# is omitted, the last build is used.
+
+```
+jkit env [job] [build#] [--filter SUBSTR] [--show-secrets]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--filter` | Only show vars whose name contains this substring (case-insensitive) |
+| `--show-secrets` | Do not mask secret-looking values |
+
+Output is `KEY=VALUE`, sorted by name. Secret-looking values (`PASSWORD`,
+`TOKEN`, `SECRET`, …) are masked by default. Requires the EnvInject plugin on
+the Jenkins server; a clear error is shown if it is absent.
+
+```bash
+jkit env my-app                 # last build
+jkit env my-app 42              # specific build
+jkit env my-app 42 --filter GIT # only GIT* vars
+jkit env my-app 42 --json       # JSON output
 ```
 
 ---

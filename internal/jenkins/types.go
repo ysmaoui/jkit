@@ -33,6 +33,101 @@ func (j Job) IsContainer() bool {
 	return j.IsFolder() || j.IsMultibranch()
 }
 
+// ParameterDefinition describes a build parameter a job accepts, as returned by
+// the job's ParametersDefinitionProperty.
+type ParameterDefinition struct {
+	Class       string          `json:"_class"`
+	Name        string          `json:"name"`
+	Type        string          `json:"type"`
+	Description string          `json:"description"`
+	Default     *ParameterValue `json:"defaultParameterValue,omitempty"`
+	RawChoices  json.RawMessage `json:"choices,omitempty"`
+}
+
+type ParameterValue struct {
+	RawValue json.RawMessage `json:"value"`
+}
+
+// String renders a default parameter value, handling string/bool/number JSON types.
+func (v ParameterValue) String() string {
+	if len(v.RawValue) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(v.RawValue, &s); err == nil {
+		return s
+	}
+	return strings.Trim(string(v.RawValue), "\"")
+}
+
+// Kind returns a friendly parameter type (e.g. "string", "choice", "boolean",
+// "password", "text") derived from the Jenkins class name.
+func (p ParameterDefinition) Kind() string {
+	t := p.Type
+	if t == "" {
+		t = p.Class
+	}
+	if i := strings.LastIndex(t, "."); i >= 0 {
+		t = t[i+1:]
+	}
+	t = strings.TrimSuffix(t, "ParameterDefinition")
+	if t == "" {
+		return "unknown"
+	}
+	return strings.ToLower(t)
+}
+
+// IsSecret reports whether the parameter holds a secret (password) value.
+func (p ParameterDefinition) IsSecret() bool {
+	return p.Kind() == "password"
+}
+
+// DefaultString returns the default value, masking secrets.
+func (p ParameterDefinition) DefaultString() string {
+	if p.Default == nil {
+		return ""
+	}
+	val := p.Default.String()
+	if val != "" && p.IsSecret() {
+		return "••••••"
+	}
+	return val
+}
+
+// Choices returns the list of allowed values for a choice parameter, or nil.
+func (p ParameterDefinition) Choices() []string {
+	if len(p.RawChoices) == 0 {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal(p.RawChoices, &out); err == nil {
+		return out
+	}
+	return nil
+}
+
+// Kind returns a friendly job category derived from the Jenkins class:
+// "folder", "multibranch", "pipeline", "freestyle", or a shortened class name.
+func (j Job) Kind() string {
+	switch {
+	case j.IsMultibranch():
+		return "multibranch"
+	case j.IsFolder():
+		return "folder"
+	case strings.Contains(j.Class, "WorkflowJob"):
+		return "pipeline"
+	case strings.Contains(j.Class, "FreeStyleProject"):
+		return "freestyle"
+	}
+	if i := strings.LastIndex(j.Class, "."); i >= 0 {
+		return j.Class[i+1:]
+	}
+	if j.Class == "" {
+		return "job"
+	}
+	return j.Class
+}
+
 type Build struct {
 	Number     int           `json:"number"`
 	Result     string        `json:"result"`

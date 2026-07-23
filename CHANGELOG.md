@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-23
+
+### Added
+- `jkit params [job]` — list the build parameters a job accepts (name, type,
+  default, choices), so you know what to pass to `jkit run -p` without opening
+  the Jenkins UI. Password defaults are masked. Read-only.
+- `jkit search <pattern>` — find jobs across the instance by case-insensitive
+  name match, with `--folder` to scope a subtree and `--limit` to cap results.
+- `jkit env [job] [build#]` — dump a build's injected environment variables (via
+  the EnvInject `/injectedEnvVars` endpoint). Secret-looking values are masked by
+  default (`--show-secrets` to reveal, `--filter` to narrow); a clear error is
+  shown when the plugin is absent.
+- `jkit history [job]` — recent builds with a success-rate and duration-trend
+  summary (median duration, last-vs-median delta).
+
+### Fixed
+- README no longer advertises "approve inputs from your terminal" — there is no
+  such command.
+
 ## [0.5.0] - 2026-06-15
 
 ### Added
