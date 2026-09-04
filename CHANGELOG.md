@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- CI runs on every pull request, not only those targeting `main`. A stacked PR
+  used to report no checks at all, silently.
+
+### Fixed
 - A build number passed as a positional argument alongside a Jenkins URL is no
   longer ignored: `jkit status <job-url> 42` now targets build 42 instead of
   listing recent builds. Applies to every command that accepts a URL target,
