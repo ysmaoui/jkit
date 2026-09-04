@@ -14,6 +14,8 @@ stored in `~/.config/jkit/config.yml` — run `jkit auth login` once before firs
 ## Quick Reference
 
 All commands accept a Jenkins URL as first arg, or `job [build#]` positional args.
+The build number may sit in the URL or come after it as a separate argument
+(`jkit status URL 42`); giving both with different numbers is an error.
 For a **multibranch pipeline**, the `job build#` form needs the branch via
 `--branch` (a URL already includes it) — see [Multibranch pipelines](#multibranch-pipelines).
 
@@ -94,6 +96,23 @@ jkit open my-job 42
 | `--verbose` | Show HTTP request/response on stderr |
 | `--timeout DUR` | HTTP timeout (default 30s) |
 | `--no-color` | Disable ANSI colors |
+
+---
+
+## Reading `--json` output
+
+**Check `building` before `result`.** Jenkins serves a result on in-progress
+builds, so `"result": "SUCCESS"` next to `"building": true` is normal and tells
+you nothing: a pipeline that assigns `currentBuild.result` stamps a value that
+afterwards only ever worsens. A build is finished only when `building` is false.
+
+```bash
+jkit status URL --json | jq -r 'if .building then "BUILDING" else .result end'
+```
+
+Text output already collapses the two fields and prints `BUILDING`; `--json`
+and `--format` expose them raw. The same applies to a running build's
+`duration`, which Jenkins reports as `0` until the build is finalized.
 
 ---
 

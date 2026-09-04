@@ -28,10 +28,28 @@ func init() {
 }
 
 func runOpen(cmd *cobra.Command, args []string) error {
-	// If given a full URL, just open it directly
+	// If given a full URL, open it directly rather than rebuilding it from config
 	if len(args) > 0 && (strings.HasPrefix(args[0], "http://") || strings.HasPrefix(args[0], "https://")) {
-		fmt.Printf("Opening %s\n", args[0])
-		return openBrowser(args[0])
+		target := args[0]
+		if len(args) == 2 {
+			num, err := strconv.Atoi(args[1])
+			if err != nil {
+				return fmt.Errorf("invalid build number: %s", args[1])
+			}
+			// The URL may already carry the build number; only append when it does not
+			inURL := 0
+			if parsed, err := appctx.ParseJenkinsURL(args[0]); err == nil {
+				inURL = parsed.BuildNumber
+			}
+			switch {
+			case inURL == 0:
+				target = fmt.Sprintf("%s/%d", strings.TrimRight(args[0], "/"), num)
+			case inURL != num:
+				return fmt.Errorf("conflicting build numbers: #%d in the URL, #%d as an argument", inURL, num)
+			}
+		}
+		fmt.Printf("Opening %s\n", target)
+		return openBrowser(target)
 	}
 
 	host, err := hostFromCmd(cmd)

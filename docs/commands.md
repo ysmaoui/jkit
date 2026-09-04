@@ -15,6 +15,23 @@ All commands support these flags:
 
 ---
 
+## Job Targets
+
+Commands documented below as `[job] [build#]` also take a full Jenkins URL in
+place of the job path. The build number may sit in the URL or follow it as a
+separate argument; passing both with different numbers is an error.
+
+```bash
+jkit status my-app 47
+jkit status https://jenkins.company.com/job/my-app/47/
+jkit status https://jenkins.company.com/job/my-app/ 47
+```
+
+Omitting the job path falls back to `.jkit.yml`, then the git remote, then the
+directory name. Omitting the build number uses the latest build.
+
+---
+
 ## `jkit auth login`
 
 Authenticate with a Jenkins host.

@@ -35,6 +35,17 @@ func resolveJobArgs(cmd *cobra.Command, args []string, needBuild bool) (*api.Cli
 		if err != nil {
 			return nil, "", 0, err
 		}
+		buildNum := parsed.BuildNumber
+		if len(args) >= 2 {
+			n, err := strconv.Atoi(args[1])
+			if err != nil {
+				return nil, "", 0, fmt.Errorf("invalid build number: %s", args[1])
+			}
+			if buildNum > 0 && buildNum != n {
+				return nil, "", 0, fmt.Errorf("conflicting build numbers: #%d in the URL, #%d as an argument", buildNum, n)
+			}
+			buildNum = n
+		}
 		cfg, err := config.Load()
 		if err != nil {
 			return nil, "", 0, err
@@ -43,7 +54,7 @@ func resolveJobArgs(cmd *cobra.Command, args []string, needBuild bool) (*api.Cli
 		if err != nil {
 			return nil, "", 0, err
 		}
-		return client, parsed.JobPath, parsed.BuildNumber, nil
+		return client, parsed.JobPath, buildNum, nil
 	}
 
 	client, _, err := clientFromCmd(cmd)
