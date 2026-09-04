@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   including `jkit open`. A number given in both the URL and the argument must
   match, otherwise the command errors.
 
+### Changed
+- `jkit inspect` rejects flag combinations it would previously accept and
+  ignore: `--show-system` without `--history`, and `--show-secrets` with it.
+- `docs/commands.md` documents `--param`, the long form of `jkit run -p`.
+
 ### Added
 - `jkit inspect [job]` reads a job's `config.xml` and reports which Jenkinsfile
   runs, the repository behind it, the discovery traits with their strategy ids

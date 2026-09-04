@@ -34,10 +34,25 @@ plugin.`,
 }
 
 func init() {
-	inspectCmd.Flags().Bool("show-secrets", false, "Do not mask credentials embedded in SCM urls")
-	inspectCmd.Flags().Bool("history", false, "List config changes (who changed the job and when) instead of its definition")
-	inspectCmd.Flags().Bool("show-system", false, "With --history, list automated SYSTEM writes instead of collapsing them")
+	registerInspectFlags(inspectCmd)
 	rootCmd.AddCommand(inspectCmd)
+}
+
+// registerInspectFlags declares the whole flag surface in one place. The test
+// harness resets subcommand flags and rebuilds them, so a surface split across
+// two call sites drifts silently until a flag turns up missing under test.
+//
+// The mutual exclusions matter because inspect picks its mode with a flag
+// rather than a subcommand: a subcommand would shadow any job actually named
+// after it, and the job name is user data. The cost of that choice is that each
+// mode carries flags the others have no use for, so the relationships are
+// declared rather than left to quietly do nothing.
+func registerInspectFlags(c *cobra.Command) {
+	c.Flags().Bool("show-secrets", false, "Do not mask credentials embedded in SCM urls")
+	c.Flags().Bool("history", false, "List config changes (who changed the job and when) instead of its definition")
+	c.Flags().Bool("show-system", false, "With --history, list automated SYSTEM writes instead of collapsing them")
+	c.MarkFlagsMutuallyExclusive("history", "show-secrets")
+	c.MarkFlagsMutuallyExclusive("show-system", "show-secrets")
 }
 
 func runInspect(cmd *cobra.Command, args []string) error {
@@ -46,7 +61,13 @@ func runInspect(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if history, _ := cmd.Flags().GetBool("history"); history {
+	history, _ := cmd.Flags().GetBool("history")
+	// Cobra can express mutual exclusion but not "this flag needs that one",
+	// and a flag that silently does nothing is worse than one that objects.
+	if showSystem, _ := cmd.Flags().GetBool("show-system"); showSystem && !history {
+		return fmt.Errorf("--show-system only applies to --history, which lists a job's config changes")
+	}
+	if history {
 		return runInspectHistory(cmd, client, jobPath)
 	}
 

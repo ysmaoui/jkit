@@ -78,9 +78,7 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	logCmd.Flags().BoolP("ignore-case", "i", false, "Case-insensitive --grep matching")
 	listCmd.Flags().String("folder", "", "Folder path to list")
 	statusCmd.Flags().Int("limit", 10, "Number of recent builds to show")
-	inspectCmd.Flags().Bool("show-secrets", false, "Do not mask credentials embedded in SCM urls")
-	inspectCmd.Flags().Bool("history", false, "List config changes (who changed the job and when) instead of its definition")
-	inspectCmd.Flags().Bool("show-system", false, "With --history, list automated SYSTEM writes instead of collapsing them")
+	registerInspectFlags(inspectCmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()

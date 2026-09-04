@@ -74,3 +74,25 @@ func TestDocsCoverEveryGlobalFlag(t *testing.T) {
 		}
 	}
 }
+
+// Per-command flags were not covered by the global-flag check, so a flag could
+// ship undocumented. docs/commands.md is the reference and must name all of
+// them; SKILL.md is a curated subset and is not held to this.
+func TestCommandReferenceDocumentsEveryLocalFlag(t *testing.T) {
+	body := readDoc(t, commandRef)
+	for _, c := range rootCmd.Commands() {
+		if c.Hidden || c.Name() == "help" {
+			continue
+		}
+		if _, exempt := skillExemptions[c.Name()]; exempt {
+			continue
+		}
+		c.LocalFlags().VisitAll(func(f *pflag.Flag) {
+			if f.Hidden || f.Name == "help" {
+				return
+			}
+			assert.True(t, strings.Contains(body, "--"+f.Name),
+				"%s never mentions --%s, a local flag of `jkit %s`", commandRef, f.Name, c.Name())
+		})
+	}
+}
