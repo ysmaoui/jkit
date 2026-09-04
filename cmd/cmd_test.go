@@ -207,6 +207,59 @@ func TestStatusCommandNotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// A URL target and a positional build number are both accepted; the build
+// number may live in either.
+func TestStatusURLTargetBuildNumber(t *testing.T) {
+	cases := map[string][]string{
+		"number as argument": {"/job/my-app/", "42"},
+		"number in URL":      {"/job/my-app/42/"},
+		"number in both":     {"/job/my-app/42/", "42"},
+	}
+	for name, suffix := range cases {
+		t.Run(name, func(t *testing.T) {
+			var paths []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				if strings.Contains(r.URL.Path, "/42/api/json") {
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"number": 42, "result": "SUCCESS", "building": false,
+						"duration": 45000, "timestamp": 1700000000000,
+						"url": "http://jenkins/job/my-app/42/",
+					})
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer srv.Close()
+			setupTestConfig(t, srv.URL)
+
+			args := append([]string{"status", srv.URL + suffix[0]}, suffix[1:]...)
+			out, err := executeCmd(t, args...)
+			require.NoError(t, err)
+			assert.Contains(t, paths, "/job/my-app/42/api/json")
+			assert.Contains(t, out, "#42")
+		})
+	}
+}
+
+func TestStatusURLTargetBadBuildNumber(t *testing.T) {
+	tests := map[string]struct {
+		args    []string
+		wantErr string
+	}{
+		"conflicting":  {[]string{"status", "https://jenkins.example.com/job/my-app/41/", "42"}, "conflicting build numbers"},
+		"not a number": {[]string{"status", "https://jenkins.example.com/job/my-app/", "latest"}, "invalid build number"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			setupTestConfig(t, "https://jenkins.example.com")
+			_, err := executeCmd(t, tt.args...)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 // --- run ---
 
 func TestRunCommandTrigger(t *testing.T) {
@@ -621,6 +674,54 @@ func TestOpenCommandNoArgs(t *testing.T) {
 	// The point is it doesn't fail with "requires at least 1 arg"
 	if err != nil {
 		assert.NotContains(t, err.Error(), "requires at least 1 arg")
+	}
+}
+
+// stubBrowser puts no-op stand-ins for the platform browser launchers first on
+// PATH so open tests do not spawn a real browser.
+func stubBrowser(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range []string{"xdg-open", "open", "rundll32"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexit 0\n"), 0700))
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestOpenCommandURLTargetBuildNumber(t *testing.T) {
+	tests := map[string]struct {
+		args []string
+		want string
+	}{
+		"number as argument": {[]string{"https://jenkins.example.com/job/my-app/", "42"}, "https://jenkins.example.com/job/my-app/42"},
+		"number in URL":      {[]string{"https://jenkins.example.com/job/my-app/42/"}, "https://jenkins.example.com/job/my-app/42/"},
+		"number in both":     {[]string{"https://jenkins.example.com/job/my-app/42/", "42"}, "https://jenkins.example.com/job/my-app/42/"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			stubBrowser(t)
+			out, err := executeCmd(t, append([]string{"open"}, tt.args...)...)
+			require.NoError(t, err)
+			assert.Contains(t, out, "Opening "+tt.want+"\n")
+		})
+	}
+}
+
+func TestOpenCommandURLTargetBadBuildNumber(t *testing.T) {
+	tests := map[string]struct {
+		args    []string
+		wantErr string
+	}{
+		"conflicting":  {[]string{"https://jenkins.example.com/job/my-app/41/", "42"}, "conflicting build numbers"},
+		"not a number": {[]string{"https://jenkins.example.com/job/my-app/", "latest"}, "invalid build number"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			stubBrowser(t)
+			_, err := executeCmd(t, append([]string{"open"}, tt.args...)...)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
 	}
 }
 

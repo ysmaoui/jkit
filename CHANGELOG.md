@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- A build number passed as a positional argument alongside a Jenkins URL is no
+  longer ignored: `jkit status <job-url> 42` now targets build 42 instead of
+  listing recent builds. Applies to every command that accepts a URL target,
+  including `jkit open`. A number given in both the URL and the argument must
+  match, otherwise the command errors.
+
+### Changed
+- `docs/scripting.md` examples read `building` before `result`. Jenkins serves a
+  result on in-progress builds, so `.result` alone can report SUCCESS on a build
+  that is still running.
+
 ## [0.6.0] - 2026-07-23
 
 ### Added
