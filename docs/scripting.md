@@ -6,13 +6,22 @@ All data commands support `--json` for machine-readable output:
 
 ```bash
 jkit list --json | jq '.[].name'
-jkit status my-app --json | jq '.[0].result'
 jkit status my-app 42 --json | jq '.url'
+
+# Read `building` before `result`
+jkit status my-app --json | jq -r '.[0] | if .building then "BUILDING" else .result end'
 
 # Resolve a stage's node ID by its qualified path, then fetch just that log
 id=$(jkit stages my-app 42 --json | jq -r '.[] | select(.path=="Linux/Test") | .id')
 jkit log my-app 42 --stage-id "$id"
 ```
+
+`result` is not a completion signal. Jenkins serves a result on in-progress
+builds, so `"result": "SUCCESS"` alongside `"building": true` is normal: a
+pipeline that assigns `currentBuild.result` stamps a value that afterwards only
+ever worsens. A script that reads `.result` without checking `.building` will
+call a running build green. Text output already collapses the two fields and
+prints `BUILDING`; JSON and `--format` output expose them raw.
 
 ## Go Template Output
 
@@ -23,10 +32,10 @@ Use `--format` with Go `text/template` syntax:
 jkit list --format '{{range .}}{{.Name}}{{"\n"}}{{end}}'
 
 # Build results
-jkit status my-app --format '{{range .}}#{{.Number}} {{.Result}}{{"\n"}}{{end}}'
+jkit status my-app --format '{{range .}}#{{.Number}} {{if .Building}}BUILDING{{else}}{{.Result}}{{end}}{{"\n"}}{{end}}'
 
 # Single build
-jkit status my-app 42 --format '{{.Result}} in {{.Duration}}ms'
+jkit status my-app 42 --format '{{if .Building}}BUILDING{{else}}{{.Result}} in {{.Duration}}ms{{end}}'
 ```
 
 ## Exit Codes
@@ -121,9 +130,9 @@ fi
 ### Check Latest Build Status
 
 ```bash
-result=$(jkit status my-app --json | jq -r '.[0].result')
-if [ "$result" != "SUCCESS" ]; then
-    echo "Latest build: $result"
+status=$(jkit status my-app --json | jq -r '.[0] | if .building then "BUILDING" else .result end')
+if [ "$status" != "SUCCESS" ]; then
+    echo "Latest build: $status"
     exit 1
 fi
 ```
