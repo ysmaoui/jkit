@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -113,4 +114,66 @@ func TestGetJobConfigHistoryBranchJobPath(t *testing.T) {
 	_, err := NewClient(srv.URL, "admin", "secret").GetJobConfigHistory("team/svc/feature%2Fbuild")
 	require.NoError(t, err)
 	assert.Equal(t, "/job/team/job/svc/job/feature%2Fbuild/jobConfigHistory/api/json", got)
+}
+
+func TestGetJobConfigRevision(t *testing.T) {
+	var got *url.URL
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL
+		_, _ = w.Write([]byte("<flow-definition/>\n"))
+	}))
+	defer srv.Close()
+
+	data, err := NewClient(srv.URL, "admin", "secret").GetJobConfigRevision("team/svc", "2026-07-24_13-06-30")
+	require.NoError(t, err)
+	assert.Equal(t, "<flow-definition/>\n", string(data))
+	assert.Equal(t, "/job/team/job/svc/jobConfigHistory/configOutput", got.Path)
+	assert.Equal(t, "2026-07-24_13-06-30", got.Query().Get("timestamp"))
+	assert.Equal(t, "raw", got.Query().Get("type"))
+}
+
+// Trap 1 of jk-2gc.6: the plugin answers 200 with a zero-byte body for a
+// timestamp it does not hold, so the status code proves nothing and the error
+// has to come from the empty response, naming the timestamp that produced it.
+func TestGetJobConfigRevisionEmptyBodyIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, "admin", "secret").GetJobConfigRevision("team/svc", "1999-01-01_00-00-00")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "1999-01-01_00-00-00")
+	assert.Contains(t, err.Error(), "team/svc")
+	assert.Contains(t, err.Error(), "--history")
+}
+
+// A whitespace-only body is the same failure: nothing was stored.
+func TestGetJobConfigRevisionBlankBodyIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("\n  \n"))
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, "admin", "secret").GetJobConfigRevision("team/svc", "2026-07-24_13-06-30")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "2026-07-24_13-06-30")
+}
+
+// The plugin's own 404 must still be told apart from a missing job.
+func TestGetJobConfigRevisionMissingPlugin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/jobConfigHistory/") {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("<html><head><title>Error 404 Not Found</title></head></html>"))
+			return
+		}
+		_, _ = w.Write([]byte(`{"_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob","name":"svc"}`))
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, "admin", "secret").GetJobConfigRevision("team/svc", "2026-07-24_13-06-30")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JobConfigHistory")
 }

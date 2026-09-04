@@ -78,6 +78,8 @@ jkit inspect my-job --xml            # raw config.xml, for fields the summary om
 # Job config change log: "it worked last week, what changed?"
 jkit inspect my-job --history       # who changed the job config, and when
 jkit inspect my-job --history --show-system   # include automated re-index writes
+jkit inspect my-job --diff          # what the last config change actually did
+jkit inspect my-job --diff --diff-from 2026-07-24_13-06-30 --diff-to 2026-08-27_14-58-13
 
 # Trigger build
 jkit run my-job -p KEY=VAL --wait --log
@@ -220,6 +222,16 @@ can truncate the response silently. An empty result means either nothing
 changed or you lack Job/Configure, because the plugin answers a permission
 failure with an empty list rather than a 403. If the plugin is not installed the
 command says so by name instead of reporting a missing job.
+
+`jkit inspect <job> --diff` turns a history entry into the change it made: it
+fetches two stored revisions of the `config.xml` and prints a unified diff,
+oldest on the left. With no timestamps it compares the two most recent
+revisions; otherwise pass a pair of `date` values from `--history` as
+`--diff-from` and `--diff-to`. Only the diff goes to stdout. Two things to read
+carefully: a job with a single recorded revision, which is the normal state of a
+folder, cannot be diffed at all, and without Job/Configure Jenkins masks secrets
+and re-encrypts them on every save, so a diff can appear where nothing was
+reconfigured — the output flags that case rather than leaving you to guess.
 
 ---
 

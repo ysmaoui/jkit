@@ -213,7 +213,7 @@ credentials behind it, which branches and PRs the indexing discovers, when a
 discovered head actually builds, and how long builds are kept.
 
 ```
-jkit inspect [job] [--xml [-o FILE]] [--history [--show-system]] [--show-secrets] [--history] [--show-system]
+jkit inspect [job] [--xml [-o FILE]] [--history [--show-system]] [--diff [--diff-from TS --diff-to TS]] [--show-secrets]
 ```
 
 | Flag | Description |
@@ -223,15 +223,18 @@ jkit inspect [job] [--xml [-o FILE]] [--history [--show-system]] [--show-secrets
 | `--show-secrets` | Do not mask credentials embedded in SCM urls |
 | `--history` | List config changes (who changed the job and when) instead of its definition |
 | `--show-system` | With `--history`, list automated SYSTEM writes instead of collapsing them |
+| `--diff` | Show what changed in the `config.xml` between two recorded revisions |
+| `--diff-from TS` | With `--diff`, the older revision, as a `--history` timestamp (`2006-01-02_15-04-05`) |
+| `--diff-to TS` | With `--diff`, the newer revision, as a `--history` timestamp |
 
-`--show-system` requires `--history`, and `--show-secrets` applies only to the
-definition view, so combining it with `--history` is rejected rather than
-silently ignored.
+`--show-system` requires `--history`, `--diff-from` and `--diff-to` require
+`--diff`, and `--show-secrets` applies only to the definition view, so combining
+it with either of the others is rejected rather than silently ignored.
 
 `--xml` is the escape hatch: it prints exactly what Jenkins stores, for fields
 the decoder does not model and for migrating a job to code. It reformats and
 redacts nothing, so a credential embedded in an SCM url appears in full. The
-three modes are mutually exclusive.
+four modes are mutually exclusive.
 
 `/api/json` answers none of this: it reports a multibranch job's `sources` as
 empty objects. Reading `config.xml` needs the Job/ExtendedRead permission.
@@ -307,6 +310,57 @@ names the plugin rather than claiming the job does not exist.
 
 `--json` and `--format` emit every entry, uncollapsed.
 
+### `--diff`: what the change actually did
+
+`--history` says a revision exists; `--diff` says what is in it. It fetches two
+stored revisions of the `config.xml` and prints a unified diff of them.
+
+```
+jkit inspect my-app --diff
+jkit inspect my-app --diff --diff-from 2026-07-24_13-06-30 --diff-to 2026-08-27_14-58-13
+```
+
+With no timestamps it compares the two most recent revisions, which is the
+"what changed since yesterday?" case. The timestamps are the `date` field of a
+history entry, exactly as `--json` on `--history` prints it, so the usual route
+is to list first and copy a pair across.
+
+```
+--- team/my-service @ 2026-07-24_13-06-30
++++ team/my-service @ 2026-08-27_14-58-13
+@@ -12,7 +12,7 @@
+   <scriptPath>Jenkinsfile</scriptPath>
+-  <numToKeep>10</numToKeep>
++  <numToKeep>50</numToKeep>
+```
+
+The older revision is always the left side, whichever way round the two
+timestamps are given, because the plugin's own diff view orders them that way
+and two tools disagreeing about the direction of the same change is worse than
+one of them ignoring an argument.
+
+Only the diff itself goes to stdout, so it pipes into `patch`, `diffstat` or a
+pager unchanged. Everything else, including "these two revisions are identical",
+is written to stderr.
+
+Two warnings the output carries for you:
+
+- A timestamp the plugin does not hold is answered with HTTP 200 and an empty
+  body, not a 404, so `jkit` treats an empty response as the failure and names
+  the timestamp that caused it. A timestamp that is not in the plugin's format
+  is rejected before the request.
+- With Job/ExtendedRead but not Job/Configure, Jenkins masks secrets on the way
+  out and re-encrypts stored ones on every save. Two revisions of a job nobody
+  touched can therefore differ. When every change in the diff is such a value,
+  the output says so instead of letting it read as a configuration change.
+
+`--diff` needs two revisions. A job the plugin has recorded once, which is the
+normal state of a folder, is reported as having nothing to compare against.
+
+`--json` and `--format` emit the same diff as hunks: `from`, `to`, `maskedOnly`
+and a `hunks` array of `oldStart`/`oldLines`/`newStart`/`newLines` with the
+lines and their `op` (`" "`, `-`, `+`).
+
 ```bash
 jkit inspect my-app                              # structured view
 jkit inspect team/backend/my-svc                 # nested job
@@ -315,6 +369,8 @@ jkit inspect https://jenkins.example.com/job/x/  # by URL
 jkit inspect my-app --json                       # JSON output
 jkit inspect my-app --history                    # who changed the job config, and when
 jkit inspect my-app --history --show-system      # including automated re-index writes
+jkit inspect my-app --diff                       # what changed in the last config edit
+jkit inspect my-app --diff --diff-from 2026-07-24_13-06-30 --diff-to 2026-08-27_14-58-13
 ```
 
 ---
