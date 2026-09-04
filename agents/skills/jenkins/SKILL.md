@@ -25,6 +25,10 @@ jkit status URL
 jkit status my-job 42
 jkit status my-job --limit 5        # recent builds
 
+# Build trend (success rate over the window, last-vs-median duration)
+jkit history my-job                 # last 20 builds
+jkit history my-job --limit 50
+
 # Pipeline stages (node IDs + qualified paths)
 jkit stages URL                     # list stages: ID, path, type, status
 jkit stages URL --json              # machine-readable (id, name, path, …)
@@ -57,6 +61,14 @@ jkit test URL --new-failures        # regressions only
 # SCM changes (commits)
 jkit changes URL
 
+# Injected env vars (EnvInject plugin) — secret-looking values masked
+jkit env URL                        # last build if no build# given
+jkit env URL --filter GIT           # names containing GIT
+jkit env URL --show-secrets         # reveal masked values
+
+# Parameters a job accepts (name, type, default, choices)
+jkit params my-job                  # what to pass to `jkit run -p`
+
 # Trigger build
 jkit run my-job -p KEY=VAL --wait --log
 
@@ -79,6 +91,14 @@ jkit queue cancel 12345             # cancel
 jkit list                           # current folder
 jkit list -r                        # recursive
 
+# Find jobs by name (case-insensitive substring, whole instance)
+jkit search backend
+jkit search deploy --folder team --limit 50
+
+# Validate a declarative Jenkinsfile against the server
+jkit lint                           # ./Jenkinsfile
+jkit lint path/to/Jenkinsfile
+
 # Open in browser
 jkit open my-job 42
 ```
@@ -95,6 +115,7 @@ jkit open my-job 42
 | `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x`); slashes encoded automatically. Not needed when passing a URL |
 | `--verbose` | Show HTTP request/response on stderr |
 | `--timeout DUR` | HTTP timeout (default 30s) |
+| `--pipeline-source` | Pipeline backend: `auto` (default), `pgv`, `blueocean` (env `JKIT_PIPELINE_SOURCE`) |
 | `--no-color` | Disable ANSI colors |
 
 ---
