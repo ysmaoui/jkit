@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   including `jkit open`. A number given in both the URL and the argument must
   match, otherwise the command errors.
 
+### Added
+- A test asserts every command and global flag appears in `docs/commands.md` and
+  in the agent skill, so a new command cannot ship undocumented.
+
 ### Changed
 - `docs/scripting.md` examples read `building` before `result`. Jenkins serves a
   result on in-progress builds, so `.result` alone can report SUCCESS on a build
