@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   it. Unredacted and unreformatted: it is the escape hatch for fields the
   summary does not model, and the byte-exact source for migrating a job to code.
 
+- `jkit inspect --diff` prints a unified diff of a job's `config.xml` between two
+  recorded revisions, the two most recent by default or a pair named with
+  `--diff-from` and `--diff-to`. The older revision is always the left side. A
+  diff whose every change is a value Jenkins masks is reported as such, since
+  secrets are re-encrypted on every save and differ without anything having been
+  reconfigured.
+
 ### Changed
 - `jkit inspect` rejects flag combinations it would previously accept and
   ignore: `--show-system` without `--history`, and `--show-secrets` with it.

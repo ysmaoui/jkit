@@ -46,16 +46,33 @@ func (c ConfigChange) BySystem() bool {
 // When parses Date. The second return is false when the plugin wrote a format
 // this layout does not cover, in which case Date is still worth showing raw.
 func (c ConfigChange) When() (time.Time, bool) {
-	t, err := time.Parse(configDateLayout, c.Date)
-	return t, err == nil
+	return ParseConfigTimestamp(c.Date)
 }
 
 // Timestamp renders Date for reading, falling back to the raw field.
 func (c ConfigChange) Timestamp() string {
-	if t, ok := c.When(); ok {
+	return FormatConfigTimestamp(c.Date)
+}
+
+// ParseConfigTimestamp parses a plugin timestamp. It is also what identifies a
+// stored revision on the wire, so callers validate user input with it before
+// asking the server for a revision that cannot exist.
+func ParseConfigTimestamp(date string) (time.Time, bool) {
+	t, err := time.Parse(configDateLayout, date)
+	return t, err == nil
+}
+
+// ConfigTimestampLayout is the plugin's timestamp form, for error messages that
+// have to show the caller what a valid one looks like.
+const ConfigTimestampLayout = configDateLayout
+
+// FormatConfigTimestamp renders a plugin timestamp for reading, falling back to
+// the raw string when it is not in the layout the plugin writes.
+func FormatConfigTimestamp(date string) string {
+	if t, ok := ParseConfigTimestamp(date); ok {
 		return t.Format("2006-01-02 15:04:05")
 	}
-	return c.Date
+	return date
 }
 
 // Who identifies the author. The login is what actually identifies someone:
