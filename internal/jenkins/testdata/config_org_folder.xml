@@ -1,0 +1,73 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<jenkins.branch.OrganizationFolder plugin="branch-api@2.1280.v0d4e5b_b_460ef">
+  <actions/>
+  <description>Every widget repository in the ACME organization</description>
+  <displayName>ACME widgets</displayName>
+  <properties>
+    <jenkins.branch.OrganizationChildOrphanedItemsProperty plugin="branch-api@2.1280.v0d4e5b_b_460ef">
+      <strategy class="com.cloudbees.hudson.plugins.folder.computed.DefaultOrphanedItemStrategy" plugin="cloudbees-folder@6.1100.ve9eed61d16c4">
+        <pruneDeadBranches>true</pruneDeadBranches>
+        <daysToKeep>7</daysToKeep>
+        <numToKeep>-1</numToKeep>
+        <abortBuilds>false</abortBuilds>
+      </strategy>
+    </jenkins.branch.OrganizationChildOrphanedItemsProperty>
+  </properties>
+  <folderViews class="jenkins.branch.OrganizationFolderViewHolder" plugin="branch-api@2.1280.v0d4e5b_b_460ef">
+    <owner class="jenkins.branch.OrganizationFolder" reference="../.."/>
+  </folderViews>
+  <healthMetrics/>
+  <icon class="jenkins.branch.MetadataActionFolderIcon" plugin="branch-api@2.1280.v0d4e5b_b_460ef">
+    <owner class="jenkins.branch.OrganizationFolder" reference="../.."/>
+  </icon>
+  <orphanedItemStrategy class="com.cloudbees.hudson.plugins.folder.computed.DefaultOrphanedItemStrategy" plugin="cloudbees-folder@6.1100.ve9eed61d16c4">
+    <pruneDeadBranches>true</pruneDeadBranches>
+    <daysToKeep>7</daysToKeep>
+    <numToKeep>-1</numToKeep>
+    <abortBuilds>false</abortBuilds>
+  </orphanedItemStrategy>
+  <triggers>
+    <com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger plugin="cloudbees-folder@6.1100.ve9eed61d16c4">
+      <spec>H H/12 * * *</spec>
+      <interval>90000000</interval>
+    </com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger>
+  </triggers>
+  <disabled>false</disabled>
+  <navigators>
+    <org.jenkinsci.plugins.github__branch__source.GitHubSCMNavigator plugin="github-branch-source@1967.1970.vd86979736546">
+      <apiUri>https://github.example.com/api/v3</apiUri>
+      <repoOwner>ACME</repoOwner>
+      <credentialsId>acme-github-app</credentialsId>
+      <traits>
+        <org.jenkinsci.plugins.github__branch__source.BranchDiscoveryTrait>
+          <strategyId>1</strategyId>
+        </org.jenkinsci.plugins.github__branch__source.BranchDiscoveryTrait>
+        <jenkins.scm.impl.trait.RegexSCMSourceFilterTrait plugin="scm-api@728.vc30dcf7a_0df5">
+          <regex>widget-.*</regex>
+        </jenkins.scm.impl.trait.RegexSCMSourceFilterTrait>
+      </traits>
+    </org.jenkinsci.plugins.github__branch__source.GitHubSCMNavigator>
+  </navigators>
+  <projectFactories>
+    <org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProjectFactory plugin="workflow-multibranch@821.vc3b_4ea_780798">
+      <owner class="jenkins.branch.OrganizationFolder" reference="../../.."/>
+      <scriptPath>ci/Jenkinsfile</scriptPath>
+    </org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProjectFactory>
+  </projectFactories>
+  <buildStrategies>
+    <jenkins.branch.buildstrategies.basic.SkipInitialBuildOnFirstBranchIndexing plugin="basic-branch-build-strategies@317.v85b_331d6cc42"/>
+  </buildStrategies>
+  <strategy class="jenkins.branch.DefaultBranchPropertyStrategy">
+    <properties>
+      <jenkins.branch.BuildRetentionBranchProperty>
+        <buildDiscarder class="hudson.tasks.LogRotator">
+          <daysToKeep>-1</daysToKeep>
+          <numToKeep>10</numToKeep>
+          <artifactDaysToKeep>-1</artifactDaysToKeep>
+          <artifactNumToKeep>-1</artifactNumToKeep>
+          <removeLastBuild>false</removeLastBuild>
+        </buildDiscarder>
+      </jenkins.branch.BuildRetentionBranchProperty>
+    </properties>
+  </strategy>
+</jenkins.branch.OrganizationFolder>

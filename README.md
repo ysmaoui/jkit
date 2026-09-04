@@ -13,6 +13,7 @@ jkit log my-app -f               # tail live build log
 jkit stages my-app               # list stages w/ IDs + paths
 jkit diagnose my-app             # summarize the failure
 jkit params my-app               # what params does it accept?
+jkit inspect my-app              # which Jenkinsfile, which repo, which branches
 jkit search backend              # find jobs by name
 jkit history my-app              # success rate + duration trend
 jkit env my-app                  # a build's injected env vars

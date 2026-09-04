@@ -1,6 +1,7 @@
 package output
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -30,4 +31,28 @@ var jenkinsAnnotationRe = regexp.MustCompile(`\x1b\[8mha:.*?\x1b\[0m`)
 // SanitizeLog strips Jenkins pipeline annotation markers from console output.
 func SanitizeLog(text string) string {
 	return jenkinsAnnotationRe.ReplaceAllString(text, "")
+}
+
+// urlCredentialMask stands in for redacted userinfo. It is spliced in as text
+// rather than set via url.User, which percent-encodes anything it is given.
+const urlCredentialMask = "***"
+
+// RedactURLCredentials replaces the userinfo of an http(s) URL with a mask,
+// keeping scheme, host and path so the location stays readable. Jenkins jobs
+// normally reference a credentialsId, but an SCM url may embed the secret
+// directly as https://user:token@host/repo.git. scp-style git remotes
+// (git@host:org/repo.git) carry no userinfo in the URL sense and are left
+// alone; the "git" there is a conventional account name, not a secret.
+func RedactURLCredentials(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = nil
+	stripped := u.String()
+	prefix := u.Scheme + "://"
+	if !strings.HasPrefix(stripped, prefix) {
+		return stripped
+	}
+	return prefix + urlCredentialMask + "@" + stripped[len(prefix):]
 }
