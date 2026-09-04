@@ -29,6 +29,7 @@ none of this; reading config.xml needs the Job/ExtendedRead permission.`,
 }
 
 func init() {
+	inspectCmd.Flags().Bool("show-secrets", false, "Do not mask credentials embedded in SCM urls")
 	rootCmd.AddCommand(inspectCmd)
 }
 
@@ -41,6 +42,10 @@ func runInspect(cmd *cobra.Command, args []string) error {
 	def, err := client.GetJobDefinition(jobPath)
 	if err != nil {
 		return err
+	}
+
+	if showSecrets, _ := cmd.Flags().GetBool("show-secrets"); !showSecrets {
+		redactRemotes(def)
 	}
 
 	isJSON, _ := cmd.Flags().GetBool("json")
@@ -328,4 +333,20 @@ func yesNo(b bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+// redactRemotes masks credentials embedded in SCM urls. It runs before any
+// output path so text, --json and --format are covered by the same pass.
+func redactRemotes(def *jenkins.JobDefinition) {
+	if def.Script != nil {
+		def.Script.Remote = output.RedactURLCredentials(def.Script.Remote)
+	}
+	for i := range def.Sources {
+		src := def.Sources[i].Source
+		if src == nil {
+			continue
+		}
+		src.Remote = output.RedactURLCredentials(src.Remote)
+		src.APIURI = output.RedactURLCredentials(src.APIURI)
+	}
 }

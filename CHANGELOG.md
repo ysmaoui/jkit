@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 - CI runs on every pull request, not only those targeting `main`. A stacked PR
   used to report no checks at all, silently.
-
-### Fixed
 - A build number passed as a positional argument alongside a Jenkins URL is no
   longer ignored: `jkit status <job-url> 42` now targets build 42 instead of
   listing recent builds. Applies to every command that accepts a URL target,
@@ -24,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   discarder. `/api/json` returns none of this for multibranch jobs. Anything the
   CLI cannot decode is reported by class name rather than dropped, and an absent
   section says what its absence means.
+- `jkit inspect` masks credentials embedded in an SCM url as `https://***@host/repo.git`
+  in text, `--json` and `--format`; `--show-secrets` reveals them.
 - A test asserts every command and global flag appears in `docs/commands.md` and
   in the agent skill, so a new command cannot ship undocumented.
 

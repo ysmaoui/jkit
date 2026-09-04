@@ -72,6 +72,7 @@ jkit params my-job                  # what to pass to `jkit run -p`
 # Job definition from config.xml (Jenkinsfile, repo, discovery, retention)
 jkit inspect my-job                 # why a branch does not build / which Jenkinsfile ran
 jkit inspect team/svc --branch feature/x
+jkit inspect my-job --show-secrets    # reveal a credential embedded in the SCM url
 
 # Trigger build
 jkit run my-job -p KEY=VAL --wait --log

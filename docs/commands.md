@@ -213,11 +213,19 @@ credentials behind it, which branches and PRs the indexing discovers, when a
 discovered head actually builds, and how long builds are kept.
 
 ```
-jkit inspect [job]
+jkit inspect [job] [--show-secrets]
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--show-secrets` | Do not mask credentials embedded in SCM urls |
 
 `/api/json` answers none of this: it reports a multibranch job's `sources` as
 empty objects. Reading `config.xml` needs the Job/ExtendedRead permission.
+
+A job normally references a `credentialsId`, but an SCM url can carry the secret
+inline as `https://user:token@host/repo.git`. Those are printed as
+`https://***@host/repo.git` in text, `--json` and `--format` alike.
 
 Each section is printed only when the job has it. Numeric strategy ids are
 translated into the wording of the Jenkins UI. Anything the CLI cannot decode is

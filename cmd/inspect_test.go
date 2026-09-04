@@ -184,3 +184,20 @@ func TestInspectMarksEveryUndecodedLine(t *testing.T) {
 		}
 	}
 }
+
+// A job may embed its credential directly in the SCM url instead of referencing
+// a credentialsId. Redaction runs before every output path, so --json must be
+// covered as well as the text view.
+func TestInspectRedactsCredentialsInSCMURL(t *testing.T) {
+	const secret = "ghp_notarealtoken"
+
+	text := inspect(t, "config_embedded_credentials.xml", "team/service")
+	assert.NotContains(t, text, secret)
+	assert.Contains(t, text, "https://***@git.example.com/ACME/widget.git")
+
+	raw := inspect(t, "config_embedded_credentials.xml", "team/service", "--json")
+	assert.NotContains(t, raw, secret)
+
+	shown := inspect(t, "config_embedded_credentials.xml", "team/service", "--show-secrets")
+	assert.Contains(t, shown, secret)
+}
