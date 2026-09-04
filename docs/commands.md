@@ -7,6 +7,7 @@ All commands support these flags:
 | Flag | Description |
 |------|-------------|
 | `--host HOST` | Override Jenkins host URL |
+| `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x`); slashes are encoded for you |
 | `--json` | Output as JSON |
 | `--format TMPL` | Output using Go template |
 | `--no-color` | Disable colored output |
@@ -30,6 +31,16 @@ jkit status https://jenkins.company.com/job/my-app/ 47
 
 Omitting the job path falls back to `.jkit.yml`, then the git remote, then the
 directory name. Omitting the build number uses the latest build.
+
+A multibranch pipeline job holds one child job per branch, and only those
+children have builds. Name the branch with `--branch`, or paste a URL, which
+already carries it. Targeting the parent without a branch returns an error
+listing the branches available.
+
+```bash
+jkit log team/svc 42 --branch feature/x
+jkit log https://jenkins.company.com/job/team/job/svc/job/feature%2Fx/42/
+```
 
 ---
 
