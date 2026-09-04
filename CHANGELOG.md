@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   including `jkit open`. A number given in both the URL and the argument must
   match, otherwise the command errors.
 
+- `jkit inspect --xml` prints the job's raw `config.xml`, with `-o FILE` to save
+  it. Unredacted and unreformatted: it is the escape hatch for fields the
+  summary does not model, and the byte-exact source for migrating a job to code.
+
 ### Changed
 - `jkit inspect` rejects flag combinations it would previously accept and
   ignore: `--show-system` without `--history`, and `--show-secrets` with it.

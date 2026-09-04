@@ -213,11 +213,13 @@ credentials behind it, which branches and PRs the indexing discovers, when a
 discovered head actually builds, and how long builds are kept.
 
 ```
-jkit inspect [job] [--show-secrets] [--history] [--show-system]
+jkit inspect [job] [--xml [-o FILE]] [--history [--show-system]] [--show-secrets] [--history] [--show-system]
 ```
 
 | Flag | Description |
 |------|-------------|
+| `--xml` | Print the raw `config.xml` instead of the decoded summary |
+| `-o, --output FILE` | With `--xml`, write to this file instead of stdout |
 | `--show-secrets` | Do not mask credentials embedded in SCM urls |
 | `--history` | List config changes (who changed the job and when) instead of its definition |
 | `--show-system` | With `--history`, list automated SYSTEM writes instead of collapsing them |
@@ -225,6 +227,11 @@ jkit inspect [job] [--show-secrets] [--history] [--show-system]
 `--show-system` requires `--history`, and `--show-secrets` applies only to the
 definition view, so combining it with `--history` is rejected rather than
 silently ignored.
+
+`--xml` is the escape hatch: it prints exactly what Jenkins stores, for fields
+the decoder does not model and for migrating a job to code. It reformats and
+redacts nothing, so a credential embedded in an SCM url appears in full. The
+three modes are mutually exclusive.
 
 `/api/json` answers none of this: it reports a multibranch job's `sources` as
 empty objects. Reading `config.xml` needs the Job/ExtendedRead permission.

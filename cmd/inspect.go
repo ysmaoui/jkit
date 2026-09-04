@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
 )
@@ -51,14 +52,26 @@ func registerInspectFlags(c *cobra.Command) {
 	c.Flags().Bool("show-secrets", false, "Do not mask credentials embedded in SCM urls")
 	c.Flags().Bool("history", false, "List config changes (who changed the job and when) instead of its definition")
 	c.Flags().Bool("show-system", false, "With --history, list automated SYSTEM writes instead of collapsing them")
+	c.Flags().Bool("xml", false, "Print the raw config.xml instead of the decoded summary")
+	c.Flags().StringP("output", "o", "", "With --xml, write to this file instead of stdout")
 	c.MarkFlagsMutuallyExclusive("history", "show-secrets")
 	c.MarkFlagsMutuallyExclusive("show-system", "show-secrets")
+	c.MarkFlagsMutuallyExclusive("xml", "history")
+	c.MarkFlagsMutuallyExclusive("xml", "show-system")
+	c.MarkFlagsMutuallyExclusive("xml", "show-secrets")
 }
 
 func runInspect(cmd *cobra.Command, args []string) error {
 	client, jobPath, _, err := resolveJobArgs(cmd, args, false)
 	if err != nil {
 		return err
+	}
+
+	if xml, _ := cmd.Flags().GetBool("xml"); xml {
+		return writeJobConfigXML(cmd, client, jobPath)
+	}
+	if out, _ := cmd.Flags().GetString("output"); out != "" {
+		return fmt.Errorf("-o writes the raw config.xml, so it needs --xml; the decoded summary goes to stdout")
 	}
 
 	history, _ := cmd.Flags().GetBool("history")
@@ -381,4 +394,25 @@ func redactRemotes(def *jenkins.JobDefinition) {
 		src.Remote = output.RedactURLCredentials(src.Remote)
 		src.APIURI = output.RedactURLCredentials(src.APIURI)
 	}
+}
+
+// writeJobConfigXML dumps config.xml unchanged. It is the escape hatch for
+// fields the decoder does not model and the byte-exact source for migrating a
+// job to code, so nothing here reformats or redacts: the caller asked for what
+// Jenkins stores.
+func writeJobConfigXML(cmd *cobra.Command, client *api.Client, jobPath string) error {
+	raw, err := client.GetJobConfigXML(jobPath)
+	if err != nil {
+		return err
+	}
+	dest, _ := cmd.Flags().GetString("output")
+	if dest == "" {
+		_, err = os.Stdout.Write(raw)
+		return err
+	}
+	if err := os.WriteFile(dest, raw, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", dest, err)
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "Wrote %s (%d bytes)\n", dest, len(raw))
+	return nil
 }
