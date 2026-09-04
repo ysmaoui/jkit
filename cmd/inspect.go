@@ -24,12 +24,14 @@ none of this; reading config.xml needs the Job/ExtendedRead permission.
 
 --history answers a different question, "it worked last week, what changed?":
 it lists who edited the job's configuration and when, from the JobConfigHistory
-plugin.`,
+plugin. --diff answers the follow-up, "what did that change do?": it prints a
+unified diff of the stored config.xml between two of those revisions.`,
 	Example: `  jkit inspect my-app
   jkit inspect team/backend/my-service
   jkit inspect https://jenkins.example.com/job/team/job/my-app/
   jkit inspect my-app --json
-  jkit inspect my-app --history`,
+  jkit inspect my-app --history
+  jkit inspect my-app --diff`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInspect,
 }
@@ -54,11 +56,18 @@ func registerInspectFlags(c *cobra.Command) {
 	c.Flags().Bool("show-system", false, "With --history, list automated SYSTEM writes instead of collapsing them")
 	c.Flags().Bool("xml", false, "Print the raw config.xml instead of the decoded summary")
 	c.Flags().StringP("output", "o", "", "With --xml, write to this file instead of stdout")
+	c.Flags().Bool("diff", false, "Show what changed in the config.xml between two recorded revisions")
+	c.Flags().String("diff-from", "", "With --diff, the older revision, as a --history timestamp (2006-01-02_15-04-05)")
+	c.Flags().String("diff-to", "", "With --diff, the newer revision, as a --history timestamp")
 	c.MarkFlagsMutuallyExclusive("history", "show-secrets")
 	c.MarkFlagsMutuallyExclusive("show-system", "show-secrets")
 	c.MarkFlagsMutuallyExclusive("xml", "history")
 	c.MarkFlagsMutuallyExclusive("xml", "show-system")
 	c.MarkFlagsMutuallyExclusive("xml", "show-secrets")
+	c.MarkFlagsMutuallyExclusive("diff", "xml")
+	c.MarkFlagsMutuallyExclusive("diff", "history")
+	c.MarkFlagsMutuallyExclusive("diff", "show-system")
+	c.MarkFlagsMutuallyExclusive("diff", "show-secrets")
 }
 
 func runInspect(cmd *cobra.Command, args []string) error {
@@ -75,13 +84,20 @@ func runInspect(cmd *cobra.Command, args []string) error {
 	}
 
 	history, _ := cmd.Flags().GetBool("history")
+	diff, _ := cmd.Flags().GetBool("diff")
 	// Cobra can express mutual exclusion but not "this flag needs that one",
 	// and a flag that silently does nothing is worse than one that objects.
 	if showSystem, _ := cmd.Flags().GetBool("show-system"); showSystem && !history {
 		return fmt.Errorf("--show-system only applies to --history, which lists a job's config changes")
 	}
+	if err := checkDiffFlags(cmd, jobPath, diff); err != nil {
+		return err
+	}
 	if history {
 		return runInspectHistory(cmd, client, jobPath)
+	}
+	if diff {
+		return runInspectDiff(cmd, client, jobPath)
 	}
 
 	def, err := client.GetJobDefinition(jobPath)
