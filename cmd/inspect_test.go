@@ -201,3 +201,24 @@ func TestInspectRedactsCredentialsInSCMURL(t *testing.T) {
 	shown := inspect(t, "config_embedded_credentials.xml", "team/service", "--show-secrets")
 	assert.Contains(t, shown, secret)
 }
+
+// A mode flag that is accepted and then ignored is worse than one that
+// objects, and inspect will grow more modes.
+func TestInspectRejectsMeaninglessFlagCombinations(t *testing.T) {
+	tests := map[string]struct {
+		args    []string
+		wantErr string
+	}{
+		"secrets with history":     {[]string{"team/svc", "--history", "--show-secrets"}, "none of the others can be"},
+		"show-system alone":        {[]string{"team/svc", "--show-system"}, "--show-system only applies to --history"},
+		"show-system with secrets": {[]string{"team/svc", "--show-system", "--show-secrets"}, "none of the others can be"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			setupTestConfig(t, "https://jenkins.example.com")
+			_, err := executeCmd(t, append([]string{"inspect"}, tt.args...)...)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}

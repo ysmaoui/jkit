@@ -222,6 +222,10 @@ jkit inspect [job] [--show-secrets] [--history] [--show-system]
 | `--history` | List config changes (who changed the job and when) instead of its definition |
 | `--show-system` | With `--history`, list automated SYSTEM writes instead of collapsing them |
 
+`--show-system` requires `--history`, and `--show-secrets` applies only to the
+definition view, so combining it with `--history` is rejected rather than
+silently ignored.
+
 `/api/json` answers none of this: it reports a multibranch job's `sources` as
 empty objects. Reading `config.xml` needs the Job/ExtendedRead permission.
 
@@ -379,7 +383,7 @@ jkit run [job] [-p KEY=VALUE]... [--wait] [--log]
 
 | Flag | Description |
 |------|-------------|
-| `-p KEY=VALUE` | Build parameter (repeatable) |
+| `-p, --param KEY=VALUE` | Build parameter (repeatable) |
 | `--wait` | Wait for build to complete |
 | `--log` | Stream build log (implies `--wait`) |
 
