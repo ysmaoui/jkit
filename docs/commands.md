@@ -206,6 +206,59 @@ jkit params my-app --json          # JSON output
 
 ---
 
+## `jkit inspect`
+
+Read a job's `config.xml` and report which Jenkinsfile runs, the repository and
+credentials behind it, which branches and PRs the indexing discovers, when a
+discovered head actually builds, and how long builds are kept.
+
+```
+jkit inspect [job] [--show-secrets]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--show-secrets` | Do not mask credentials embedded in SCM urls |
+
+`/api/json` answers none of this: it reports a multibranch job's `sources` as
+empty objects. Reading `config.xml` needs the Job/ExtendedRead permission.
+
+A job normally references a `credentialsId`, but an SCM url can carry the secret
+inline as `https://user:token@host/repo.git`. Those are printed as
+`https://***@host/repo.git` in text, `--json` and `--format` alike.
+
+Each section is printed only when the job has it. Numeric strategy ids are
+translated into the wording of the Jenkins UI. Anything the CLI cannot decode is
+printed by class name and marked `not decoded`, prefixed with `!`, and a section
+that is absent gets a line saying what its absence means, because "no discovery
+traits" and "no build strategies" both change which branches build. On a branch
+child the discovery rules live on the multibranch parent, and the output names
+the parent to inspect instead.
+
+```
+Job:          team/my-service
+Type:         multibranch pipeline
+State:        enabled
+
+Repository
+  Provider:           GitHub
+  Repo:               ACME/my-service
+
+Discovery (which heads indexing picks up)
+  Branch discovery     all branches  [strategyId=3]
+! Clone option         not decoded, class jenkins.plugins.git.traits.CloneOptionTrait
+```
+
+```bash
+jkit inspect my-app                              # structured view
+jkit inspect team/backend/my-svc                 # nested job
+jkit inspect my-app --branch feature/foo         # a branch of a multibranch job
+jkit inspect https://jenkins.example.com/job/x/  # by URL
+jkit inspect my-app --json                       # JSON output
+```
+
+---
+
 ## `jkit history`
 
 Show a job's recent builds with a trend summary: success rate over the window

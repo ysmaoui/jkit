@@ -69,6 +69,11 @@ jkit env URL --show-secrets         # reveal masked values
 # Parameters a job accepts (name, type, default, choices)
 jkit params my-job                  # what to pass to `jkit run -p`
 
+# Job definition from config.xml (Jenkinsfile, repo, discovery, retention)
+jkit inspect my-job                 # why a branch does not build / which Jenkinsfile ran
+jkit inspect team/svc --branch feature/x
+jkit inspect my-job --show-secrets    # reveal a credential embedded in the SCM url
+
 # Trigger build
 jkit run my-job -p KEY=VAL --wait --log
 
@@ -191,6 +196,14 @@ Don't hand-encode the branch into the `job` arg (`team/svc/feature%2Fx`) — pas
 `--branch` instead. If you target the container without a branch, the command
 returns an error **listing the available branches** — pick one and re-run with
 `--branch`. To browse branches up front: `jkit list --folder team/svc`.
+
+`jkit inspect team/svc` answers why a branch is missing or not building. It
+reads `config.xml`, which is the only source for multibranch discovery rules,
+and prints the repository, the discovery traits with their strategy ids in
+words, the build strategies, the re-indexing schedule and the build discarder.
+Anything it cannot decode is flagged `!` rather than dropped, and an absent
+section says what its absence means. Run it on the container: a branch child
+only carries its own script path, remote and retention, and names its parent.
 
 ---
 
