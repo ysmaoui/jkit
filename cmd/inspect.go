@@ -19,17 +19,24 @@ var inspectCmd = &cobra.Command{
 	Long: `Read a job's config.xml and report which Jenkinsfile runs, the repository and
 credentials behind it, which branches and PRs the indexing discovers, when a
 discovered head actually builds, and how long builds are kept. /api/json answers
-none of this; reading config.xml needs the Job/ExtendedRead permission.`,
+none of this; reading config.xml needs the Job/ExtendedRead permission.
+
+--history answers a different question, "it worked last week, what changed?":
+it lists who edited the job's configuration and when, from the JobConfigHistory
+plugin.`,
 	Example: `  jkit inspect my-app
   jkit inspect team/backend/my-service
   jkit inspect https://jenkins.example.com/job/team/job/my-app/
-  jkit inspect my-app --json`,
+  jkit inspect my-app --json
+  jkit inspect my-app --history`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInspect,
 }
 
 func init() {
 	inspectCmd.Flags().Bool("show-secrets", false, "Do not mask credentials embedded in SCM urls")
+	inspectCmd.Flags().Bool("history", false, "List config changes (who changed the job and when) instead of its definition")
+	inspectCmd.Flags().Bool("show-system", false, "With --history, list automated SYSTEM writes instead of collapsing them")
 	rootCmd.AddCommand(inspectCmd)
 }
 
@@ -37,6 +44,10 @@ func runInspect(cmd *cobra.Command, args []string) error {
 	client, jobPath, _, err := resolveJobArgs(cmd, args, false)
 	if err != nil {
 		return err
+	}
+
+	if history, _ := cmd.Flags().GetBool("history"); history {
+		return runInspectHistory(cmd, client, jobPath)
 	}
 
 	def, err := client.GetJobDefinition(jobPath)

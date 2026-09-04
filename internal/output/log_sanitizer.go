@@ -56,3 +56,22 @@ func RedactURLCredentials(raw string) string {
 	}
 	return prefix + urlCredentialMask + "@" + stripped[len(prefix):]
 }
+
+// ansiEscapeRe matches CSI sequences (\x1b[...) and OSC strings (\x1b]...BEL
+// or ST). Dropping the escape byte alone would leave the parameters behind as
+// literal text such as "[2K".
+var ansiEscapeRe = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]|\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)")
+
+// StripControl removes escape sequences and C0 control characters from text
+// that will be printed into a table cell. Tab is kept; everything else in that
+// range can move the cursor or erase the row, and a change reason or job
+// description is typed by whoever edited the job. Width-aware padding counts
+// these as zero-width, so the layout looks correct while the line is destroyed.
+func StripControl(text string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\t' || r >= 0x20 && r != 0x7f {
+			return r
+		}
+		return -1
+	}, ansiEscapeRe.ReplaceAllString(text, ""))
+}
