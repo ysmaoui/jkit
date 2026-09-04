@@ -213,13 +213,15 @@ credentials behind it, which branches and PRs the indexing discovers, when a
 discovered head actually builds, and how long builds are kept.
 
 ```
-jkit inspect [job] [--xml [-o FILE]] [--history [--show-system]] [--diff [--diff-from TS --diff-to TS]] [--show-secrets]
+jkit inspect [job] [--xml [-o FILE | --recursive -d DIR]] [--history [--show-system]] [--diff [--diff-from TS --diff-to TS]] [--show-secrets]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--xml` | Print the raw `config.xml` instead of the decoded summary |
 | `-o, --output FILE` | With `--xml`, write to this file instead of stdout |
+| `--recursive` | With `--xml`, export `config.xml` for every job and folder below the target |
+| `-d, --out-dir DIR` | With `--xml --recursive`, the directory to write the exported tree into |
 | `--show-secrets` | Do not mask credentials embedded in SCM urls |
 | `--history` | List config changes (who changed the job and when) instead of its definition |
 | `--show-system` | With `--history`, list automated SYSTEM writes instead of collapsing them |
@@ -228,8 +230,10 @@ jkit inspect [job] [--xml [-o FILE]] [--history [--show-system]] [--diff [--diff
 | `--diff-to TS` | With `--diff`, the newer revision, as a `--history` timestamp |
 
 `--show-system` requires `--history`, `--diff-from` and `--diff-to` require
-`--diff`, and `--show-secrets` applies only to the definition view, so combining
-it with either of the others is rejected rather than silently ignored.
+`--diff`, `--recursive` and `-d` require `--xml` and each other, and
+`--show-secrets` applies only to the definition view, so combining it with
+either of the others is rejected rather than silently ignored. `-o` and
+`--recursive` are mutually exclusive: one file cannot hold a tree.
 
 `--xml` is the escape hatch: it prints exactly what Jenkins stores, for fields
 the decoder does not model and for migrating a job to code. It reformats and
@@ -264,6 +268,56 @@ Discovery (which heads indexing picks up)
   Branch discovery     all branches  [strategyId=3]
 ! Clone option         not decoded, class jenkins.plugins.git.traits.CloneOptionTrait
 ```
+
+### `--xml --recursive`: export a whole folder subtree
+
+```
+jkit inspect SANDBOXES --xml --recursive -d ./configs
+```
+
+Writes the target's `config.xml` and one for every job and folder below it, into
+a directory tree that mirrors the folder layout. This is the bulk form of the
+migration case that is otherwise scripted with `curl` over a hand-kept list of
+job paths.
+
+```
+configs/
+├── config.xml                      # SANDBOXES itself
+└── Gecko-vemb/
+    ├── config.xml                  # the multibranch job
+    └── feature%2Fbuild/
+        └── config.xml              # its branch child
+```
+
+Each directory is named by the job **name**, verbatim. A multibranch branch job
+is where that matters: Jenkins stores the branch `feature/build` as a job whose
+name literally contains `%2F`, so the encoded form is the real name. Written
+as-is it stays one directory entry and feeds straight back in
+(`jkit inspect SANDBOXES/Gecko-vemb/feature%2Fbuild`); decoding it into nested
+directories would change the shape of the tree and make it indistinguishable
+from a folder `feature` holding a job `build`.
+
+Job names are user data, and this turns them into filesystem paths. A name that
+is not a single directory entry — `..`, or one carrying a path separator — is
+refused, along with everything below it, rather than rewritten into something
+that no longer maps back to the job.
+
+Per-job failures do not stop the export: an unreadable job is recorded and the
+rest still runs, so a permission gap on one job out of twenty-five costs one
+file rather than all of them. The summary names the counts and the destination,
+and an export that skipped anything exits non-zero.
+
+```
+Wrote 26 config.xml files (412839 bytes) to ./configs
+They are unredacted, exactly as Jenkins stores them, so any credential embedded in an SCM url is now on disk there.
+
+Skipped 1:
+  SANDBOXES/private-app: cannot read config.xml for SANDBOXES/private-app: reading a job's configuration needs the Job/ExtendedRead permission
+```
+
+The traversal is the one behind `jkit list -r` and carries its limit: the tree
+query reaches 5 levels below the target, and anything deeper is absent from the
+response with no marker.
 
 ### `--history`: who changed the job, and when
 
