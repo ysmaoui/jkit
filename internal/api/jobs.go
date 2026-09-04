@@ -39,13 +39,57 @@ func (c *Client) ListJobsRecursive(folder string) ([]jenkins.Job, error) {
 	return flattenJobs(jobs), nil
 }
 
-// ListJobTree lists a folder's contents with the nesting kept, in one API call.
-// Callers that mirror the layout onto something else need the containers and
-// each job's position, both of which flattenJobs drops.
+// jobTreeDepth is how many levels of nesting one tree query asks for. Jenkins
+// truncates below that silently, so ListJobTree re-queries containers sitting
+// at the limit rather than trusting an empty child list.
+const jobTreeDepth = 5
+
+// ListJobTree lists a folder's contents with the nesting kept. Callers that
+// mirror the layout onto something else need the containers and each job's
+// position, both of which flattenJobs drops.
 //
-// The nested tree query bounds the walk at 5 levels below folder; anything
-// deeper is absent from the response with no marker.
+// One query covers jobTreeDepth levels; anything deeper costs an extra request
+// per container at the boundary. Deep hierarchies are rare, so the common case
+// stays a single call.
 func (c *Client) ListJobTree(folder string) ([]jenkins.Job, error) {
+	jobs, err := c.listJobTreePage(folder)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.fillTruncatedFolders(jobs, 1); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+// fillTruncatedFolders re-queries every container found at the depth limit. A
+// container whose children were cut off comes back indistinguishable from one
+// that is genuinely empty, so the only honest option is to ask again. An export
+// that quietly omits jobs is worse than a slower one.
+func (c *Client) fillTruncatedFolders(jobs []jenkins.Job, depth int) error {
+	for i := range jobs {
+		if !jobs[i].IsContainer() {
+			continue
+		}
+		if depth < jobTreeDepth {
+			if err := c.fillTruncatedFolders(jobs[i].Jobs, depth+1); err != nil {
+				return err
+			}
+			continue
+		}
+		children, err := c.listJobTreePage(jobs[i].FullName)
+		if err != nil {
+			return fmt.Errorf("listing %s below the tree query depth: %w", jobs[i].FullName, err)
+		}
+		jobs[i].Jobs = children
+		if err := c.fillTruncatedFolders(jobs[i].Jobs, 1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) listJobTreePage(folder string) ([]jenkins.Job, error) {
 	path := "/api/json"
 	if folder != "" {
 		path = NormalizeJobPath(folder) + "/api/json"

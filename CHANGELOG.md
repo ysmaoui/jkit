@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   secrets are re-encrypted on every save and differ without anything having been
   reconfigured.
 
+- Recursive export follows folders deeper than the tree query's 5 levels.
+  Jenkins truncates there without a marker, so a folder at the boundary is
+  re-queried; an export no longer omits deep jobs while reporting success.
+
 ### Changed
 - `jkit inspect` rejects flag combinations it would previously accept and
   ignore: `--show-system` without `--history`, and `--show-secrets` with it.
