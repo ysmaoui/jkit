@@ -213,12 +213,14 @@ credentials behind it, which branches and PRs the indexing discovers, when a
 discovered head actually builds, and how long builds are kept.
 
 ```
-jkit inspect [job] [--show-secrets]
+jkit inspect [job] [--show-secrets] [--history] [--show-system]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--show-secrets` | Do not mask credentials embedded in SCM urls |
+| `--history` | List config changes (who changed the job and when) instead of its definition |
+| `--show-system` | With `--history`, list automated SYSTEM writes instead of collapsing them |
 
 `/api/json` answers none of this: it reports a multibranch job's `sources` as
 empty objects. Reading `config.xml` needs the Job/ExtendedRead permission.
@@ -249,12 +251,53 @@ Discovery (which heads indexing picks up)
 ! Clone option         not decoded, class jenkins.plugins.git.traits.CloneOptionTrait
 ```
 
+### `--history`: who changed the job, and when
+
+`jkit inspect my-app --history` answers "it worked last week, what changed?" by
+listing the job's configuration changes, newest first, from the
+[JobConfigHistory](https://plugins.jenkins.io/jobConfigHistory/) plugin.
+
+```
+WHEN                                       OPERATION   USER    DETAIL
+2026-08-20 10:00:00                        Changed     Ada     bumped the timeout
+2026-08-14 14:58:12 → 2026-08-27 14:58:13  4 writes    SYSTEM  automated, collapsed
+
+4 of 5 entries are automated SYSTEM writes (re-indexing rewrites a branch job's config on every scan), collapsed above; --show-system lists them one by one.
+
+Retained entries: 5. The plugin caps how many it keeps per job and the server can truncate the response without saying so, so this is what it still holds, not every change ever made.
+```
+
+Re-indexing rewrites a branch job's config on every scan, so on a multibranch
+branch every entry is a SYSTEM write, usually in same-second pairs. Runs of two
+or more are folded into one row; `--show-system` lists them individually. A
+single SYSTEM entry (the job's creation) is never folded.
+
+The entry count is what the server still retains, not a change count: the plugin
+caps entries per job (`maxHistoryEntries`) and the instance-wide
+`maxEntriesPerPage` truncates the response with no marker. An empty result is
+also ambiguous — without Job/Configure or Job/ExtendedRead the plugin returns an
+empty list rather than refusing, so "nothing changed" and "you may not see it"
+look the same, and the message says so.
+
+`operation` is display text the plugin resolved from its message bundle when it
+wrote the entry, so a controller running in another locale stores `変更` instead
+of `Changed`. It is printed as stored and nothing keys on it; SYSTEM writes are
+recognised by `userID`.
+
+On a Jenkins without the plugin, `/jobConfigHistory` 404s with exactly the page a
+missing job produces. `jkit` re-requests the job itself to tell the two apart and
+names the plugin rather than claiming the job does not exist.
+
+`--json` and `--format` emit every entry, uncollapsed.
+
 ```bash
 jkit inspect my-app                              # structured view
 jkit inspect team/backend/my-svc                 # nested job
 jkit inspect my-app --branch feature/foo         # a branch of a multibranch job
 jkit inspect https://jenkins.example.com/job/x/  # by URL
 jkit inspect my-app --json                       # JSON output
+jkit inspect my-app --history                    # who changed the job config, and when
+jkit inspect my-app --history --show-system      # including automated re-index writes
 ```
 
 ---
