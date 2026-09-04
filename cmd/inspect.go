@@ -31,7 +31,8 @@ unified diff of the stored config.xml between two of those revisions.`,
   jkit inspect https://jenkins.example.com/job/team/job/my-app/
   jkit inspect my-app --json
   jkit inspect my-app --history
-  jkit inspect my-app --diff`,
+  jkit inspect my-app --diff
+  jkit inspect team/backend --xml --recursive -d ./configs`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInspect,
 }
@@ -50,12 +51,22 @@ func init() {
 // after it, and the job name is user data. The cost of that choice is that each
 // mode carries flags the others have no use for, so the relationships are
 // declared rather than left to quietly do nothing.
+// config.xml is written unredacted, so it can carry a credential embedded in an
+// SCM url. Owner-only is the right default for a file the tool creates on the
+// user's behalf; a recursive export creates a directory of them.
+const (
+	configFileMode = 0o600
+	configDirMode  = 0o700
+)
+
 func registerInspectFlags(c *cobra.Command) {
 	c.Flags().Bool("show-secrets", false, "Do not mask credentials embedded in SCM urls")
 	c.Flags().Bool("history", false, "List config changes (who changed the job and when) instead of its definition")
 	c.Flags().Bool("show-system", false, "With --history, list automated SYSTEM writes instead of collapsing them")
 	c.Flags().Bool("xml", false, "Print the raw config.xml instead of the decoded summary")
 	c.Flags().StringP("output", "o", "", "With --xml, write to this file instead of stdout")
+	c.Flags().Bool("recursive", false, "With --xml, export config.xml for every job and folder below the target")
+	c.Flags().StringP("out-dir", "d", "", "With --xml --recursive, the directory to write the exported tree into")
 	c.Flags().Bool("diff", false, "Show what changed in the config.xml between two recorded revisions")
 	c.Flags().String("diff-from", "", "With --diff, the older revision, as a --history timestamp (2006-01-02_15-04-05)")
 	c.Flags().String("diff-to", "", "With --diff, the newer revision, as a --history timestamp")
@@ -68,15 +79,23 @@ func registerInspectFlags(c *cobra.Command) {
 	c.MarkFlagsMutuallyExclusive("diff", "history")
 	c.MarkFlagsMutuallyExclusive("diff", "show-system")
 	c.MarkFlagsMutuallyExclusive("diff", "show-secrets")
+	c.MarkFlagsMutuallyExclusive("output", "recursive")
 }
 
 func runInspect(cmd *cobra.Command, args []string) error {
+	if err := checkExportFlags(cmd); err != nil {
+		return err
+	}
 	client, jobPath, _, err := resolveJobArgs(cmd, args, false)
 	if err != nil {
 		return err
 	}
 
 	if xml, _ := cmd.Flags().GetBool("xml"); xml {
+		if recursive, _ := cmd.Flags().GetBool("recursive"); recursive {
+			dir, _ := cmd.Flags().GetString("out-dir")
+			return exportJobConfigs(client, jobPath, dir, os.Stderr)
+		}
 		return writeJobConfigXML(cmd, client, jobPath)
 	}
 	if out, _ := cmd.Flags().GetString("output"); out != "" {
@@ -426,7 +445,7 @@ func writeJobConfigXML(cmd *cobra.Command, client *api.Client, jobPath string) e
 		_, err = os.Stdout.Write(raw)
 		return err
 	}
-	if err := os.WriteFile(dest, raw, 0o644); err != nil {
+	if err := os.WriteFile(dest, raw, configFileMode); err != nil {
 		return fmt.Errorf("writing %s: %w", dest, err)
 	}
 	_, _ = fmt.Fprintf(os.Stderr, "Wrote %s (%d bytes)\n", dest, len(raw))

@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   it. Unredacted and unreformatted: it is the escape hatch for fields the
   summary does not model, and the byte-exact source for migrating a job to code.
 
+- `jkit inspect --xml --recursive -d DIR` exports a whole folder subtree: the
+  target's `config.xml` and one for every job and folder below it, into a tree
+  that mirrors the folder layout, each directory named by the job name verbatim
+  so a multibranch branch child lands under its encoded name and feeds back to
+  `jkit inspect` unchanged. Per-job failures are reported and do not stop the
+  export; the summary names the counts and the destination, since the files are
+  unredacted.
+
 - `jkit inspect --diff` prints a unified diff of a job's `config.xml` between two
   recorded revisions, the two most recent by default or a pair named with
   `--diff-from` and `--diff-to`. The older revision is always the left side. A
