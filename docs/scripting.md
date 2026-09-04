@@ -137,6 +137,43 @@ if [ "$status" != "SUCCESS" ]; then
 fi
 ```
 
+### Back Up Every Job Definition in a Folder
+
+```bash
+jkit inspect team --xml --recursive -d ./jenkins-backup
+```
+
+Writes a tree mirroring the folder, one `config.xml` per job, named by job name
+so a branch job lands under `feature%2Fx` and feeds straight back to
+`jkit inspect`. Files are owner-only, and unredacted: a credential embedded in
+an SCM url is written as-is. Exit is non-zero if any job was skipped, so a
+scripted backup that gets 24 of 25 does not report success.
+
+### Audit Which Repository Each Job Builds From
+
+```bash
+# list -r enumerates every job; search takes a substring, not a pattern
+for job in $(jkit list --folder team -r --json | jq -r '.[].fullName'); do
+    jkit inspect "$job" --json |
+        jq -r --arg j "$job" '.sources[]?.source | "\($j)\t\(.repoOwner)/\(.repository)\t\(.credentialsId)"'
+done
+```
+
+`--json` carries the same decoded fields as the table, including `decoded: false`
+on anything the CLI could not interpret, so a script can tell an unknown trait
+from an absent one.
+
+### Detect Config Drift Since a Known-Good Point
+
+```bash
+# The timestamp comes from --history; --diff exits 0 whether or not it differs,
+# so test the output, not the status.
+changed=$(jkit inspect my-app --diff --diff-from 2026-08-01_09-00-00 \
+                              --diff-to "$(jkit inspect my-app --history --json |
+                                           jq -r '.[0].date')")
+[ -n "$changed" ] && echo "config changed since the baseline" && echo "$changed"
+```
+
 ### Validate Jenkinsfile in Pre-Commit
 
 ```bash
