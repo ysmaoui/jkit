@@ -58,23 +58,40 @@ func (c ConfigChange) Timestamp() string {
 	return c.Date
 }
 
-// Who names the author, preferring the display name over the login.
+// Who identifies the author. The login is what actually identifies someone:
+// the display name is self-editable in Jenkins, and two people can share one.
+// Both are shown when they differ so a familiar name stays readable.
 func (c ConfigChange) Who() string {
-	if c.User != "" {
+	switch {
+	case c.UserID == "" && c.User == "":
+		return "not recorded"
+	case c.UserID == "":
 		return c.User
-	}
-	if c.UserID != "" {
+	case c.User == "" || c.User == c.UserID:
 		return c.UserID
 	}
-	return "unknown"
+	return c.User + " (" + c.UserID + ")"
+}
+
+// Foldable reports whether an entry carries nothing beyond the fact that it
+// happened. Anything with a rename or a reason has content a collapsed row
+// would erase.
+func (c ConfigChange) Foldable() bool {
+	return c.Rename() == "" && c.Reason() == ""
 }
 
 // Rename describes a rename entry, empty for every other operation.
 func (c ConfigChange) Rename() string {
-	if c.OldName == "" && c.CurrentName == "" {
+	old, cur := DecodeJobName(c.OldName), DecodeJobName(c.CurrentName)
+	switch {
+	case old == "" && cur == "":
 		return ""
+	case old == "":
+		return "renamed to " + cur
+	case cur == "":
+		return "renamed from " + old
 	}
-	return "renamed " + DecodeJobName(c.OldName) + " → " + DecodeJobName(c.CurrentName)
+	return "renamed " + old + " → " + cur
 }
 
 // Reason returns the comment the author left, if the instance collects one.

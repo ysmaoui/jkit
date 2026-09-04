@@ -45,7 +45,7 @@ func TestInspectHistoryCollapsesSystemChurn(t *testing.T) {
 	assert.Contains(t, out, "2 writes")
 	assert.Contains(t, out, "2026-08-14 14:58:12 → 2026-08-14 14:58:13")
 	assert.Equal(t, 1, strings.Count(out, "2026-08-27 14:58:13"), "a collapsed run prints its range once")
-	assert.Contains(t, out, "4 of 5 entries are automated SYSTEM writes")
+	assert.Contains(t, out, "4 of 5 entries are folded into the runs above")
 	assert.Contains(t, out, "--show-system")
 
 	shown, _ := renderHistory(t, entries, true)
@@ -180,4 +180,64 @@ func TestInspectHistoryCommandJSON(t *testing.T) {
 	require.Len(t, got, 3)
 	assert.Equal(t, "2026-08-27_14-58-13", got[0].Date)
 	assert.Equal(t, "ada", got[2].UserID)
+}
+
+// Indexing writes Created and Renamed through the same path as Changed, so
+// folding on authorship alone erases them while the footer asserts the folded
+// rows were scan churn.
+func TestInspectHistoryNeverFoldsAwayACreate(t *testing.T) {
+	entries := []jenkins.ConfigChange{
+		change("2026-08-27_14-58-13", "Changed", "SYSTEM"),
+		change("2026-08-27_14-58-12", "Changed", "SYSTEM"),
+		change("2026-08-19_12-00-00", "Created", "SYSTEM"),
+	}
+
+	out, _ := renderHistory(t, entries, false)
+	assert.Contains(t, out, "Created", "the branch job's creation must keep its own row")
+	assert.Contains(t, out, "2026-08-19 12:00:00")
+	assert.Contains(t, out, "2 writes")
+}
+
+func TestInspectHistoryNeverFoldsAwayARenameOrAReason(t *testing.T) {
+	reason := "disabled the job for the weekend"
+	entries := []jenkins.ConfigChange{
+		change("2026-08-27_14-58-13", "Changed", "SYSTEM"),
+		{Date: "2026-08-27_13-00-00", Operation: "Renamed", User: "SYSTEM", UserID: "SYSTEM",
+			OldName: "feature%2Fold", CurrentName: "feature%2Fnew"},
+		{Date: "2026-08-27_11-00-00", Operation: "Changed", User: "SYSTEM", UserID: "SYSTEM",
+			Comment: &reason},
+		change("2026-08-27_10-00-00", "Changed", "SYSTEM"),
+	}
+
+	out, _ := renderHistory(t, entries, false)
+	assert.Contains(t, out, "feature/old → feature/new")
+	assert.Contains(t, out, reason)
+	assert.NotContains(t, out, "4 writes", "an entry carrying its own content must not be folded")
+}
+
+// A change reason is typed by whoever edited the job. An escape sequence in it
+// erases the printed row, and width-aware padding counts it as zero-width so
+// the table still looks intact.
+func TestInspectHistoryStripsControlCharactersFromAReason(t *testing.T) {
+	reason := "ok\x1b[2Khidden rewrite"
+	entries := []jenkins.ConfigChange{
+		{Date: "2026-08-27_14-58-13", Operation: "Changed", User: "Ada Lovelace", UserID: "ada", Comment: &reason},
+	}
+
+	out, _ := renderHistory(t, entries, false)
+	assert.NotContains(t, out, "\x1b")
+	assert.Contains(t, out, "okhidden rewrite")
+	assert.Contains(t, out, "Ada Lovelace (ada)")
+}
+
+// The plugin sorts newest first, but a range printed from positions rather than
+// from parsed times would render backwards on any other ordering.
+func TestInspectHistoryRangeIsOrderedByTime(t *testing.T) {
+	entries := []jenkins.ConfigChange{
+		change("2026-08-14_10-00-00", "Changed", "SYSTEM"),
+		change("2026-08-27_10-00-00", "Changed", "SYSTEM"),
+	}
+
+	out, _ := renderHistory(t, entries, false)
+	assert.Contains(t, out, "2026-08-14 10:00:00 → 2026-08-27 10:00:00")
 }

@@ -36,6 +36,11 @@ func (c *Client) GetJobConfigHistory(jobPath string) ([]jenkins.ConfigChange, er
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding job config history: %w", err)
 	}
+	if result.Entries == nil {
+		// An empty array and a body without the key both mean no history; a
+		// caller piping --json through jq should not have to handle two shapes.
+		return []jenkins.ConfigChange{}, nil
+	}
 	return result.Entries, nil
 }
 

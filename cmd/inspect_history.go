@@ -67,7 +67,7 @@ func printConfigHistory(w, warn io.Writer, jobPath string, entries []jenkins.Con
 	}
 
 	if collapsed > 0 {
-		_, _ = fmt.Fprintf(w, "\n%d of %d entries are automated SYSTEM writes (re-indexing rewrites a branch job's config on every scan), collapsed above; --show-system lists them one by one.\n", collapsed, len(entries))
+		_, _ = fmt.Fprintf(w, "\n%d of %d entries are folded into the runs above, all repeated automated writes (re-indexing rewrites a branch job's config on every scan); --show-system lists them one by one.\n", collapsed, len(entries))
 	}
 	_, _ = fmt.Fprintf(w, "\nRetained entries: %d. The plugin caps how many it keeps per job and the server can truncate the response without saying so, so this is what it still holds, not every change ever made.\n", len(entries))
 	return nil
@@ -86,9 +86,19 @@ func configHistoryRows(entries []jenkins.ConfigChange, showSystem bool) ([]confi
 			i++
 			continue
 		}
+		// A run may only fold entries that say the same thing and carry nothing
+		// of their own. Indexing writes Created and Renamed through the same
+		// path as Changed, so folding on authorship alone erases them and the
+		// footer then asserts they were scan churn.
 		run := i
-		for run < len(entries) && entries[run].BySystem() {
+		for run < len(entries) && entries[run].BySystem() &&
+			entries[run].Foldable() && entries[run].Operation == entries[i].Operation {
 			run++
+		}
+		if run == i {
+			rows = append(rows, singleChangeRow(entries[i]))
+			i++
+			continue
 		}
 		if run-i == 1 {
 			rows = append(rows, singleChangeRow(entries[i]))
@@ -107,21 +117,26 @@ func singleChangeRow(e jenkins.ConfigChange) configHistoryRow {
 		if detail != "" {
 			detail += "  "
 		}
-		detail += collapseWS(reason)
+		detail += collapseWS(output.StripControl(reason))
 	}
 	return configHistoryRow{
 		When:      e.Timestamp(),
 		Operation: e.Operation,
 		User:      e.Who(),
-		Detail:    truncate(detail, 60),
+		Detail:    detail,
 	}
 }
 
-// collapsedChangeRow summarizes a run of automated writes. The run is
-// newest-first, so its last element is the oldest.
+// collapsedChangeRow summarizes a run of automated writes. The plugin sorts
+// newest first, but the endpoints are chosen by parsed time rather than by
+// position so an unsorted payload cannot print the range backwards.
 func collapsedChangeRow(run []jenkins.ConfigChange) configHistoryRow {
-	oldest := run[len(run)-1]
-	newest := run[0]
+	oldest, newest := run[len(run)-1], run[0]
+	if a, aok := oldest.When(); aok {
+		if b, bok := newest.When(); bok && a.After(b) {
+			oldest, newest = newest, oldest
+		}
+	}
 	return configHistoryRow{
 		When:      oldest.Timestamp() + " → " + newest.Timestamp(),
 		Operation: fmt.Sprintf("%d writes", len(run)),

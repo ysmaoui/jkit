@@ -11,7 +11,7 @@ import (
 // on the English wording: authorship comes from userID, which is a constant.
 func TestConfigChangeIgnoresLocalizedOperation(t *testing.T) {
 	system := ConfigChange{Operation: "変更", User: "SYSTEM", UserID: "SYSTEM"}
-	human := ConfigChange{Operation: "変更", User: "Ada Lovelace", UserID: "ada"}
+	human := ConfigChange{Operation: "変更", User: "Ada Lovelace (ada)", UserID: "ada"}
 
 	assert.True(t, system.BySystem())
 	assert.False(t, human.BySystem())
@@ -39,9 +39,24 @@ func TestConfigChangeTimestamp(t *testing.T) {
 }
 
 func TestConfigChangeWho(t *testing.T) {
-	assert.Equal(t, "Ada Lovelace", ConfigChange{User: "Ada Lovelace", UserID: "ada"}.Who())
-	assert.Equal(t, "ada", ConfigChange{UserID: "ada"}.Who())
-	assert.Equal(t, "unknown", ConfigChange{}.Who())
+	// The display name is self-editable in Jenkins and two people can share
+	// one, so the login has to be visible for attribution to mean anything.
+	tests := map[string]struct {
+		user, userID, want string
+	}{
+		"both":                {"Ada Lovelace", "ada", "Ada Lovelace (ada)"},
+		"login only":          {"", "ada", "ada"},
+		"display only":        {"Ada Lovelace", "", "Ada Lovelace"},
+		"identical":           {"ada", "ada", "ada"},
+		"neither":             {"", "", "not recorded"},
+		"display name SYSTEM": {"SYSTEM", "asmith", "SYSTEM (asmith)"},
+		"login SYSTEM":        {"Sys Admin", "SYSTEM", "Sys Admin (SYSTEM)"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ConfigChange{User: tt.user, UserID: tt.userID}.Who())
+		})
+	}
 }
 
 // The plugin percent-encodes names inside the JSON string. Echoing that raw

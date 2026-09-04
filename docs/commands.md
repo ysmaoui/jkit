@@ -258,19 +258,25 @@ listing the job's configuration changes, newest first, from the
 [JobConfigHistory](https://plugins.jenkins.io/jobConfigHistory/) plugin.
 
 ```
-WHEN                                       OPERATION   USER    DETAIL
-2026-08-20 10:00:00                        Changed     Ada     bumped the timeout
-2026-08-14 14:58:12 → 2026-08-27 14:58:13  4 writes    SYSTEM  automated, collapsed
+WHEN                                       OPERATION  USER                DETAIL
+2026-08-27 14:58:12 → 2026-08-27 14:58:13  2 writes   SYSTEM              automated, collapsed
+2026-08-20 10:00:00                        Changed    Ada Lovelace (ada)  bumped the timeout
+2026-08-14 14:58:12 → 2026-08-14 14:58:13  2 writes   SYSTEM              automated, collapsed
 
-4 of 5 entries are automated SYSTEM writes (re-indexing rewrites a branch job's config on every scan), collapsed above; --show-system lists them one by one.
+4 of 5 entries are folded into the runs above, all repeated automated writes (re-indexing rewrites a branch job's config on every scan); --show-system lists them one by one.
 
 Retained entries: 5. The plugin caps how many it keeps per job and the server can truncate the response without saying so, so this is what it still holds, not every change ever made.
 ```
 
 Re-indexing rewrites a branch job's config on every scan, so on a multibranch
-branch every entry is a SYSTEM write, usually in same-second pairs. Runs of two
-or more are folded into one row; `--show-system` lists them individually. A
-single SYSTEM entry (the job's creation) is never folded.
+branch nearly every entry is a SYSTEM write. Consecutive runs of two or more
+that say the same thing are folded into one row; `--show-system` lists them
+individually. A run breaks whenever the operation changes or an entry carries a
+rename or a change reason, so a SYSTEM `Created` keeps its own row rather than
+disappearing into a range labelled as scan churn.
+
+The `USER` column shows the login alongside the display name, because the
+display name is self-editable in Jenkins and two people can share one.
 
 The entry count is what the server still retains, not a change count: the plugin
 caps entries per job (`maxHistoryEntries`) and the instance-wide
