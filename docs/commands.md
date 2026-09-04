@@ -12,6 +12,7 @@ All commands support these flags:
 | `--no-color` | Disable colored output |
 | `--verbose` | Show HTTP request/response details |
 | `--timeout DUR` | HTTP client timeout (default `30s`) |
+| `--pipeline-source SRC` | Pipeline backend: `auto` (default), `pgv`, `blueocean` (env `JKIT_PIPELINE_SOURCE`) |
 
 ---
 

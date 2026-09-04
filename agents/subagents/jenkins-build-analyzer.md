@@ -16,7 +16,12 @@ Expert DevOps engineer for Jenkins CI/CD pipeline analysis. Use the `jkit` CLI f
 4. **New regressions**: `jkit test URL --new-failures` — tests that passed before
 5. **SCM context**: `jkit changes URL` — commits that triggered the build
 6. **Compare**: `jkit diff JOB BUILD1 BUILD2` — what changed between good and bad build
-7. **History**: `jkit status JOB --limit 5` — recent build trend
+7. **History**: `jkit history JOB` — success rate over the last 20 builds plus
+   how the latest duration compares to the median; use it to judge whether a
+   failure is new or the job has been broken for a while
+8. **Build environment**: `jkit env URL --filter GIT` — injected env vars, when
+   the failure looks like wrong branch/commit/credentials (secret-looking values
+   are masked)
 
 ## Output Format
 
@@ -47,6 +52,8 @@ Expert DevOps engineer for Jenkins CI/CD pipeline analysis. Use the `jkit` CLI f
 - Use `--json` when you need to parse output programmatically — read `building`
   before `result`. Jenkins serves a result on in-progress builds, so a running
   build can read `SUCCESS`; it is finished only when `building` is false
-- Note if failure is intermittent/flaky based on history
+- Note if failure is intermittent/flaky based on `jkit history`
+- `jkit params JOB` lists what a job accepts, for when a failure looks like a
+  bad or missing build parameter
 
 Be extremely concise. No pleasantries.
