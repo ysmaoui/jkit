@@ -31,13 +31,25 @@ func (c *Client) ListJobs(folder string) ([]jenkins.Job, error) {
 }
 
 // ListJobsRecursive lists jobs recursively, flattening folders into a single list.
-// Uses nested tree queries (5 levels deep) for a single API call.
 func (c *Client) ListJobsRecursive(folder string) ([]jenkins.Job, error) {
+	jobs, err := c.ListJobTree(folder)
+	if err != nil {
+		return nil, err
+	}
+	return flattenJobs(jobs), nil
+}
+
+// ListJobTree lists a folder's contents with the nesting kept, in one API call.
+// Callers that mirror the layout onto something else need the containers and
+// each job's position, both of which flattenJobs drops.
+//
+// The nested tree query bounds the walk at 5 levels below folder; anything
+// deeper is absent from the response with no marker.
+func (c *Client) ListJobTree(folder string) ([]jenkins.Job, error) {
 	path := "/api/json"
 	if folder != "" {
 		path = NormalizeJobPath(folder) + "/api/json"
 	}
-	// 5-level nested tree query
 	leaf := "name,fullName,url,color,_class,lastBuild[number,result]"
 	tree := leaf + ",jobs[" + leaf + ",jobs[" + leaf + ",jobs[" + leaf + ",jobs[" + leaf + "]]]]"
 	query := url.Values{"tree": {"jobs[" + tree + "]"}}
@@ -54,7 +66,7 @@ func (c *Client) ListJobsRecursive(folder string) ([]jenkins.Job, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding jobs: %w", err)
 	}
-	return flattenJobs(result.Jobs), nil
+	return result.Jobs, nil
 }
 
 // flattenJobs recursively collects all non-folder jobs, preserving folders as markers.

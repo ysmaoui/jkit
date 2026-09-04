@@ -74,6 +74,7 @@ jkit inspect my-job                 # why a branch does not build / which Jenkin
 jkit inspect team/svc --branch feature/x
 jkit inspect my-job --show-secrets    # reveal a credential embedded in the SCM url
 jkit inspect my-job --xml            # raw config.xml, for fields the summary omits
+jkit inspect team/svc --xml --recursive -d ./configs   # export every job below a folder
 
 # Job config change log: "it worked last week, what changed?"
 jkit inspect my-job --history       # who changed the job config, and when
