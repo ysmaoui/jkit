@@ -73,6 +73,7 @@ jkit params my-job                  # what to pass to `jkit run -p`
 jkit inspect my-job                 # why a branch does not build / which Jenkinsfile ran
 jkit inspect team/svc --branch feature/x
 jkit inspect my-job --show-secrets    # reveal a credential embedded in the SCM url
+jkit inspect my-job --xml            # raw config.xml, for fields the summary omits
 
 # Job config change log: "it worked last week, what changed?"
 jkit inspect my-job --history       # who changed the job config, and when

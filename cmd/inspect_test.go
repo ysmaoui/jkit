@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -219,6 +220,47 @@ func TestInspectRejectsMeaninglessFlagCombinations(t *testing.T) {
 			_, err := executeCmd(t, append([]string{"inspect"}, tt.args...)...)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestInspectXMLDumpsConfigUnchanged(t *testing.T) {
+	raw, err := os.ReadFile("../internal/jenkins/testdata/config_multibranch.xml")
+	require.NoError(t, err)
+
+	out := inspect(t, "config_multibranch.xml", "team/service", "--xml")
+	assert.Equal(t, string(raw), out, "--xml must not reformat what Jenkins stores")
+}
+
+func TestInspectXMLWritesToFile(t *testing.T) {
+	raw, err := os.ReadFile("../internal/jenkins/testdata/config_multibranch.xml")
+	require.NoError(t, err)
+	dest := filepath.Join(t.TempDir(), "config.xml")
+
+	stdout := inspect(t, "config_multibranch.xml", "team/service", "--xml", "-o", dest)
+	assert.Empty(t, stdout, "the file is the payload; stdout stays clean for piping")
+
+	written, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	assert.Equal(t, raw, written)
+}
+
+// -o only means anything for --xml, and a flag that is accepted and ignored is
+// what the jk-2gc.5 checkpoint set out to stop.
+func TestInspectRejectsOutputWithoutXML(t *testing.T) {
+	setupTestConfig(t, "https://jenkins.example.com")
+	_, err := executeCmd(t, "inspect", "team/svc", "-o", "/tmp/whatever.xml")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "needs --xml")
+}
+
+func TestInspectXMLIsExclusiveWithTheOtherModes(t *testing.T) {
+	for _, other := range []string{"--history", "--show-system", "--show-secrets"} {
+		t.Run(other, func(t *testing.T) {
+			setupTestConfig(t, "https://jenkins.example.com")
+			_, err := executeCmd(t, "inspect", "team/svc", "--xml", other)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "none of the others can be")
 		})
 	}
 }
