@@ -165,7 +165,34 @@ GET /queue/api/json?tree=items[id,task[name,url],why,inQueueSince]
 
 # Jenkinsfile validation (linting)
 POST /pipeline-model-converter/validate  # body: jenkinsfile=<contents>
+
+# Job definition (the only source; see the note below)
+GET /job/{path}/config.xml               # needs Job/ExtendedRead
+
+# Config change history (JobConfigHistory plugin, not core)
+GET /job/{path}/jobConfigHistory/api/json
+GET /job/{path}/jobConfigHistory/configOutput?type=raw&timestamp=2006-01-02_15-04-05
 ```
+
+**Reading a job's definition.** `/api/json` cannot substitute for `config.xml`.
+On a multibranch job it returns `"sources": [{}]`, and `GitHubRepoMetadataAction`,
+`ObjectMetadataAction` and `ViewCredentialsAction` all come back with no exported
+fields, so every SCM fact is reachable only through the XML. Jenkins writes it
+with an XML 1.1 declaration, which Go's `encoding/xml` rejects outright, and it
+may contain control characters that are legal in 1.1 but not 1.0.
+
+**Two traps in JobConfigHistory.** A Jenkins without the plugin answers
+`/jobConfigHistory` with a 404 whose body is identical to a missing job, so the
+404 path probes the job itself before choosing which failure to report. And
+`configOutput` answers a bad, missing or malformed timestamp with HTTP 200 and a
+zero-byte body, so the status code carries no information and an empty body is
+the error signal. The `operation` field is a localized display string resolved at
+write time, not an enum, so nothing keys off its English text.
+
+The plugin's own diff endpoint (`diffFiles`/`showDiffFiles`) is deliberately
+unused: it returns Jelly HTML, its `api/json` route is a Jenkins 404 page, and
+`getLines()` carries no `@Exported`. jkit fetches two revisions and diffs them
+locally.
 
 **Pipeline data sources.** Jenkins exposes pipeline stage/step data through three
 different plugin generations. jkit prefers the newest:
