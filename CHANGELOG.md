@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   match, otherwise the command errors.
 
 ### Added
+- `jkit inspect [job]` reads a job's `config.xml` and reports which Jenkinsfile
+  runs, the repository behind it, the discovery traits with their strategy ids
+  in words, the build strategies, the re-indexing schedule and the build
+  discarder. `/api/json` returns none of this for multibranch jobs. Anything the
+  CLI cannot decode is reported by class name rather than dropped, and an absent
+  section says what its absence means.
 - A test asserts every command and global flag appears in `docs/commands.md` and
   in the agent skill, so a new command cannot ship undocumented.
 
@@ -51,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `--branch <name>` flag for multibranch pipeline jobs. The `org/name build#`
   shorthand has no place for a branch, and branch names with slashes (e.g.
   `feature/foo/bar`) can't be expressed positionally. `--branch` encodes the
-  branch as a single job segment, so `jkit log SANDBOX/app 6 --branch feature/foo`
+  branch as a single job segment, so `jkit log team/app 6 --branch feature/foo`
   resolves the same path as the full classic URL.
 
 ### Fixed

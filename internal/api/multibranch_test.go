@@ -17,12 +17,12 @@ import (
 func TestGetBuildOnMultibranchContainer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/job/SANDBOX-VEMB/job/vemb/6/api/json":
+		case "/job/team/job/service/6/api/json":
 			http.NotFound(w, r)
-		case "/job/SANDBOX-VEMB/job/vemb/api/json":
+		case "/job/team/job/service/api/json":
 			_, _ = w.Write([]byte(`{
 				"_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
-				"name": "vemb",
+				"name": "service",
 				"jobs": [
 					{"name": "main", "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob"},
 					{"name": "feature/foo", "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob"}
@@ -35,7 +35,7 @@ func TestGetBuildOnMultibranchContainer(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "admin", "secret")
-	_, err := client.GetBuild("SANDBOX-VEMB/vemb", 6)
+	_, err := client.GetBuild("team/service", 6)
 	require.Error(t, err)
 
 	var cbe *jenkins.ContainerBuildError
