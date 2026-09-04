@@ -315,9 +315,11 @@ Skipped 1:
   SANDBOXES/private-app: cannot read config.xml for SANDBOXES/private-app: reading a job's configuration needs the Job/ExtendedRead permission
 ```
 
-The traversal is the one behind `jkit list -r` and carries its limit: the tree
-query reaches 5 levels below the target, and anything deeper is absent from the
-response with no marker.
+The traversal is the one behind `jkit list -r`. One tree query reaches 5 levels
+below the target and Jenkins truncates below that silently, so any folder
+sitting at the boundary is re-queried rather than assumed empty. Deep
+hierarchies cost an extra request per folder at the limit; the common case
+stays a single call.
 
 ### `--history`: who changed the job, and when
 
