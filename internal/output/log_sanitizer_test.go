@@ -25,3 +25,22 @@ func TestRedactURLCredentials(t *testing.T) {
 		})
 	}
 }
+
+func TestStripControl(t *testing.T) {
+	tests := map[string]struct{ in, want string }{
+		"erase line":     {"ok\x1b[2Khidden rewrite", "okhidden rewrite"},
+		"colour":         {"\x1b[31mred\x1b[0m", "red"},
+		"osc title":      {"a\x1b]0;pwned\x07b", "ab"},
+		"bare escape":    {"a\x1bb", "ab"},
+		"carriage retun": {"a\rb", "ab"},
+		"tab kept":       {"a\tb", "a\tb"},
+		"delete":         {"a\x7fb", "ab"},
+		"plain":          {"bumped the timeout", "bumped the timeout"},
+		"unicode kept":   {"変更 ✓", "変更 ✓"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, StripControl(tt.in))
+		})
+	}
+}

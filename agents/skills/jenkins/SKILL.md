@@ -74,6 +74,10 @@ jkit inspect my-job                 # why a branch does not build / which Jenkin
 jkit inspect team/svc --branch feature/x
 jkit inspect my-job --show-secrets    # reveal a credential embedded in the SCM url
 
+# Job config change log: "it worked last week, what changed?"
+jkit inspect my-job --history       # who changed the job config, and when
+jkit inspect my-job --history --show-system   # include automated re-index writes
+
 # Trigger build
 jkit run my-job -p KEY=VAL --wait --log
 
@@ -205,6 +209,17 @@ Anything it cannot decode is flagged `!` rather than dropped, and an absent
 section says what its absence means. Run it on the container: a branch child
 only carries its own script path, remote and retention, and names its parent.
 
+`jkit inspect <job> --history` is the other half: it lists who changed the job's
+configuration and when, from the JobConfigHistory plugin. Read the output with
+three limits in mind. Re-indexing rewrites a branch job's config on every scan,
+so on a branch child every entry is a SYSTEM write and runs of them are
+collapsed into one row (`--show-system` expands them). The entry count is
+retention, not a change count: the plugin caps entries per job and the server
+can truncate the response silently. An empty result means either nothing
+changed or you lack Job/Configure, because the plugin answers a permission
+failure with an empty list rather than a 403. If the plugin is not installed the
+command says so by name instead of reporting a missing job.
+
 ---
 
 ## Diagnosing Stuck/Hanging Builds
@@ -227,6 +242,8 @@ When a build is BUILDING but appears stuck:
 | 403 Forbidden | User lacks Jenkins permissions for this job |
 | 5xx Server Error | Retry. CLI auto-retries transient 502/503/504 |
 | No test results | JUnit plugin not configured, or build has no tests |
+| `--history`: plugin not installed | The JobConfigHistory plugin is missing on that controller; no config change log exists there |
+| `--history`: no config history | Either nothing changed, or you lack Job/Configure — the plugin returns an empty list instead of refusing |
 | Stage log empty / `no stages found` | Pipeline Graph View or Blue Ocean plugin required for stage-level logs. If you targeted a multibranch container, the error instead lists its branches — re-run with `--branch` |
 | `console log is … — refusing to dump it whole` | Log exceeds `--max-bytes` (default 50MB). Narrow with `--tail`/`--head`/`--grep`, redirect to a file, or pass `--max-bytes 0` |
 | `stage "X" is ambiguous` | Same name in multiple parallel branches — re-run with the qualified path (`--stage "Branch/X"`) or `--stage-id` from `jkit stages` |

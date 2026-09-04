@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   section says what its absence means.
 - `jkit inspect` masks credentials embedded in an SCM url as `https://***@host/repo.git`
   in text, `--json` and `--format`; `--show-secrets` reveals them.
+- `jkit inspect [job] --history` lists who changed the job's configuration and
+  when, from the JobConfigHistory plugin. Runs of automated SYSTEM writes, which
+  is all a multibranch branch job records, collapse into one row; `--show-system`
+  lists them. The count is presented as what the server still retains, not as a
+  complete change log, and an empty result names the permission that produces
+  one. A controller without the plugin is told apart from a missing job.
 - A test asserts every command and global flag appears in `docs/commands.md` and
   in the agent skill, so a new command cannot ship undocumented.
 
