@@ -47,7 +47,7 @@ jkit/
 │   ├── stages.go              # jkit stages <job> [build#]
 │   ├── cancel.go              # jkit cancel <job> [build#]
 │   ├── restart.go             # jkit restart <job> [build#]
-│   ├── input.go               # jkit input / jkit approve / jkit deny
+│   ├── input.go               # jkit input (list / --approve / --deny)
 │   ├── queue.go               # jkit queue
 │   ├── list.go                # jkit list [--folder]
 │   └── artifacts.go           # jkit artifacts <job> [build#]
@@ -115,7 +115,9 @@ func (c *Client) GetBuild(jobPath string, number int) (*Build, error)
 func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*QueueItem, error)
 func (c *Client) GetBuildLog(jobPath string, number int, start int64) (*LogChunk, error)
 func (c *Client) GetPipelineStages(jobPath string, number int) ([]Stage, error)
-func (c *Client) SubmitInput(jobPath string, number int, inputID string, approve bool) error
+func (c *Client) GetPendingInputs(jobPath string, number int) ([]PendingInput, error)
+func (c *Client) ApproveInput(jobPath string, number int, in PendingInput, params map[string]string) error
+func (c *Client) DenyInput(jobPath string, number int, in PendingInput) error
 ```
 
 ### Jenkins API Patterns
@@ -150,12 +152,15 @@ GET /job/{path}/{number}/stages/log?nodeId={id}
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/log/
 
-# Pending input steps
-GET /job/{path}/{number}/wfapi/pendingInputActions
+# Pending input steps (core exported beans; see the note below)
+GET /job/{path}/{number}/api/json?tree=actions[_class,waitingForInput,
+#     executions[id,settled,input[message,ok,submitter,submitterParameter,
+#     parameters[_class,name,type,description,defaultParameterValue[value],choices]]]]
 
-# Submit input
-POST /job/{path}/{number}/input/{inputId}/proceedEmpty  # approve
-POST /job/{path}/{number}/input/{inputId}/abort          # deny
+# Settle an input step (requires crumb)
+POST /job/{path}/{number}/input/{inputId}/proceedEmpty  # approve, no parameters
+POST /job/{path}/{number}/input/{inputId}/proceed       # approve, json=<submitted form>
+POST /job/{path}/{number}/input/{inputId}/abort         # deny
 
 # CSRF crumb
 GET /crumbIssuer/api/json
@@ -210,6 +215,33 @@ gives explicit `PARALLEL_BLOCK` typing for nested parallel stages — no
 client-side heuristics. On instances with neither plugin available,
 pipeline-detail commands degrade gracefully (basic build info still works via
 the classic `/api/json` endpoints).
+
+**Input steps do not use `/wfapi`, and that is not an oversight.**
+`pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its
+`PendingInputActionsExt` carries no `submitter` field, so a refusal read through
+it could not name who is allowed to answer the step — which is the whole
+difference between a useful error and "permission denied". The core route has
+what it needs: `InputAction` is an `@ExportedBean` with `@Exported`
+`waitingForInput` and `executions`, and `InputStep` exports `message`, `ok`,
+`submitter`, `submitterParameter` and `parameters`. It also drops a dependency:
+the POST endpoints that settle an input come from `pipeline-input-step`, so
+reading through the same plugin means input support needs exactly one plugin
+rather than two, and generation 1 stays unused.
+
+The tree query names `_class` deliberately. Jenkins answers a tree query
+containing field names that do not exist with HTTP 200 and silently omits them —
+verified against a live instance, where `?tree=number,thisFieldDoesNotExistAtAll`
+returned the build with only `number`. So no field's absence proves anything,
+and `_class` is the exception: Jenkins always emits it for an exported action,
+and renders actions with no exported properties as `{}`. Finding no InputAction
+is therefore a positive answer ("this build never reached an input step"), not
+an inference from silence.
+
+`/proceed` is used for a parameterised approval rather than `/submit`, because
+`doSubmit` ABORTS the input whenever the request carries no `proceed` field: a
+malformed approval would turn into a denial. `/proceedEmpty` approves a step
+that declares parameters using their DEFAULTS, so `internal/api` refuses to call
+it for such a step unless the caller supplied every value.
 
 ### Git-to-Job Resolution (`internal/context/resolver.go`)
 
@@ -388,7 +420,7 @@ Print validation errors to stderr.
 - `jkit stages <job> [build#]` — list stages with node IDs and qualified paths (implemented)
 - `jkit cancel <job> [build#]` — abort a running build
 - `jkit restart <job> [build#]` — replay a build
-- `jkit input <job> [build#]` / `jkit approve` / `jkit deny` — input step interaction
+- `jkit input <job> [build#] [--approve|--deny]` — input step interaction (implemented)
 - `jkit queue` — view and manage the build queue
 - `jkit list [--folder]` — list jobs
 - `jkit artifacts <job> [build#]` — download build artifacts
@@ -448,7 +480,7 @@ Common error scenarios to handle well:
 
 - **Target:** Jenkins LTS (latest 2 releases) + Jenkins 2.400+
 - **Required plugins:** Pipeline (assumed installed on any modern Jenkins)
-- **Optional plugins:** Blue Ocean (needed for `jkit stages` and stage-level logs — gracefully degrade without it)
+- **Optional plugins:** Blue Ocean (needed for `jkit stages` and stage-level logs — gracefully degrade without it); `pipeline-input-step` (needed for `jkit input`, and installed wherever the `input` step is used at all)
 - **Multibranch pipelines:** First-class support. This is the most common modern Jenkins setup.
 - **Freestyle jobs:** Basic support (trigger, status, logs). No pipeline-specific features.
 - **Folder plugin:** Support nested folder paths in job references.

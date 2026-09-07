@@ -651,6 +651,60 @@ jkit abort my-app 42 --wait    # abort and wait for it to stop
 
 ---
 
+## `jkit input`
+
+List, approve or deny the `input` steps a build is paused on.
+
+```
+jkit input [job] [build#] [--approve|--deny] [--id ID] [-p KEY=VALUE]...
+```
+
+| Flag | Description |
+|------|-------------|
+| `--approve` | Approve (proceed) a pending input step |
+| `--deny` | Deny (abort) a pending input step |
+| `--id ID` | Which input step to act on, from the `ID` column |
+| `-p, --param KEY=VALUE` | Value for a parameter the input step declares (repeatable) |
+
+Defaults to the latest build. With no mode flag the pending steps are listed:
+
+```
+#   ID       MESSAGE            PARAMETERS      SUBMITTER
+#   Promote  Promote to prod?   TARGET, BUILD   alice, release-managers
+```
+
+`--approve` and `--deny` act on the single pending step, or on the one named by
+`--id` when the build is paused on more than one. `--id` takes the **input step
+ID** shown above, which is unrelated to the pipeline node IDs `jkit stages` and
+`jkit log --stage-id` use.
+
+**Approving a step that declares parameters requires `--param` for every one of
+them.** Jenkins' parameter-less approve endpoint submits the declared defaults
+instead of asking, so `jkit input --approve` refuses that case and prints the
+parameters, their defaults and the command to run. Approving is not the same as
+agreeing to whatever Jenkins had lying around.
+
+An empty list means nothing is waiting — either the build never reached an input
+step, or its steps were already answered. Neither is a missing plugin.
+
+A refused decision names one cause: the step's own submitter list (which no
+Jenkins permission overrides), the missing permission (`Job/Build` to approve,
+`Job/Cancel` or `Job/Build` to deny), or an input that is no longer pending
+because someone else answered it.
+
+```bash
+jkit input my-app                                       # what is my build waiting on?
+jkit input my-app 42 --approve                          # approve, no parameters
+jkit input my-app 42 --approve --id Promote -p TARGET=prod
+jkit input my-app 42 --deny                             # reject the gate
+jkit input my-app 42 --json
+```
+
+`jkit run --wait` and `jkit rebuild --wait` announce a build that stops here,
+because a paused build reports `building: true` and otherwise looks like a hang.
+
+---
+
 ## `jkit rebuild`
 
 Retrigger a build with the same parameters.

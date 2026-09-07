@@ -17,6 +17,7 @@ jkit inspect my-app              # which Jenkinsfile, which repo, which branches
 jkit search backend              # find jobs by name
 jkit history my-app              # success rate + duration trend
 jkit env my-app                  # a build's injected env vars
+jkit input my-app --approve      # answer a paused "Promote to prod?" gate
 jkit lint                        # validate ./Jenkinsfile
 jkit open my-app                 # open in browser
 ```

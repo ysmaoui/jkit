@@ -79,6 +79,7 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	listCmd.Flags().String("folder", "", "Folder path to list")
 	statusCmd.Flags().Int("limit", 10, "Number of recent builds to show")
 	registerInspectFlags(inspectCmd)
+	registerInputFlags(inputCmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()
