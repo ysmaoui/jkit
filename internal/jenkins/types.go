@@ -128,6 +128,23 @@ func (j Job) Kind() string {
 	return j.Class
 }
 
+// BuildEnv is a build's environment variables and which source produced them.
+// The two sources hold different things and neither is the whole environment:
+// EnvInject reports what a freestyle job injected, and a pipeline run reports
+// only what the script assigned to env.*, never BUILD_NUMBER, WORKSPACE or
+// anything the agent contributed. Naming the source is what keeps the output
+// from implying more than it has.
+type BuildEnv struct {
+	Source string            `json:"source"`
+	Vars   map[string]string `json:"vars"`
+}
+
+// Env source labels.
+const (
+	EnvSourceInjected = "injected"
+	EnvSourcePipeline = "pipeline"
+)
+
 type Build struct {
 	Number     int           `json:"number"`
 	Result     string        `json:"result"`

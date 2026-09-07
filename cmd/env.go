@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
 )
 
@@ -53,10 +54,11 @@ func runEnv(cmd *cobra.Command, args []string) error {
 		buildNum = job.LastBuild.Number
 	}
 
-	envMap, err := client.GetBuildEnv(jobPath, buildNum)
+	env, err := client.GetBuildEnv(jobPath, buildNum)
 	if err != nil {
 		return err
 	}
+	envMap := env.Vars
 
 	filter := strings.ToLower(mustString(cmd, "filter"))
 	showSecrets, _ := cmd.Flags().GetBool("show-secrets")
@@ -91,6 +93,8 @@ func runEnv(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	_, _ = fmt.Fprintln(os.Stderr, envSourceNote(env.Source))
+
 	for _, k := range keys {
 		_, _ = fmt.Fprintf(os.Stdout, "%s=%s\n", k, out[k])
 	}
@@ -100,4 +104,14 @@ func runEnv(cmd *cobra.Command, args []string) error {
 func mustString(cmd *cobra.Command, name string) string {
 	s, _ := cmd.Flags().GetString(name)
 	return s
+}
+
+// envSourceNote says which of the two sources produced the output and what it
+// leaves out, because neither is the build's whole environment and a bare list
+// under the heading "env" implies it is.
+func envSourceNote(source string) string {
+	if source == jenkins.EnvSourcePipeline {
+		return "Source: pipeline run. These are the variables the script assigned to env.*; Jenkins' own (BUILD_NUMBER, WORKSPACE, …) and the agent's are not recorded here."
+	}
+	return "Source: EnvInject. These are the variables the job injected; the pipeline script's env.* assignments are not recorded here."
 }

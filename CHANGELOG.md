@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- `jkit env` no longer reports "the EnvInject plugin is not installed" for every
+  pipeline build. That endpoint only exists when a job actually used EnvInject,
+  which pipeline jobs never do, so the 404 was the normal case and the message
+  blamed the wrong thing. Pipeline runs now report the variables their script
+  assigned to `env.*`, labelled with which source produced them.
+### Fixed
 - CI runs on every pull request, not only those targeting `main`. A stacked PR
   used to report no checks at all, silently.
 - A build number passed as a positional argument alongside a Jenkins URL is no
