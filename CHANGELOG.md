@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `jkit input` lists the `input` steps a build is paused on and settles one with
+  `--approve` or `--deny`, so a pipeline stopped at "Promote to prod?" no longer
+  forces a trip to the browser. Approving a step that declares parameters
+  requires a value for each of them: Jenkins' parameter-less approve endpoint
+  submits the declared defaults instead of asking, which on a promotion gate
+  deploys values nobody chose. A refused decision names its cause — the step's
+  own submitter list, the missing permission, or an input someone else already
+  answered.
+- `jkit run --wait` and `jkit rebuild --wait` announce a build that has stopped
+  at an input step and print the command that answers it. A paused build reports
+  `building: true` like any other, so the wait used to look like a hang.
+
 ### Fixed
 - `jkit env` no longer reports "the EnvInject plugin is not installed" for every
   pipeline build. That endpoint only exists when a job actually used EnvInject,
