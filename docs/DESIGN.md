@@ -524,6 +524,25 @@ the tool focused and safe for ordinary users:
 
 Filter every proposed feature through these before building it.
 
+**The permission line is relaxed; the mutation line is not.** Commands that need
+more than a normal build user's rights are acceptable, so a job owner or release
+engineer is a supported user. Writing a job's definition is still out: `config.xml`
+writes, job creation and seed-job pushes belong in jobDSL, not a CLI. `jkit inspect
+--xml` reads the file; nothing writes it. Replay is the useful boundary case, and
+it clears the line because it runs an edited script once and persists nothing.
+
+**A refusal must name what is missing.** Once commands need different rights, a
+failure stops being unambiguous, and the three causes look identical from the
+outside: you lack a permission, a plugin is absent, or the thing does not exist.
+Every command that can be refused must distinguish them, naming the permission
+and the object it is needed on.
+
+This is not hypothetical. `jkit env` used to answer every pipeline build with
+"the EnvInject plugin is not installed" on instances where it *was* installed:
+`/injectedEnvVars` only exists when a job actually used EnvInject, which pipeline
+jobs never do. The 404 was the normal case, and the message blamed the wrong
+thing. Getting this wrong scales with every elevated command added.
+
 ## Non-Goals (explicitly out of scope)
 
 - Jenkins administration (user management, plugin management, system config)
