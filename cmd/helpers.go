@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/config"
 	appctx "github.com/ysmaoui/jkit/internal/context"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
 )
 
@@ -113,4 +115,88 @@ func formatDuration(d time.Duration) string {
 	h := m / 60
 	m = m % 60
 	return fmt.Sprintf("%dh%dm", h, m)
+}
+
+// Poll cadences for waitForBuildResult, as variables so tests drive the loop
+// without real sleeps. The input check is far slower than the status poll
+// because reading the InputAction makes the running pipeline's CPS thread
+// answer; a paused build reports building:true exactly like a working one, so
+// without that check --wait looks like a hang.
+var (
+	buildPollInterval = 2 * time.Second
+	inputPollInterval = 30 * time.Second
+)
+
+// waitForBuildResult polls until the build finishes and maps its result to the
+// process exit code. While polling it watches for input steps and announces
+// each one once, so a build parked on a manual gate says so instead of looking
+// stalled.
+func waitForBuildResult(ctx context.Context, client *api.Client, jobPath string, buildNum int) error {
+	deadline := time.After(2 * time.Hour)
+	announced := map[string]bool{}
+	nextInputCheck := time.Now().Add(inputPollInterval)
+
+	for first := true; ; first = false {
+		if !first {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("interrupted")
+			case <-deadline:
+				return fmt.Errorf("build timeout after 2h — check Jenkins for build #%d", buildNum)
+			case <-time.After(buildPollInterval):
+			}
+		}
+
+		build, err := client.GetBuild(jobPath, buildNum)
+		if err != nil {
+			return fmt.Errorf("polling build: %w", err)
+		}
+		if !build.Building {
+			d := time.Duration(build.Duration) * time.Millisecond
+			_, _ = fmt.Fprintf(os.Stderr, "Build #%d completed: %s (%s)\n", buildNum, build.Result, formatDuration(d))
+			return buildResultError(build.Result)
+		}
+
+		if time.Now().After(nextInputCheck) {
+			nextInputCheck = time.Now().Add(inputPollInterval)
+			announcePendingInputs(client, jobPath, buildNum, announced)
+		}
+	}
+}
+
+func buildResultError(result string) error {
+	switch result {
+	case "SUCCESS":
+		return nil
+	case "FAILURE":
+		return &jenkins.ExitError{Code: 1, Message: result}
+	case "UNSTABLE":
+		return &jenkins.ExitError{Code: 2, Message: result}
+	case "ABORTED":
+		return &jenkins.ExitError{Code: 3, Message: result}
+	default:
+		return &jenkins.ExitError{Code: 4, Message: fmt.Sprintf("unknown result: %s", result)}
+	}
+}
+
+// announcePendingInputs is advisory: a failure to read the input state must not
+// end a wait that is otherwise healthy, so errors are dropped.
+func announcePendingInputs(client *api.Client, jobPath string, buildNum int, announced map[string]bool) {
+	pending, err := client.GetPendingInputs(jobPath, buildNum)
+	if err != nil {
+		return
+	}
+	for _, in := range pending {
+		if announced[in.ID] {
+			continue
+		}
+		announced[in.ID] = true
+		msg := in.Message
+		if msg == "" {
+			msg = "(no message)"
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "Build #%d is paused for input: %s\n", buildNum, collapseWS(msg))
+		_, _ = fmt.Fprintf(os.Stderr, "  approve: jkit input %s %d --approve --id %s\n", jobPath, buildNum, in.ID)
+		_, _ = fmt.Fprintf(os.Stderr, "  deny:    jkit input %s %d --deny --id %s\n", jobPath, buildNum, in.ID)
+	}
 }

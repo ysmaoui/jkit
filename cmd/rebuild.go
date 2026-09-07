@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
 )
 
@@ -113,47 +112,5 @@ func runRebuild(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Poll for result
-	buildDeadline := time.After(2 * time.Hour)
-	firstPoll := true
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("interrupted")
-		case <-buildDeadline:
-			return fmt.Errorf("build timeout after 2h — check Jenkins for build #%d", newBuildNum)
-		default:
-			if !firstPoll {
-				select {
-				case <-ctx.Done():
-					return fmt.Errorf("interrupted")
-				case <-buildDeadline:
-					return fmt.Errorf("build timeout after 2h — check Jenkins for build #%d", newBuildNum)
-				case <-time.After(2 * time.Second):
-				}
-			}
-			firstPoll = false
-		}
-
-		result, err := client.GetBuild(jobPath, newBuildNum)
-		if err != nil {
-			return fmt.Errorf("polling build: %w", err)
-		}
-		if !result.Building {
-			d := time.Duration(result.Duration) * time.Millisecond
-			_, _ = fmt.Fprintf(os.Stderr, "Build #%d completed: %s (%s)\n", newBuildNum, result.Result, formatDuration(d))
-			switch result.Result {
-			case "SUCCESS":
-				return nil
-			case "FAILURE":
-				return &jenkins.ExitError{Code: 1, Message: result.Result}
-			case "UNSTABLE":
-				return &jenkins.ExitError{Code: 2, Message: result.Result}
-			case "ABORTED":
-				return &jenkins.ExitError{Code: 3, Message: result.Result}
-			default:
-				return &jenkins.ExitError{Code: 4, Message: fmt.Sprintf("unknown result: %s", result.Result)}
-			}
-		}
-	}
+	return waitForBuildResult(ctx, client, jobPath, newBuildNum)
 }

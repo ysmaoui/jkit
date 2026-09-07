@@ -91,6 +91,12 @@ jkit rebuild my-job 42 --wait --log
 # Abort running build
 jkit abort my-job 42 --wait
 
+# Pending input steps ("Promote to prod?")
+jkit input my-job 42                          # list what the build is waiting on
+jkit input my-job 42 --approve                # approve (no parameters declared)
+jkit input my-job 42 --approve --id Promote -p TARGET=prod
+jkit input my-job 42 --deny                   # reject the gate
+
 # Artifacts
 jkit artifacts URL                  # list
 jkit artifacts URL -d report.xml    # download
@@ -240,10 +246,11 @@ reconfigured — the output flags that case rather than leaving you to guess.
 
 When a build is BUILDING but appears stuck:
 
-1. **Never run a full `jkit log` in background on BUILDING jobs** — it hangs waiting for more output. Instead tail a single stage with `jkit log URL --stage "Stage" -f` (or `--stage-id <id>`), which returns when that stage finishes, or run a one-shot `jkit log --stage` on an already-completed stage. Use `jkit stages URL` to find the running stage's ID.
-2. **Find the last log line, then reason about the code** — identify what step executes *after* the last visible output. That's where it's stuck.
-3. **Pod YAML printed = pod is running.** The hang is in whatever step follows pod allocation (e.g. a shell step in the wrong container), not in pod scheduling.
-4. **Wait for diagnostic commands to return before concluding.** If a command hasn't returned data yet, don't move on — either wait or try a different approach.
+1. **Check for a pending input step first** — `jkit input URL`. A build paused on `input message: 'Promote to prod?'` reports `building: true` and looks identical to a hang. Answer it with `--approve`/`--deny`, or leave it alone; `--wait` announces it too.
+2. **Never run a full `jkit log` in background on BUILDING jobs** — it hangs waiting for more output. Instead tail a single stage with `jkit log URL --stage "Stage" -f` (or `--stage-id <id>`), which returns when that stage finishes, or run a one-shot `jkit log --stage` on an already-completed stage. Use `jkit stages URL` to find the running stage's ID.
+3. **Find the last log line, then reason about the code** — identify what step executes *after* the last visible output. That's where it's stuck.
+4. **Pod YAML printed = pod is running.** The hang is in whatever step follows pod allocation (e.g. a shell step in the wrong container), not in pod scheduling.
+5. **Wait for diagnostic commands to return before concluding.** If a command hasn't returned data yet, don't move on — either wait or try a different approach.
 
 ---
 
@@ -260,4 +267,7 @@ When a build is BUILDING but appears stuck:
 | `--history`: no config history | Either nothing changed, or you lack Job/Configure — the plugin returns an empty list instead of refusing |
 | Stage log empty / `no stages found` | Pipeline Graph View or Blue Ocean plugin required for stage-level logs. If you targeted a multibranch container, the error instead lists its branches — re-run with `--branch` |
 | `console log is … — refusing to dump it whole` | Log exceeds `--max-bytes` (default 50MB). Narrow with `--tail`/`--head`/`--grep`, redirect to a file, or pass `--max-bytes 0` |
+| `refusing to approve input …: it declares N parameter(s)` | The input step declares parameters and the parameter-less endpoint submits none of them, so the pipeline would receive them unset, not defaulted. Pass each one with `-p NAME=VALUE`; the error lists them with the defaults Jenkins would show in the browser |
+| `the step restricts who may answer it to …` | The `input` step names its submitters. No Jenkins permission overrides that list — ask one of the named users or groups |
+| `input … is no longer pending` | Someone answered it, or the build ended, between listing and deciding. Re-run `jkit input` |
 | `stage "X" is ambiguous` | Same name in multiple parallel branches — re-run with the qualified path (`--stage "Branch/X"`) or `--stage-id` from `jkit stages` |
