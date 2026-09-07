@@ -479,6 +479,12 @@ jkit env [job] [build#] [--filter SUBSTR] [--show-secrets]
 | `--filter` | Only show vars whose name contains this substring (case-insensitive) |
 | `--show-secrets` | Do not mask secret-looking values |
 
+Reads two different sources and says which one it used, because neither is the
+build's whole environment. A freestyle job that used EnvInject reports its
+injected variables. A pipeline run reports only what its script assigned to
+`env.*` — not `BUILD_NUMBER`, not `WORKSPACE`, nothing from the agent. A build
+that recorded neither says so rather than blaming a plugin.
+
 Output is `KEY=VALUE`, sorted by name. Secret-looking values (`PASSWORD`,
 `TOKEN`, `SECRET`, …) are masked by default. Requires the EnvInject plugin on
 the Jenkins server; a clear error is shown if it is absent.

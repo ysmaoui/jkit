@@ -118,23 +118,40 @@ func (c *Client) GetBuild(jobPath string, number int) (*jenkins.Build, error) {
 	return &build, nil
 }
 
-// GetBuildEnv returns the injected environment variables for a build, read from
-// the EnvInject plugin's /injectedEnvVars endpoint. A 404 (build missing or the
-// EnvInject plugin not installed) is turned into an explanatory error rather than
-// a bare not-found.
-func (c *Client) GetBuildEnv(jobPath string, number int) (map[string]string, error) {
-	path := fmt.Sprintf("%s/%d/injectedEnvVars/api/json", NormalizeJobPath(jobPath), number)
+// GetBuildEnv returns a build's environment variables and where they came from.
+// EnvInject's /injectedEnvVars only exists when a job actually used the plugin,
+// which pipeline jobs never do, so a 404 there is the normal case rather than a
+// missing plugin; the pipeline run's own EnvActionImpl is tried next.
+func (c *Client) GetBuildEnv(jobPath string, number int) (*jenkins.BuildEnv, error) {
+	injected, err := c.injectedEnv(jobPath, number)
+	if err == nil {
+		return &jenkins.BuildEnv{Source: jenkins.EnvSourceInjected, Vars: injected}, nil
+	}
+	var nfe *jenkins.NotFoundError
+	if !errors.As(err, &nfe) {
+		return nil, err
+	}
 
+	pipeline, perr := c.pipelineEnv(jobPath, number)
+	switch {
+	case perr == nil && len(pipeline) > 0:
+		return &jenkins.BuildEnv{Source: jenkins.EnvSourcePipeline, Vars: pipeline}, nil
+	case perr != nil && errors.As(perr, &nfe):
+		if hint := c.ContainerHint(jobPath); hint != nil {
+			return nil, hint
+		}
+		return nil, fmt.Errorf("no build %s #%d on %s", jobPath, number, c.host)
+	case perr != nil:
+		return nil, perr
+	}
+	return nil, fmt.Errorf("no environment variables recorded for %s #%d — the build exists but injected no variables (EnvInject) and its script assigned none to env.* (pipeline)", jobPath, number)
+}
+
+func (c *Client) injectedEnv(jobPath string, number int) (map[string]string, error) {
+	path := fmt.Sprintf("%s/%d/injectedEnvVars/api/json", NormalizeJobPath(jobPath), number)
 	resp, err := c.Get(path, nil)
 	if err != nil {
-		var nfe *jenkins.NotFoundError
-		if errors.As(err, &nfe) {
-			if hint := c.ContainerHint(jobPath); hint != nil {
-				return nil, hint
-			}
-			return nil, fmt.Errorf("no injected env vars for %s #%d — the build may not exist, or the EnvInject plugin (which exposes /injectedEnvVars) is not installed", jobPath, number)
-		}
-		return nil, fmt.Errorf("getting build env: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -145,6 +162,32 @@ func (c *Client) GetBuildEnv(jobPath string, number int) (map[string]string, err
 		return nil, fmt.Errorf("decoding build env: %w", err)
 	}
 	return result.EnvMap, nil
+}
+
+// pipelineEnv reads EnvActionImpl, which carries only what the script assigned
+// to env.*.
+func (c *Client) pipelineEnv(jobPath string, number int) (map[string]string, error) {
+	path := fmt.Sprintf("%s/%d/api/json", NormalizeJobPath(jobPath), number)
+	resp, err := c.Get(path, url.Values{"tree": {"actions[environment]"}})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		Actions []struct {
+			Environment map[string]string `json:"environment"`
+		} `json:"actions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding pipeline env: %w", err)
+	}
+	for _, a := range result.Actions {
+		if len(a.Environment) > 0 {
+			return a.Environment, nil
+		}
+	}
+	return nil, nil
 }
 
 func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, error) {
