@@ -255,14 +255,23 @@ const maxLogChunk = 10 << 20 // 10 MB per request
 // than the cap was silently truncated to its first chunk.)
 func (c *Client) GetBuildLog(jobPath string, number int, start int64) (*jenkins.LogChunk, error) {
 	path := fmt.Sprintf("%s/%d/logText/progressiveText", NormalizeJobPath(jobPath), number)
-	query := url.Values{"start": {strconv.FormatInt(start, 10)}}
-
-	resp, err := c.Get(path, query)
+	chunk, err := c.progressiveChunk(path, start)
 	if err != nil {
 		if e := c.enrichNotFound(jobPath, err); e != err {
 			return nil, e
 		}
 		return nil, fmt.Errorf("getting build log: %w", err)
+	}
+	return chunk, nil
+}
+
+// progressiveChunk reads one bounded chunk from any Jenkins progressiveText
+// endpoint. A build's console and a multibranch project's indexing log are both
+// served by it with the same headers, so both page through this.
+func (c *Client) progressiveChunk(path string, start int64) (*jenkins.LogChunk, error) {
+	resp, err := c.Get(path, url.Values{"start": {strconv.FormatInt(start, 10)}})
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -294,6 +303,12 @@ func (c *Client) GetBuildLog(jobPath string, number int, start int64) (*jenkins.
 // large logs cheaply.
 func (c *Client) GetBuildLogSize(jobPath string, number int) (int64, error) {
 	path := fmt.Sprintf("%s/%d/logText/progressiveText", NormalizeJobPath(jobPath), number)
+	return c.progressiveSize(path)
+}
+
+// progressiveSize reads only the X-Text-Size header of a progressiveText
+// endpoint.
+func (c *Client) progressiveSize(path string) (int64, error) {
 	resp, err := c.Get(path, url.Values{"start": {"0"}})
 	if err != nil {
 		return 0, fmt.Errorf("getting log size: %w", err)
