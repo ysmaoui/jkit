@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `jkit scan` prints what the last branch-indexing run of a multibranch pipeline
+  or organization folder did: which branches, tags and pull requests it
+  examined, which met the criteria, which got a build. A rejected branch has no
+  job, so `jkit list` and `jkit log` cannot show it at all. There is no
+  `indexing/api/json`, only prose written by the SCM source plugin, so the log
+  is printed as it stands, `--branch` extracts one head's block verbatim, and
+  `--summary` parses it on a best-effort basis: it names the provider wording it
+  was built from, prints verbatim any line it cannot classify, and marks itself
+  INCOMPLETE when the log's own totals disagree with the blocks parsed. Jenkins
+  keeps only the last scan, so every mode prints when it ran and warns once it
+  is a day old — otherwise "your branch is not in the log" reads as "rejected"
+  when it means "not looked at yet".
 - `jkit sources` reports which code one build actually ran: the revision the
   pipeline was read at, every repository the git plugin checked out with its
   commit, and every shared library with the ref it requested beside the commit

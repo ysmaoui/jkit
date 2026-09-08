@@ -177,6 +177,11 @@ GET /job/{path}/config.xml               # needs Job/ExtendedRead
 # Config change history (JobConfigHistory plugin, not core)
 GET /job/{path}/jobConfigHistory/api/json
 GET /job/{path}/jobConfigHistory/configOutput?type=raw&timestamp=2006-01-02_15-04-05
+
+# Branch indexing (branch-api; containers only, no api/json exists)
+GET /job/{path}/indexing/consoleText                        # multibranch project
+GET /job/{path}/indexing/logText/progressiveText?start=N
+GET /job/{path}/computation/logText/progressiveText?start=N # organization folder
 ```
 
 **Reading a job's definition.** `/api/json` cannot substitute for `config.xml`.
@@ -193,6 +198,21 @@ may contain control characters that are legal in 1.1 but not 1.0.
 zero-byte body, so the status code carries no information and an empty body is
 the error signal. The `operation` field is a localized display string resolved at
 write time, not an enum, so nothing keys off its English text.
+
+**Branch indexing has no structured form, only a log.** `/indexing/api/json` is a
+404 on a multibranch job whose `/indexing/consoleText` returns 200, so the record
+of what a scan did is English prose written by the SCM source plugin. GitHub,
+Bitbucket and plain git word the same verdicts differently, which makes any
+branch-to-verdict table a heuristic. `jkit scan` therefore prints the log by
+default, extracts a `Checking branch X` block verbatim for `--branch`, and marks
+`--summary` best-effort: it names the wording it was built from, prints verbatim
+every line it cannot classify, and compares the log's own "N branches were
+processed" totals against the blocks it parsed. A multibranch project publishes
+the run as `/indexing`; an organization folder is a plain `ComputedFolder` and
+publishes it as `/computation` (both answer on a multibranch job, and the class
+decides which is used). Jenkins keeps only the last run, so the scan's start time
+is read off line two and its age is reported: without that, "your branch is not
+in the log" reads as "rejected" when it usually means "not looked at yet".
 
 The plugin's own diff endpoint (`diffFiles`/`showDiffFiles`) is deliberately
 unused: it returns Jelly HTML, its `api/json` route is a Jenkins 404 page, and

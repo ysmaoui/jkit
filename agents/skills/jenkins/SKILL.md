@@ -81,6 +81,12 @@ jkit inspect my-job --show-secrets    # reveal a credential embedded in the SCM 
 jkit inspect my-job --xml            # raw config.xml, for fields the summary omits
 jkit inspect team/svc --xml --recursive -d ./configs   # export every job below a folder
 
+# What the last branch-indexing scan did (why a pushed branch has no job)
+jkit scan team/svc                      # the indexing log, verbatim
+jkit scan team/svc --branch feature/x   # only that head's block
+jkit scan team/svc --summary            # parsed table, best effort
+jkit scan team/svc --json
+
 # Job config change log: "it worked last week, what changed?"
 jkit inspect my-job --history       # who changed the job config, and when
 jkit inspect my-job --history --show-system   # include automated re-index writes
@@ -224,6 +230,24 @@ words, the build strategies, the re-indexing schedule and the build discarder.
 Anything it cannot decode is flagged `!` rather than dropped, and an absent
 section says what its absence means. Run it on the container: a branch child
 only carries its own script path, remote and retention, and names its parent.
+
+`jkit scan team/svc` answers the runtime half of the same question: `inspect`
+reports the discovery rules, `scan` reports what the last indexing run did with
+them — which branches, tags and pull requests were examined, which met the
+criteria, which got a build. A rejected branch has no job, so `jkit list` and
+`jkit log` cannot see it at all. Run it on the container; a folder, a plain job
+and a branch child are each refused by name with the target to use instead.
+
+Read that output with two limits in mind. It is only the LAST scan, so a branch
+pushed since is absent for a boring reason: the age is printed every time, a
+scan over a day old warns, and `--branch` on a head the log never mentions
+fails with the three things that absence can mean rather than "rejected". And
+the log is English prose written by the SCM source plugin, not a data format, so
+the default output is the log itself and `--branch` extracts a block verbatim.
+`--summary` (and `--json`) interpret it on a best-effort basis: they name the
+provider wording they were built from, print verbatim any line they cannot
+classify, and compare the log's own totals against the blocks parsed, marking
+the table INCOMPLETE when they disagree.
 
 `jkit inspect <job> --history` is the other half: it lists who changed the job's
 configuration and when, from the JobConfigHistory plugin. Read the output with
