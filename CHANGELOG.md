@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `building: true` like any other, so the wait used to look like a hang.
 
 ### Fixed
+- `--branch` is no longer discarded when the target is a URL. It parsed, was
+  accepted and did nothing, so `jkit status <multibranch-url> --branch feature/x`
+  reported no builds while the job-path form worked. A URL already naming the
+  branch is left alone rather than having it appended twice.
 - `jkit env` no longer reports "the EnvInject plugin is not installed" for every
   pipeline build. That endpoint only exists when a job actually used EnvInject,
   which pipeline jobs never do, so the 404 was the normal case and the message

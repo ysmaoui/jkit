@@ -8,6 +8,10 @@ All commands support these flags:
 |------|-------------|
 | `--host HOST` | Override Jenkins host URL |
 | `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x`); slashes are encoded for you |
+
+`--branch` composes with a URL target: a URL naming the multibranch job plus
+`--branch feature/x` is the same request as the job-path form. A URL that already
+names the branch is left alone rather than having it appended twice.
 | `--json` | Output as JSON |
 | `--format TMPL` | Output using Go template |
 | `--no-color` | Disable colored output |

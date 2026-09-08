@@ -28,15 +28,24 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.SetVersionTemplate("jkit version {{.Version}}\n")
-	rootCmd.PersistentFlags().String("host", "", "Jenkins host URL")
-	rootCmd.PersistentFlags().String("branch", "", "Branch name for a multibranch pipeline job (e.g. feature/foo); slashes are encoded automatically")
-	rootCmd.PersistentFlags().Bool("json", false, "Output as JSON")
-	rootCmd.PersistentFlags().String("format", "", "Output format (Go template, use {{range .}}...{{end}} for lists)")
-	rootCmd.PersistentFlags().Bool("no-color", false, "Disable color output")
-	rootCmd.PersistentFlags().Bool("verbose", false, "Show HTTP request/response details")
-	rootCmd.PersistentFlags().String("timeout", "30s", "HTTP client timeout")
-	rootCmd.PersistentFlags().String("pipeline-source", "", "Pipeline backend: auto|pgv|blueocean (env JKIT_PIPELINE_SOURCE)")
+	registerRootFlags(rootCmd)
 	rootCmd.AddCommand(auth.AuthCmd)
+}
+
+// registerRootFlags declares the global flags in one place. The test harness
+// resets and rebuilds them, and when it kept its own list the two drifted:
+// --branch, --verbose, --timeout and --pipeline-source were absent under test,
+// so no test could exercise them and a command using one failed with "unknown
+// flag" rather than anything that named the cause.
+func registerRootFlags(c *cobra.Command) {
+	c.PersistentFlags().String("host", "", "Jenkins host URL")
+	c.PersistentFlags().String("branch", "", "Branch name for a multibranch pipeline job (e.g. feature/foo); slashes are encoded automatically")
+	c.PersistentFlags().Bool("json", false, "Output as JSON")
+	c.PersistentFlags().String("format", "", "Output format (Go template, use {{range .}}...{{end}} for lists)")
+	c.PersistentFlags().Bool("no-color", false, "Disable color output")
+	c.PersistentFlags().Bool("verbose", false, "Show HTTP request/response details")
+	c.PersistentFlags().String("timeout", "30s", "HTTP client timeout")
+	c.PersistentFlags().String("pipeline-source", "", "Pipeline backend: auto|pgv|blueocean (env JKIT_PIPELINE_SOURCE)")
 }
 
 func Execute() {
