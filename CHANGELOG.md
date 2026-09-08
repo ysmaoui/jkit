@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `jkit sources` reports which code one build actually ran: the revision the
+  pipeline was read at, every repository the git plugin checked out with its
+  commit, and every shared library with the ref it requested beside the commit
+  that ref resolved to. A library loaded `@develop` is different code on every
+  build and nothing in the job config or the changelog says so, which is the
+  usual answer to "same commit, worked yesterday, fails today". Jenkins records
+  the requested ref and the resolved commit in two actions with no key between
+  them, so a commit is reported only where it cannot belong to another library;
+  everything else prints `SHA not resolvable` with the reason, above the raw
+  checkout list it was weighed against. `buildsByBranchName` is never read: it
+  accumulates entries across builds and would report code the build never ran.
 - `jkit input` lists the `input` steps a build is paused on and settles one with
   `--approve` or `--deny`, so a pipeline stopped at "Promote to prod?" no longer
   forces a trip to the browser. Approving a step that declares parameters

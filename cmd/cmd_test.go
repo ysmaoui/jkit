@@ -80,6 +80,7 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	statusCmd.Flags().Int("limit", 10, "Number of recent builds to show")
 	registerInspectFlags(inspectCmd)
 	registerInputFlags(inputCmd)
+	registerSourcesFlags(sourcesCmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()

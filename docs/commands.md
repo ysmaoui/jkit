@@ -793,6 +793,90 @@ jkit changes my-app --json        # JSON output
 
 ---
 
+## `jkit sources`
+
+Show which code a build actually ran.
+
+```
+jkit sources [job] [build#]
+```
+
+Answers "same commit, worked yesterday, fails today". Prints three things a
+build records and no other command reads: the revision the pipeline was read
+at, every repository the git plugin checked out with its commit, and every
+shared library with the ref it asked for beside the commit that ref resolved
+to. Defaults to the latest build.
+
+A library loaded `@develop` is a different pile of code on every build, and
+nothing in the job configuration or the changelog says so. The `Notes` section
+counts how many of the build's libraries are requested by name rather than by
+commit.
+
+```bash
+jkit sources my-app                  # latest build
+jkit sources my-app 42
+jkit sources my-app 42 --json
+jkit sources my-app 42 --show-secrets   # reveal a credential embedded in a checkout url
+```
+
+```
+Job:          SANDBOXES/Gecko-vemb/feature%2Fbuild-with-hera2
+Build:        #24
+
+Pipeline revision
+  Revision:           65e714a68fcf8ec58ee7e162c7ae8348696b7a4f
+  Recorded by:        jenkins.plugins.git.AbstractGitSCMSource$SCMRevisionImpl
+
+Shared libraries (3)
+  e3-sdk-global-jenkins-shared-lib @ develop  (trusted)
+      commit  e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  (matched to a checkout by branch name)
+      repo    https://git.example.com/CARIAD/tools-sdk-global-jenkins-shared-lib.git
+  hera2 @ feature/bazel-remote-exec  (untrusted)
+      SHA not resolvable: no git checkout recorded the branch "feature/bazel-remote-exec"
+
+Git checkouts (2, last built revision only)
+  https://git.example.com/CARIAD/tools-sdk-global-jenkins-shared-lib.git
+      e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  branch develop  -> shared library e3-sdk-global-jenkins-shared-lib
+```
+
+### Which commits are reported, and which are not
+
+Jenkins splits the answer across two actions that share no key. `LibrariesAction`
+records a library's name and the ref it requested, never a commit. `BuildData`
+records a commit and a branch name, never a library name. So the join is a
+guess unless it is constrained, and this command reports a commit only where
+the guess cannot be wrong:
+
+- a version that is already a 40-character commit id needs no join at all
+  (`pinned`); an abbreviated hash is not accepted, because it is also a legal
+  branch name;
+- otherwise the library's version must equal the branch name of exactly one
+  checkout (`matched-by-branch`);
+- two libraries requesting the same ref make every checkout ambiguous between
+  them, and neither gets a commit;
+- two checkouts recording the same branch name resolve only when they agree on
+  both commit and remote url;
+- branch names are compared verbatim: a checkout recorded as
+  `refs/remotes/origin/develop` is not treated as `develop`.
+
+Anything else prints as `SHA not resolvable` with the reason. The full checkout
+list is printed either way, so an unresolved library can still be settled by
+eye. A guessed commit would be worse than no commit: the point of the command
+is being trusted about which code ran.
+
+`buildsByBranchName` is never read. It accumulates one entry per branch the job
+has ever built and keeps them across builds, so a build carries revisions
+recorded by much older build numbers. Only `lastBuiltRevision` belongs to the
+build being read.
+
+An absent section says what its absence means: a build with no `LibrariesAction`
+loaded no shared library (or `workflow-cps-global-lib` is not installed, which a
+build record cannot distinguish), and a build with no `BuildData` checked
+nothing out with the git plugin. Data read from a plugin class that does not
+normally export it is kept and flagged under `Notes` rather than dropped.
+
+---
+
 ## `jkit diagnose`
 
 Analyze a failed build and show failure summary.
