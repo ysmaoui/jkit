@@ -32,6 +32,19 @@ func newFetchLog(client *api.Client) output.FetchLogFunc {
 // If the first argument is a Jenkins URL, it parses host/job/build from it and looks up credentials.
 // Otherwise falls back to positional args and context resolution.
 func resolveJobArgs(cmd *cobra.Command, args []string, needBuild bool) (*api.Client, string, int, error) {
+	return resolveTarget(cmd, args, needBuild, true)
+}
+
+// resolveContainerArgs resolves a target for a command whose subject is the
+// container itself. Such a command gives --branch a meaning of its own, so the
+// branch must not be appended to the job path: that would address a child job
+// which has none of what the command reads.
+func resolveContainerArgs(cmd *cobra.Command, args []string) (*api.Client, string, error) {
+	client, jobPath, _, err := resolveTarget(cmd, args, false, false)
+	return client, jobPath, err
+}
+
+func resolveTarget(cmd *cobra.Command, args []string, needBuild, applyBranch bool) (*api.Client, string, int, error) {
 	if len(args) > 0 && (strings.HasPrefix(args[0], "http://") || strings.HasPrefix(args[0], "https://")) {
 		parsed, err := appctx.ParseJenkinsURL(args[0])
 		if err != nil {
@@ -89,7 +102,7 @@ func resolveJobArgs(cmd *cobra.Command, args []string, needBuild bool) (*api.Cli
 			_, _ = fmt.Fprintf(os.Stderr, "warning: guessed job from directory name: %s — use .jkit.yml or pass job arg if incorrect\n", jobPath)
 		}
 	}
-	if branch, _ := cmd.Flags().GetString("branch"); branch != "" {
+	if branch, _ := cmd.Flags().GetString("branch"); applyBranch && branch != "" {
 		// Encode the branch as a single job segment: a multibranch branch like
 		// "feature/foo" is one job whose name contains slashes. Marking them as
 		// %2F lets NormalizeJobPath treat the branch as one segment instead of

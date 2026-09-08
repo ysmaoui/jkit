@@ -431,6 +431,77 @@ jkit inspect my-app --diff --diff-from 2026-07-24_13-06-30 --diff-to 2026-08-27_
 
 ---
 
+## `jkit scan`
+
+Show what the last branch-indexing scan did.
+
+```
+jkit scan [job] [--branch NAME] [--summary] [-f|--follow] [--max-bytes N]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--branch NAME` | Print only what the scan said about this branch or tag |
+| `--summary` | Best-effort table of head and verdict instead of the log |
+| `-f, --follow` | Follow a scan that is still running |
+| `--max-bytes N` | Refuse to read a log larger than N bytes (default 50 MB; `0` = unlimited) |
+
+Answers the runtime half of "I pushed a branch and nothing appeared in Jenkins".
+`jkit inspect` answers the config half, the discovery rules; this shows what the
+indexing actually did with them: which branches, tags and pull requests it
+examined, which met the criteria, and which got a build. `jkit list` cannot show
+this at all, because a rejected branch has no job to list.
+
+Run it on the container. A multibranch pipeline or an organization folder has an
+indexing log; a folder, a plain job and a branch child do not, and each is
+refused by name with the target to use instead.
+
+```bash
+jkit scan team/svc                      # the log, verbatim
+jkit scan team/svc --branch feature/x   # only that head's block
+jkit scan team/svc --summary            # parsed table, best effort
+jkit scan team/svc --follow             # tail a running scan
+jkit scan team/svc --json               # the parse, with its caveats
+```
+
+```
+Job:      SANDBOXES/Gecko-vemb (multibranch pipeline)
+Scanned:  Tue Sep 08 14:58:10 UTC 2026 (12m36s ago), SUCCESS
+Only the last scan is kept: a branch pushed after that time has not been examined yet.
+    Checking branch develop
+      'Jenkinsfile' not found
+    Does not meet criteria
+```
+
+### Two things that decide how to read the output
+
+**It is only the last scan.** Jenkins keeps one indexing run per job, so a
+branch pushed since then is absent for a boring reason. Every mode prints the
+scan's start time and its age, and a scan older than 24 hours prints a warning
+that an absent head is not necessarily a rejected one. `--branch` on a head the
+scan never mentions fails with the three things that absence can mean, not with
+"rejected". The scan time and the log's age go to stderr in the log and
+`--branch` modes, so redirecting stdout keeps the log clean and still shows the
+warning in the terminal.
+
+**The log is prose, not a data format.** There is no `indexing/api/json`; the
+text is English written by the SCM source plugin, and GitHub, Bitbucket and
+plain git word the same verdicts differently. So the default output is the log
+itself, `--branch` extracts a block verbatim, and only `--summary` interprets
+anything. The table names the wording it was built from (`github-branch-source`)
+and keeps itself honest three ways: a line inside a block that it cannot
+classify is printed verbatim under the table, a line outside every block that it
+cannot classify is printed too, and the log's own totals ("6 branches were
+processed") are compared against the blocks parsed — a disagreement marks the
+table INCOMPLETE rather than letting it read as the whole story.
+
+`--json` and `--format` emit that same best-effort parse, including each block's
+verbatim lines, `bestEffort`, `parsedFrom`, and `reportedCounts` beside
+`parsedCounts`. The log by itself has no JSON shape, so nothing is invented
+around it.
+
+---
+
 ## `jkit history`
 
 Show a job's recent builds with a trend summary: success rate over the window
