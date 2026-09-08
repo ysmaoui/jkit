@@ -61,6 +61,11 @@ jkit test URL --new-failures        # regressions only
 # SCM changes (commits)
 jkit changes URL
 
+# Which code the build actually ran (pipeline revision, checkouts, library commits)
+jkit sources URL                    # "same commit, worked yesterday, fails today"
+jkit sources my-job 42 --json
+jkit sources my-job 42 --show-secrets   # reveal a credential embedded in a checkout url
+
 # Injected env vars (EnvInject plugin) — secret-looking values masked
 jkit env URL                        # last build if no build# given
 jkit env URL --filter GIT           # names containing GIT
@@ -167,7 +172,8 @@ and `--format` expose them raw. The same applies to a running build's
 3. `jkit test URL --failed` — if UNSTABLE, show test failures
 4. `jkit test URL --new-failures` — regressions vs previous build
 5. `jkit changes URL` — what commits triggered the build
-6. `jkit diff my-job 41 42` — compare with last good build
+6. `jkit sources URL` — which library commits ran, when the job's own commit did not change
+7. `jkit diff my-job 41 42` — compare with last good build
 
 **Searching a large console:** `--grep` streams the *entire* log (even multi-GB
 ones) with bounded memory — use it to find an error anywhere, e.g.
@@ -242,6 +248,33 @@ reconfigured — the output flags that case rather than leaving you to guess.
 
 ---
 
+## "Same commit, different result"
+
+`jkit sources <job> <build#>` reports the code one build ran: the revision the
+pipeline was read at, every repository the git plugin checked out with its
+commit, and every shared library with the ref it requested beside the commit
+that ref resolved to. A library loaded `@develop` is different code on every
+build, and neither the job config nor the changelog records that it moved — the
+`Notes` section counts how many libraries are requested by name rather than by
+commit.
+
+Read the library commits with the join in mind. Jenkins records the requested
+ref (`LibrariesAction`) and the resolved commit (`BuildData`) in two actions
+with no key between them, so a commit is printed only where it cannot belong to
+another library: a version that is already a 40-character commit id, or a
+version equal to the branch name of exactly one checkout. Two libraries on one
+ref, two checkouts on one branch name, a tag, or a ref name recorded with a
+`refs/remotes/origin/` prefix all print `SHA not resolvable` with the reason.
+Do not fill that gap yourself from the checkout list — it is printed as
+evidence, not as an answer, and the repository name is not proof of which
+library used it.
+
+`buildsByBranchName` is never read: it accumulates entries across builds, so it
+reports code the build never ran. An absent section states what its absence
+means (no shared libraries loaded, versus libraries that could not be read).
+
+---
+
 ## Diagnosing Stuck/Hanging Builds
 
 When a build is BUILDING but appears stuck:
@@ -270,4 +303,5 @@ When a build is BUILDING but appears stuck:
 | `refusing to approve input …: it declares N parameter(s)` | The input step declares parameters and the parameter-less endpoint submits none of them, so the pipeline would receive them unset, not defaulted. Pass each one with `-p NAME=VALUE`; the error lists them with the defaults Jenkins would show in the browser |
 | `the step restricts who may answer it to …` | The `input` step names its submitters. No Jenkins permission overrides that list — ask one of the named users or groups |
 | `input … is no longer pending` | Someone answered it, or the build ended, between listing and deciding. Re-run `jkit input` |
+| `sources`: `SHA not resolvable` | Jenkins recorded no checkout that can be attributed to that library without guessing. Read the `Git checkouts` list yourself; do not assume the commit |
 | `stage "X" is ambiguous` | Same name in multiple parallel branches — re-run with the qualified path (`--stage "Branch/X"`) or `--stage-id` from `jkit stages` |
