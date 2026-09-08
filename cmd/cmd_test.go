@@ -59,10 +59,7 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	cmd := rootCmd
 	// Reset persistent flags to defaults between test runs
 	cmd.ResetFlags()
-	cmd.PersistentFlags().String("host", "", "Jenkins host URL")
-	cmd.PersistentFlags().Bool("json", false, "Output as JSON")
-	cmd.PersistentFlags().String("format", "", "Output format (Go template, use {{range .}}...{{end}} for lists)")
-	cmd.PersistentFlags().Bool("no-color", false, "Disable color output")
+	registerRootFlags(cmd)
 	// Reset subcommand local flags to avoid state leaking between tests
 	for _, sub := range cmd.Commands() {
 		sub.ResetFlags()
@@ -858,4 +855,68 @@ func TestApplyTailHead(t *testing.T) {
 	// empty
 	assert.Equal(t, "", applyTailHead("", 5, 0))
 	assert.Equal(t, "", applyTailHead("\n", 5, 0))
+}
+
+// --branch used to be dropped whenever the target was a URL: the flag parsed,
+// was accepted, and did nothing. A URL naming a multibranch job plus a branch
+// is the same request as the job-path form.
+func TestBranchAppliesToAURLTarget(t *testing.T) {
+	tests := map[string]struct {
+		suffix, branch, wantPath string
+	}{
+		"url names the container": {
+			"/job/team/job/svc/", "feature/x",
+			"/job/team/job/svc/job/feature%2Fx/api/json",
+		},
+		"url already names the branch": {
+			"/job/team/job/svc/job/feature%2Fx/", "feature/x",
+			"/job/team/job/svc/job/feature%2Fx/api/json",
+		},
+		"branch without a slash": {
+			"/job/team/job/svc/", "main",
+			"/job/team/job/svc/job/main/api/json",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var paths []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				_ = json.NewEncoder(w).Encode(map[string]any{"builds": []map[string]any{
+					{"number": 7, "result": "SUCCESS", "building": false},
+				}})
+			}))
+			defer srv.Close()
+			setupTestConfig(t, srv.URL)
+
+			// r.URL.Path is decoded once, so the wire's %252F reads back as %2F.
+			_, err := executeCmd(t, "status", srv.URL+tt.suffix, "--branch", tt.branch)
+			require.NoError(t, err)
+			assert.Contains(t, paths, tt.wantPath)
+		})
+	}
+}
+
+// jkit scan takes its own --branch, filtering the indexing log of the container
+// it was given. The shared resolver must not rewrite the path underneath it.
+func TestScanBranchDoesNotRewriteTheJobPath(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/api/json") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+				"name":   "svc",
+			})
+			return
+		}
+		_, _ = w.Write([]byte("Started branch indexing\nChecking branch develop\n  'Jenkinsfile' not found\nDoes not meet criteria\n"))
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, _ = executeCmd(t, "scan", srv.URL+"/job/team/job/svc/", "--branch", "develop")
+	for _, p := range paths {
+		assert.NotContains(t, p, "/job/develop", "scan filters the container's log; it must not append the branch to the path")
+	}
 }

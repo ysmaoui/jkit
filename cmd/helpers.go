@@ -69,7 +69,7 @@ func resolveTarget(cmd *cobra.Command, args []string, needBuild, applyBranch boo
 		if err != nil {
 			return nil, "", 0, err
 		}
-		return client, parsed.JobPath, buildNum, nil
+		return client, withBranch(cmd, parsed.JobPath, applyBranch), buildNum, nil
 	}
 
 	client, _, err := clientFromCmd(cmd)
@@ -102,15 +102,31 @@ func resolveTarget(cmd *cobra.Command, args []string, needBuild, applyBranch boo
 			_, _ = fmt.Fprintf(os.Stderr, "warning: guessed job from directory name: %s — use .jkit.yml or pass job arg if incorrect\n", jobPath)
 		}
 	}
-	if branch, _ := cmd.Flags().GetString("branch"); applyBranch && branch != "" {
-		// Encode the branch as a single job segment: a multibranch branch like
-		// "feature/foo" is one job whose name contains slashes. Marking them as
-		// %2F lets NormalizeJobPath treat the branch as one segment instead of
-		// splitting it into nested jobs.
-		seg := strings.ReplaceAll(strings.Trim(branch, "/"), "/", "%2F")
-		jobPath = strings.TrimRight(jobPath, "/") + "/" + seg
+	return client, withBranch(cmd, jobPath, applyBranch), buildNum, nil
+}
+
+// withBranch appends --branch to a job path as one segment. It applies to a URL
+// target as well as a job path: a URL naming a multibranch job plus a branch is
+// the same request as the job-path form, and accepting the flag there only to
+// discard it is the accepted-and-ignored failure this tool refuses elsewhere.
+//
+// A URL that already ends in the branch is left alone, so pasting a branch
+// child's URL and naming the same branch is not an error and does not append it
+// twice.
+func withBranch(cmd *cobra.Command, jobPath string, applyBranch bool) string {
+	branch, _ := cmd.Flags().GetString("branch")
+	if !applyBranch || branch == "" {
+		return jobPath
 	}
-	return client, jobPath, buildNum, nil
+	// A multibranch branch like "feature/foo" is one job whose name contains
+	// slashes. Encoding them as %2F lets NormalizeJobPath keep the branch as a
+	// single segment instead of splitting it into nested jobs.
+	seg := strings.ReplaceAll(strings.Trim(branch, "/"), "/", "%2F")
+	trimmed := strings.TrimRight(jobPath, "/")
+	if strings.HasSuffix(trimmed, "/"+seg) || trimmed == seg {
+		return trimmed
+	}
+	return trimmed + "/" + seg
 }
 
 func formatDuration(d time.Duration) string {
