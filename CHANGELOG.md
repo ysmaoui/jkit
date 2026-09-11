@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `jkit disable` and `jkit enable` stop a job building or let it build again.
+  Job/Configure; run state only, never the definition. A type with no enabled
+  state, a permission refusal and a missing job are three distinct messages, and
+  a branch job warns that the next indexing scan may undo the change.
 - `jkit scan` prints what the last branch-indexing run of a multibranch pipeline
   or organization folder did: which branches, tags and pull requests it
   examined, which met the criteria, which got a build. A rejected branch has no

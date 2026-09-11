@@ -507,6 +507,9 @@ func unescapeClass(s string) string {
 	return strings.ReplaceAll(s, "__", "_")
 }
 
+// KindFromClass names a job type for a message, from the Jenkins class.
+func KindFromClass(class string) string { return shortClass(class) }
+
 func shortClass(class string) string {
 	if i := strings.LastIndexAny(class, ".$"); i >= 0 {
 		return class[i+1:]

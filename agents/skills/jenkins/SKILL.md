@@ -99,6 +99,10 @@ jkit run my-job -p KEY=VAL --wait --log
 # Rebuild with same params
 jkit rebuild my-job 42 --wait --log
 
+# Stop a job building / let it build again (Job/Configure; run state, not definition)
+jkit disable my-job
+jkit enable my-job                  # on a branch job, the next scan may undo it
+
 # Abort running build
 jkit abort my-job 42 --wait
 
