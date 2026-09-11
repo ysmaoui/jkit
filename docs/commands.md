@@ -704,6 +704,40 @@ jkit open my-app 47        # build page
 
 ---
 
+## `jkit disable` / `jkit enable`
+
+Stop a job building, or let it build again.
+
+```
+jkit disable [job]
+jkit enable [job]
+```
+
+Needs the Job/Configure permission. It changes the job's run state and never
+writes its definition, so it is reversible with the opposite command and leaves
+`config.xml` untouched.
+
+Not every job type has an enabled state: Jenkins defaults `supportsMakeDisabled`
+to false, and a folder has nothing to toggle. That case is reported as the type
+having no such state, distinctly from a permission refusal and from a missing
+job. A job already in the requested state says so and sends nothing.
+
+The state is re-read after the change rather than assumed, because Jenkins
+answers with a redirect and not with the resulting state.
+
+On a multibranch branch job the command warns: every scan rewrites a branch
+job's config, so the next indexing run may undo the change. To stop a branch
+building for good, change the discovery rules on the parent — `jkit inspect`
+shows them.
+
+```bash
+jkit disable my-app
+jkit enable team/backend/my-service
+jkit disable my-app --json        # the resulting state
+```
+
+---
+
 ## `jkit abort`
 
 Abort a running build.
