@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] - 2026-09-13
 
 ### Added
 - `jkit log --timestamps` and `--elapsed` prefix each console line with the time
@@ -206,6 +206,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Dependencies
 - Bump `golang.org/x/term` from 0.42.0 to 0.43.0.
+
+## [0.2.0] - 2026-05-04
+
+### Changed
+- Renamed the binary, Go module and config directory from `jk` to `jkit`.
+  Existing installs must re-run `jkit auth login`, as the config moved from
+  `~/.config/jk/` to `~/.config/jkit/`.
+
+### Added
+- Claude Code skill, slash command and sub-agent under `agents/`.
+
+### Fixed
+- Pinned goreleaser to `~> v2` so release builds stop tracking the latest major.
 
 ## [0.1.0] - 2026-05-03
 
