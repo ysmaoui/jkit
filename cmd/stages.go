@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -38,6 +39,7 @@ type stageInfo struct {
 	Type           string `json:"type"`
 	Status         string `json:"status"`
 	DurationMillis int64  `json:"durationMillis"`
+	Agent          string `json:"agent,omitempty"`
 }
 
 func runStages(cmd *cobra.Command, args []string) error {
@@ -81,8 +83,11 @@ func runStages(cmd *cobra.Command, args []string) error {
 			Type:           s.Type,
 			Status:         s.Status,
 			DurationMillis: s.DurationMillis,
+			Agent:          s.Agent,
 		}
 	}
+
+	warnIfNoAgents(os.Stderr, infos)
 
 	isJSON, _ := cmd.Flags().GetBool("json")
 	tmpl, _ := cmd.Flags().GetString("format")
@@ -116,7 +121,27 @@ func runStages(cmd *cobra.Command, args []string) error {
 		{Header: "DURATION", Field: func(v any) string {
 			return formatDuration(time.Duration(v.(stageInfo).DurationMillis) * time.Millisecond)
 		}},
+		{Header: "AGENT", Field: func(v any) string {
+			if a := v.(stageInfo).Agent; a != "" {
+				return a
+			}
+			return "-"
+		}},
 	}
 
 	return f.Output(items, columns)
+}
+
+// warnIfNoAgents explains an AGENT column that is entirely "-". Blue Ocean's
+// /nodes/ carries no agent field at all, so the fallback source produces the
+// same output as a pipeline that genuinely never entered a node block. Without
+// this the reader cannot tell the two apart.
+func warnIfNoAgents(w io.Writer, infos []stageInfo) {
+	for _, s := range infos {
+		if s.Agent != "" {
+			return
+		}
+	}
+	_, _ = fmt.Fprintln(w, "note: no stage reports an agent — either the pipeline declared no node, "+
+		"or the stage list came from Blue Ocean, which does not report one (see --pipeline-source)")
 }

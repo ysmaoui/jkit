@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `jkit log --timestamps` and `--elapsed` prefix each console line with the time
+  of day or the offset since the build started, from the Timestamper plugin.
+  `--tail`/`--head` are served as a line window rather than downloaded, and
+  `--grep` matches the printed line including its prefix. The endpoint is indexed
+  by line and sends no end-of-stream header, so `--follow` is refused rather than
+  guessed at, as are `--stage`/`--stage-id`, whose logs carry no timestamps.
+- `jkit log --slowest N` ranks the N largest gaps between consecutive log lines,
+  answering which command inside a long stage burned the time. Each gap is
+  attributed to the line that started the wait. It reads the line times without
+  the log body, then fetches only the lines that won. Build-wide by design:
+  console line times carry no stage, and parallel branches interleave in one log,
+  so a per-stage window would silently include whatever else was running.
+- `jkit stages` reports the agent each stage ran on. The Pipeline Graph View tree
+  already carried it. Blue Ocean has no such field, so a column that is entirely
+  `-` says on stderr which of the two causes it hit.
 - `jkit disable` and `jkit enable` stop a job building or let it build again.
   Job/Configure; run state only, never the definition. A type with no enabled
   state, a permission refusal and a missing job are three distinct messages, and

@@ -31,6 +31,7 @@ func walkPGV(stages []PGVStage, parentID, parentType string, out *[]Stage) {
 			DurationMillis: s.TotalDurationMillis,
 			FirstParent:    fp,
 			Type:           s.Type,
+			Agent:          s.Agent,
 		})
 		if len(s.Children) > 0 {
 			walkPGV(s.Children, s.ID, s.Type, out)

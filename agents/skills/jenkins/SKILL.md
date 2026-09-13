@@ -30,7 +30,7 @@ jkit history my-job                 # last 20 builds
 jkit history my-job --limit 50
 
 # Pipeline stages (node IDs + qualified paths)
-jkit stages URL                     # list stages: ID, path, type, status
+jkit stages URL                     # list stages: ID, path, type, status, agent
 jkit stages URL --json              # machine-readable (id, name, path, …)
 
 # Build log  (--tail/--head/--grep cover the ENTIRE log — no head/tail-buffer limit)
@@ -43,6 +43,9 @@ jkit log URL --stage-id 6710        # by exact node ID (from `jkit stages`)
 jkit log URL --stage "Test" -f      # follow one stage of a running build
 jkit log -f my-job                  # stream (follow)
 jkit log URL                        # full console — refused if >50MB; use --tail/--grep/--head, redirect, or --max-bytes 0
+jkit log URL --elapsed --tail 100   # prefix each line with time since build start (timestamper plugin)
+jkit log URL --timestamps --grep X  # prefix each line with time of day
+jkit log URL --slowest 10           # the 10 longest waits: GAP, AT, LINE, TEXT — build-wide, no stage filter
 
 # Failure diagnosis (errors, failed stages, params, commits)
 jkit diagnose URL
