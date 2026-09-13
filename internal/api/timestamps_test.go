@@ -163,3 +163,36 @@ func TestStampedLogWindowReturnsEveryPhysicalLine(t *testing.T) {
 	assert.Len(t, got, 3, "a single log line rendered as three physical lines")
 	assert.Equal(t, "00001  Dload Upload Total", got[0])
 }
+
+// The timestamp list is positional: entry N is console line N. A blank entry
+// would shift every later line number, so it must be refused rather than
+// skipped — a silently shifted index makes --slowest name the wrong command.
+func TestBuildLineTimesRefusesABlankEntry(t *testing.T) {
+	srv := stampServer(t, "00001\n\n00109\n", nil)
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, "u", "t").BuildLineTimes("test", 42)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "off by one")
+}
+
+// A trailing newline is not a blank entry: it is how the body normally ends.
+func TestBuildLineTimesAcceptsATrailingNewline(t *testing.T) {
+	srv := stampServer(t, "00001\n00109\n", nil)
+	defer srv.Close()
+
+	times, err := NewClient(srv.URL, "u", "t").BuildLineTimes("test", 42)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 109}, times)
+}
+
+// A build with no timestamped output is not an error at this layer; the caller
+// decides what too-few-lines means.
+func TestBuildLineTimesAcceptsAnEmptyBody(t *testing.T) {
+	srv := stampServer(t, "", nil)
+	defer srv.Close()
+
+	times, err := NewClient(srv.URL, "u", "t").BuildLineTimes("test", 42)
+	require.NoError(t, err)
+	assert.Empty(t, times)
+}

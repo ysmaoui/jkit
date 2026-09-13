@@ -153,12 +153,20 @@ func (c *Client) BuildLineTimes(jobPath string, number int) ([]int64, error) {
 	r := bufio.NewReaderSize(resp.Body, 64<<10)
 	for {
 		line, readErr := r.ReadString('\n')
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed != "":
 			ms, parseErr := strconv.ParseInt(trimmed, 10, 64)
 			if parseErr != nil {
 				return nil, fmt.Errorf("parsing line timestamp %q: %w", trimmed, parseErr)
 			}
 			times = append(times, ms)
+		case line != "":
+			// Whitespace-only entry, as opposed to the empty read after a
+			// trailing newline. Skipping it would shift every later console line
+			// number by one and the caller would name the wrong line, so refuse.
+			return nil, fmt.Errorf("timestamp list for %s #%d has a blank entry after %d line(s) — "+
+				"every later line number would be off by one", jobPath, number, len(times))
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
