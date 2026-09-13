@@ -10,15 +10,18 @@ that thinks in workflows, not endpoints.
 jkit run my-app --wait --log     # trigger, wait, stream log
 jkit status my-app               # recent builds
 jkit log my-app -f               # tail live build log
-jkit stages my-app               # list stages w/ IDs + paths
+jkit log my-app --slowest 10     # where the build's time actually went
+jkit stages my-app               # list stages w/ IDs + paths, and the agent each ran on
 jkit diagnose my-app             # summarize the failure
 jkit params my-app               # what params does it accept?
 jkit inspect my-app              # which Jenkinsfile, which repo, which branches
+jkit sources my-app 42           # which code that build actually ran
 jkit scan team/svc               # what the last branch-indexing run did
 jkit search backend              # find jobs by name
 jkit history my-app              # success rate + duration trend
 jkit env my-app                  # a build's injected env vars
 jkit input my-app --approve      # answer a paused "Promote to prod?" gate
+jkit disable my-app              # stop it building, without touching its config
 jkit lint                        # validate ./Jenkinsfile
 jkit open my-app                 # open in browser
 ```
