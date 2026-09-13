@@ -128,3 +128,22 @@ func TestFlattenPGVTreeSequentialSiblingsChain(t *testing.T) {
 		t.Errorf("state mapping lost: %+v", flat)
 	}
 }
+
+func TestFlattenPGVTreeCarriesAgent(t *testing.T) {
+	flat := FlattenPGVTree([]PGVStage{
+		{ID: "1", Name: "build", Type: "STAGE", Agent: "pod-abc"},
+		{ID: "2", Name: "fanout", Type: "PARALLEL_BLOCK", Children: []PGVStage{
+			{ID: "3", Name: "branch", Type: "PARALLEL"},
+		}},
+	})
+	byID := map[string]Stage{}
+	for _, s := range flat {
+		byID[s.ID] = s
+	}
+	if got := byID["1"].Agent; got != "pod-abc" {
+		t.Errorf("stage 1 agent = %q, want pod-abc", got)
+	}
+	if got := byID["3"].Agent; got != "" {
+		t.Errorf("branch head agent = %q, want empty", got)
+	}
+}

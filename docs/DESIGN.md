@@ -145,6 +145,14 @@ GET /job/{path}/{number}/stages/tree
 #           pauseDurationMillis, startTimeMillis, totalDurationMillis,
 #           children[], isSequential, synthetic, placeholder, agent, url } ] } }
 
+# Per-line console timestamps (Timestamper plugin, not core)
+GET /job/{path}/{number}/timestamps/?elapsed=HH:mm:ss.S&startLine=-N&appendLog
+GET /job/{path}/{number}/timestamps/?time=HH:mm:ss&startLine=1&endLine=N&appendLog
+GET /job/{path}/{number}/timestamps/?elapsed=SSSSS          # times only, no log body
+# Indexed by LINE, not byte: startLine is 1-based and may be negative to count
+# back from the end; endLine is inclusive. No X-More-Data and no X-Text-Size, so
+# nothing here can drive a live tail or a size guard. See the note below.
+
 # Pipeline stage / step log (single endpoint, accepts stage IDs and step IDs)
 GET /job/{path}/{number}/stages/log?nodeId={id}
 
@@ -194,6 +202,19 @@ may contain control characters that are legal in 1.1 but not 1.0.
 **Two traps in JobConfigHistory.** A Jenkins without the plugin answers
 `/jobConfigHistory` with a 404 whose body is identical to a missing job, so the
 404 path probes the job itself before choosing which failure to report. And
+The `/timestamps/` response is counted in log lines, but its BODY is not. A
+console line that carried carriage returns — a `curl` progress meter is the usual
+source — is stored with embedded newlines, and the plugin prefixes only its first
+fragment. Asking for lines 649-651 on one real build returns five newline-
+separated lines. Anything that bounds output by counting what comes back will
+therefore stop short; send the bound to the server as `endLine` instead. The same
+line numbering does match `logText/progressiveText` exactly, so a line number
+from one is valid in the other.
+
+Timestamper's "prepend to console" mode writes `[2026-09-04T15:07:35.462Z]` into
+the text that `progressiveText` serves. `/timestamps/?appendLog` serves the
+unannotated log, so the two do not stack and output is never double-stamped.
+
 `configOutput` answers a bad, missing or malformed timestamp with HTTP 200 and a
 zero-byte body, so the status code carries no information and an empty body is
 the error signal. The `operation` field is a localized display string resolved at

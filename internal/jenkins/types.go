@@ -213,6 +213,10 @@ type Stage struct {
 	DurationMillis int64  `json:"durationInMillis"`
 	FirstParent    string `json:"firstParent,omitempty"`
 	Type           string `json:"type,omitempty"`
+	// Agent is the node the stage ran on. Only the PGV tree reports it; Blue
+	// Ocean's /nodes/ has no equivalent field, so an empty value means either
+	// "no node block" or "the fallback source cannot say".
+	Agent string `json:"agent,omitempty"`
 }
 
 // PGVResponse is the envelope returned by Pipeline Graph View endpoints.

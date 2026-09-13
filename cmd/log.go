@@ -31,15 +31,27 @@ var logCmd = &cobra.Command{
 }
 
 func init() {
-	logCmd.Flags().BoolP("follow", "f", false, "Follow log output")
-	logCmd.Flags().String("stage", "", "Show log for a specific pipeline stage (name or qualified path, e.g. \"Branch/Stage\")")
-	logCmd.Flags().String("stage-id", "", "Show log for a stage by exact node ID (from 'jkit stages')")
-	logCmd.Flags().String("grep", "", "Filter log lines matching pattern")
-	logCmd.Flags().BoolP("ignore-case", "i", false, "Case-insensitive --grep matching")
-	logCmd.Flags().Int("tail", 0, "Show only the last N lines")
-	logCmd.Flags().Int("head", 0, "Show only the first N lines")
-	logCmd.Flags().Int64("max-bytes", 50<<20, "Refuse to dump an unfiltered console larger than this (0 = unlimited)")
+	registerLogFlags(logCmd)
 	rootCmd.AddCommand(logCmd)
+}
+
+// registerLogFlags declares the log flag surface in one place. The test harness
+// resets and rebuilds subcommand flags, and when it kept its own list the two
+// drifted: --tail, --head and --max-bytes were absent under test, so nothing
+// could exercise them and any test using one failed with "unknown flag" rather
+// than anything naming the cause.
+func registerLogFlags(c *cobra.Command) {
+	c.Flags().BoolP("follow", "f", false, "Follow log output")
+	c.Flags().String("stage", "", "Show log for a specific pipeline stage (name or qualified path, e.g. \"Branch/Stage\")")
+	c.Flags().String("stage-id", "", "Show log for a stage by exact node ID (from 'jkit stages')")
+	c.Flags().String("grep", "", "Filter log lines matching pattern")
+	c.Flags().BoolP("ignore-case", "i", false, "Case-insensitive --grep matching")
+	c.Flags().Int("tail", 0, "Show only the last N lines")
+	c.Flags().Int("head", 0, "Show only the first N lines")
+	c.Flags().Int64("max-bytes", 50<<20, "Refuse to dump an unfiltered console larger than this (0 = unlimited)")
+	c.Flags().Bool("timestamps", false, "Prefix each line with the time of day it was logged (timestamper plugin)")
+	c.Flags().Bool("elapsed", false, "Prefix each line with the time elapsed since the build started (timestamper plugin)")
+	c.Flags().Int("slowest", 0, "Report the N log lines with the largest time gap to the next line (timestamper plugin)")
 }
 
 func filterLines(text, pattern string, ignoreCase bool) string {
@@ -198,6 +210,18 @@ func runLog(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot use --tail/--head with --follow")
 	}
 
+	wallClock, _ := cmd.Flags().GetBool("timestamps")
+	sinceStart, _ := cmd.Flags().GetBool("elapsed")
+	stampFormat, stamped, err := resolveStampFormat(cmd, wallClock, sinceStart)
+	if err != nil {
+		return err
+	}
+
+	slowest, _ := cmd.Flags().GetInt("slowest")
+	if err := checkSlowestFlags(cmd, slowest, stamped, tail, head); err != nil {
+		return err
+	}
+
 	// If no build number given, use latest
 	if buildNum == 0 {
 		builds, err := client.GetBuilds(jobPath, 1)
@@ -214,6 +238,11 @@ func runLog(cmd *cobra.Command, args []string) error {
 	stageID, _ := cmd.Flags().GetString("stage-id")
 	if stageName != "" && stageID != "" {
 		return fmt.Errorf("cannot use --stage and --stage-id together")
+	}
+	if stamped && (stageName != "" || stageID != "") {
+		return fmt.Errorf("cannot use --timestamps/--elapsed with --stage/--stage-id — " +
+			"stage logs come from the pipeline graph endpoint, which carries no timestamps; " +
+			"run the stamped console instead and narrow it with --grep")
 	}
 	if stageName != "" || stageID != "" {
 		nodeID := stageID
@@ -251,6 +280,17 @@ func runLog(cmd *cobra.Command, args []string) error {
 
 	grepPattern, _ := cmd.Flags().GetString("grep")
 	grepI, _ := cmd.Flags().GetBool("ignore-case")
+
+	if slowest > 0 {
+		isJSON, _ := cmd.Flags().GetBool("json")
+		tmpl, _ := cmd.Flags().GetString("format")
+		return runSlowest(client, jobPath, buildNum, slowest, isJSON, tmpl, os.Stdout, os.Stderr)
+	}
+
+	if stamped {
+		return runStampedLog(client, jobPath, buildNum, stampFormat,
+			grepPattern, grepI, tail, head, maxBytes, os.Stdout)
+	}
 
 	// Auto-follow if build in progress (unless grep/tail/head active)
 	if !follow && grepPattern == "" && tail == 0 && head == 0 {

@@ -31,3 +31,24 @@ func TestMatcher(t *testing.T) {
 	assert.True(t, mi("an error here"), "case-insensitive")
 	assert.True(t, mi("an ERROR here"))
 }
+
+func TestStampedWindowMapsTailAndHead(t *testing.T) {
+	tests := []struct {
+		name       string
+		tail, head int
+		wantStart  int
+		wantEnd    int
+	}{
+		{"neither", 0, 0, 0, 0},
+		{"tail only", 5, 0, -5, 0},
+		{"head only", 0, 20, 1, 20},
+		{"tail wins the window, head trims after", 5, 2, -5, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			start, end := stampedWindow(tc.tail, tc.head)
+			assert.Equal(t, tc.wantStart, start)
+			assert.Equal(t, tc.wantEnd, end)
+		})
+	}
+}

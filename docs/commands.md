@@ -614,7 +614,7 @@ jkit run --log                               # auto-detect job
 View build console output.
 
 ```
-jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PATTERN] [--tail N] [--head N] [--max-bytes N]
+jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PATTERN] [--tail N] [--head N] [--max-bytes N] [--timestamps|--elapsed] [--slowest N]
 ```
 
 | Flag | Description |
@@ -627,6 +627,9 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 | `--tail N` | Show only the last N lines |
 | `--head N` | Show only the first N lines |
 | `--max-bytes N` | Refuse to dump an unfiltered console larger than N bytes (default 50 MB; `0` = unlimited) |
+| `--timestamps` | Prefix each line with the time of day it was logged |
+| `--elapsed` | Prefix each line with the time since the build started |
+| `--slowest N` | Report the N log lines with the largest time gap to the next line |
 
 - Defaults to latest build if no build# given
 - Auto-follows if build is in progress (disabled when `--grep`, `--tail`, or `--head` active)
@@ -644,6 +647,72 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
   build; `--stage` and `--stage-id` are mutually exclusive
 - `--tail` and `--head` are incompatible with `--follow`
 
+### `--timestamps` / `--elapsed`: when each line was logged
+
+Both come from the [Timestamper](https://plugins.jenkins.io/timestamper/) plugin,
+which stores per-line times alongside the console. `--timestamps` prints the time
+of day, `--elapsed` the offset since the build started, which is the one that
+answers "how far into the build did this happen".
+
+- The two are mutually exclusive
+- Neither works with `--follow`, `--stage` or `--stage-id`, and saying so is the
+  whole error message. The timestamps endpoint is indexed by line rather than by
+  byte and sends no end-of-stream header, so a live tail has nothing to tell it
+  when to stop; stage logs come from the pipeline graph endpoint, which carries
+  no timestamps at all
+- Both suppress the running-build auto-follow, exactly as `--grep`/`--tail`/`--head` do
+- `--tail N` and `--head N` are served by the endpoint as a line window, so they
+  stay cheap on a multi-hundred-MB console
+- `--grep` has no server-side equivalent, so it reads the whole log. The pattern
+  matches the printed line including its prefix, which makes
+  `--elapsed --grep 00:28` a way to find everything logged 28 minutes in
+- `--max-bytes` still applies. The endpoint reports no size of its own, so the
+  raw console size is used as a lower bound; the stamped log is always larger
+- If the plugin is not installed the error says so, rather than reporting a 404
+  that reads like a missing build
+- Jenkins serves the unannotated log here, so a console that already shows
+  `[2026-09-04T15:07:35.462Z]` prefixes (Timestamper's "prepend to console"
+  mode) does **not** come back double-stamped. A pipeline that prints its own
+  timestamp as ordinary output still will, and that text is left alone because
+  it is log content, not a duplicate prefix
+- One console line can print as several. A line that carried carriage returns
+  (a `curl` progress meter, say) is stored with embedded newlines and only its
+  first fragment is given a prefix. `--head N` still means the first N *log*
+  lines, because the limit is sent to the server rather than counted locally.
+  `--tail N --head M` together is the one exception: the trim counts printed
+  lines, as there is no line numbering left to trim by
+
+### `--slowest N`: where the time actually went
+
+`jkit stages` says a stage took 28m57s. `--slowest` says which line it was
+waiting on, by ranking the gaps between consecutive log lines.
+
+```
+$ jkit log my-app 24 --slowest 3
+GAP    AT     LINE  TEXT
+2m36s  3m9s   4413  + git lfs pull
+1m36s  1m27s  4365  + git clone -q --filter=tree:0 --branch feature/x https://…
+56s    34m37s 253814 [52,105 / 52,106] 1978 / 4032 tests, 371 failed; …
+```
+
+- `GAP` is how long the build sat on that line, `AT` how far into the build the
+  wait began, `LINE` its 1-based console line number, usable with `--head`
+- A gap is attributed to the line that **started** the wait, not the one that
+  printed once it was over, so `TEXT` names the command that consumed the time
+- It reads the line times without the log body — roughly 2 MB where the console
+  is 35 MB — then fetches only the lines that won, so it stays cheap on a
+  multi-hundred-thousand-line build
+- It is build-wide and takes no stage filter. Console line times carry no stage,
+  and parallel branches interleave in one log, so a per-stage window would
+  silently include lines from whatever else was running at the time
+- `--follow`, `--stage`, `--stage-id`, `--grep`, `--tail`, `--head`,
+  `--timestamps` and `--elapsed` are all refused rather than ignored. `--grep`
+  in particular would invent gaps that never happened, by measuring between
+  lines that were not adjacent
+- A `…` after the text means that log line printed as several physical lines and
+  only the first is shown
+- Honors `--json` / `--format`, which report `gapMillis` and `elapsedMillis`
+
 ```bash
 jkit log my-app                                  # latest build, full log
 jkit log my-app 42                               # specific build
@@ -656,6 +725,9 @@ jkit log my-app --grep error -i                  # case-insensitive filter
 jkit log my-app --tail 50                        # last 50 lines (tail window, cheap)
 jkit log my-app --head 20                        # first 20 lines (stops early)
 jkit log my-app --max-bytes 0 > build.log        # force a full dump to a file
+jkit log my-app 42 --elapsed --tail 100          # last 100 lines, offset from build start
+jkit log my-app 42 --timestamps --grep ERROR     # failures with the time of day
+jkit log my-app 42 --slowest 10                  # the 10 longest waits in the build
 ```
 
 ---
@@ -672,13 +744,19 @@ jkit stages [job] [build#]
 - Requires the Pipeline Graph View or Blue Ocean plugin
 - The `STAGE` column shows a qualified path that disambiguates duplicate names
   across parallel branches (e.g. `RemoteExec/Run Bazel Build`)
+- The `AGENT` column names the node the stage ran on, so a failure can be tied
+  to a specific machine or pod. Only the Pipeline Graph View source reports it;
+  Blue Ocean's `/nodes/` has no such field. `-` means the stage entered no node
+  block, or the branch head of a parallel block, which has no agent of its own
+- When no stage in the build reports an agent at all, a note on stderr says so
+  and names both causes, since an all-`-` column otherwise reads as "no agents"
 - Feed a path to `jkit log --stage` or an ID to `jkit log --stage-id`
 - Honors `--json` / `--format` for scripting (the JSON includes `id` and `path`)
 
 ```bash
 jkit stages my-app             # latest build
 jkit stages my-app 42          # specific build
-jkit stages my-app 42 --json   # machine-readable (id, name, path, type, status)
+jkit stages my-app 42 --json   # machine-readable (id, name, path, type, status, agent)
 ```
 
 ---
