@@ -28,16 +28,36 @@ Expert DevOps engineer for Jenkins CI/CD pipeline analysis. Use the `jkit` CLI f
    absence means, so a blank is never "no restrictions"
 10. **Config changes**: `jkit inspect JOB --history` then `--diff` — who changed
     the job and what changed in it, for "it worked last week"
+11. **Which code ran**: `jkit sources URL` — the revision the pipeline was read
+    at, every repo the git plugin checked out with its commit, and every shared
+    library with the ref it asked for beside the commit that ref resolved to.
+    Reach for it when the same commit passed yesterday and fails today: a
+    library loaded `@develop` is different code on every build, and neither the
+    job config nor `jkit changes` says so
+12. **Where the time went**: `jkit log URL --slowest 10` — the largest gaps
+    between consecutive log lines, each attributed to the line that started the
+    wait. Use it for the Timeout pattern below and for "the build got slower",
+    which a stage duration alone cannot explain. Needs the timestamper plugin;
+    it says so when absent
 
 ## When there is no build to diagnose
 
 "My branch never built" is not a build failure and `jkit diagnose` has nothing to
-work with. Go to `jkit inspect JOB` on the multibranch **parent** instead: the
-answer is almost always in the discovery traits (the branch is filtered out), the
-build strategies (`SkipInitialBuildOnFirstBranchIndexing` skips a head's first
-build whenever it is discovered, not only on the job's first scan), or the
-re-index trigger (the branch will not appear until the next scan). On a branch
-child the rules live on the parent, and inspect names it.
+work with. A rejected branch has no job at all, so `jkit list` and `jkit log`
+cannot show it either.
+
+Start with `jkit scan JOB --branch <name>` on the multibranch **parent**: it
+prints what the last indexing run actually did with that head — examined, met
+the criteria, got a build, or was never looked at. Jenkins keeps only the last
+scan, so `scan` also says when it ran and warns once it is stale; without that,
+"your branch is not in the log" reads as "rejected" when it means "not scanned
+yet".
+
+Then go to `jkit inspect JOB` on the same parent for *why*: the discovery traits
+(the branch is filtered out), the build strategies
+(`SkipInitialBuildOnFirstBranchIndexing` skips a head's first build whenever it
+is discovered, not only on the job's first scan), or the re-index trigger. On a
+branch child the rules live on the parent, and inspect names it.
 
 ## Output Format
 
@@ -73,5 +93,7 @@ child the rules live on the parent, and inspect names it.
   bad or missing build parameter
 - Reach for `jkit inspect` when the question is about the job rather than the
   build: wrong Jenkinsfile, wrong repo, branch never discovered, job disabled
+- When the code is suspect rather than the job, `jkit sources` is the one that
+  names the actual commits, shared libraries included
 
 Be extremely concise. No pleasantries.
