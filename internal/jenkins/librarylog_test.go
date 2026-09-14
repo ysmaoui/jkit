@@ -186,3 +186,17 @@ func TestLibraryLogScannerSeesThroughAConsoleTimestamp(t *testing.T) {
 		t.Errorf("evidence = %+v", got)
 	}
 }
+
+// Console lines arrive CRLF-terminated from Jenkins. The captured fixture may
+// be LF-normalised by git on checkout, so the carriage return is pinned here
+// instead of relying on the fixture to carry it.
+func TestLibraryLogScannerToleratesCarriageReturns(t *testing.T) {
+	s := scanLines(t,
+		"[2026-09-13T19:00:07.813Z] Loading library lib-a@main\r",
+		"[2026-09-13T19:00:08.278Z]  > git ls-remote -- https://example.invalid/a.git # timeout=10\r",
+		"[2026-09-13T19:00:08.678Z] Found match: refs/heads/main revision "+strings.Repeat("a", 40)+"\r",
+	)
+	if _, ok := s.Evidence("lib-a", "main"); !ok {
+		t.Error("a trailing carriage return hid the block")
+	}
+}
