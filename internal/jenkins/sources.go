@@ -15,6 +15,11 @@ const (
 	// LibraryMatchedBranch means the SHA comes from a git checkout whose
 	// recorded branch name equals the requested version.
 	LibraryMatchedBranch = "matched-by-branch"
+	// LibraryMatchedLog means the SHA was read from the build's own console,
+	// where the library retriever recorded which repository it asked and which
+	// commit the requested ref resolved to. This is a direct record of the
+	// build rather than an attribution made afterwards.
+	LibraryMatchedLog = "matched-in-build-log"
 	// LibraryUnresolved means no SHA can be attributed without guessing.
 	LibraryUnresolved = "unresolved"
 )
@@ -213,4 +218,75 @@ func isCommitID(v string) bool {
 		}
 	}
 	return true
+}
+
+// ApplyLibraryLogEvidence fills in libraries that ResolveLibrarySHAs left
+// unresolved, using what the console recorded, and reports what it could not
+// settle.
+//
+// Only unresolved libraries are considered. The branch-name join already
+// refuses rather than guessing, so anything it did settle is not in doubt, and
+// leaving those alone keeps the cheap path cheap.
+//
+// Where the console names a repository that a BuildData also recorded, the two
+// are cross-checked: agreement attributes the checkout, and disagreement is
+// reported rather than quietly preferring one source over the other.
+func ApplyLibraryLogEvidence(libs []SharedLibrary, checkouts []GitCheckout, scanner *LibraryLogScanner) []string {
+	var warnings []string
+	for i := range libs {
+		lib := &libs[i]
+		if lib.Resolution != LibraryUnresolved {
+			continue
+		}
+		ev, ok := scanner.Evidence(lib.Name, lib.Version)
+		if !ok {
+			continue
+		}
+		if ev.Conflict {
+			lib.Reason = fmt.Sprintf("the build log resolved %q more than once, to different commits, so no single commit is the one it ran",
+				lib.Name)
+			continue
+		}
+		if ev.SHA1 == "" {
+			continue
+		}
+
+		lib.SHA1 = ev.SHA1
+		lib.RemoteURL = ev.RemoteURL
+		lib.Resolution = LibraryMatchedLog
+		lib.Reason = ""
+
+		for j := range checkouts {
+			if !checkoutHasRemote(checkouts[j], ev.RemoteURL) {
+				continue
+			}
+			if checkouts[j].SHA1 == ev.SHA1 {
+				checkouts[j].Library = lib.Name
+				continue
+			}
+			// The repository url is deliberately left out: warnings are not
+			// covered by the credential redaction pass, and an ls-remote url
+			// can carry userinfo. The checkout list below names the repository.
+			warnings = append(warnings, fmt.Sprintf(
+				"the build log says %s resolved to %s, but the git checkout of the same repository recorded %s",
+				lib.Name, ev.SHA1, checkouts[j].SHA1))
+		}
+	}
+	return warnings
+}
+
+// checkoutHasRemote reports whether a checkout names the given repository.
+// Comparison is verbatim: the same repository can be reached by several urls,
+// and treating two spellings as one would attribute a commit on the strength of
+// a guess about equivalence.
+func checkoutHasRemote(c GitCheckout, remote string) bool {
+	if remote == "" {
+		return false
+	}
+	for _, u := range c.RemoteURLs {
+		if u == remote {
+			return true
+		}
+	}
+	return false
 }
