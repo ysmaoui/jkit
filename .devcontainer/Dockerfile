@@ -1,6 +1,6 @@
-# Dev container for jkit. Mirrors CI: Go 1.25 + golangci-lint pinned to the same
+# Dev container for jkit. Mirrors CI: Go 1.26 + golangci-lint pinned to the same
 # version (.github/workflows/ci.yml). Keep these versions in sync.
-FROM golang:1.25
+FROM golang:1.26
 
 # golangci-lint, version-pinned. Copying the binary from the official image
 # avoids running an install script and keeps the version explicit.

@@ -28,7 +28,7 @@ jkit open my-app                 # open in browser
 
 ## Install
 
-From source (Go 1.24+):
+From source (Go 1.26+):
 
 ```bash
 go install github.com/ysmaoui/jkit@latest

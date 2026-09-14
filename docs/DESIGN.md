@@ -13,7 +13,7 @@ This is NOT an admin tool. This is NOT a wrapper around the Jenkins REST API. Th
 
 ## Technology Stack
 
-- **Language:** Go 1.22+
+- **Language:** Go 1.26+
 - **CLI framework:** [Cobra](https://github.com/spf13/cobra) (matches `gh` patterns, excellent completion support)
 - **Configuration:** [Viper](https://github.com/spf13/viper) for config file management
 - **HTTP client:** Standard `net/http` with a custom Jenkins API client wrapper

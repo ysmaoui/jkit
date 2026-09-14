@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Building jkit now needs Go 1.26. `golang.org/x/term` 0.46.0 and the
+  `golang.org/x/sys` 0.48.0 it pulls in both declare `go 1.26.0`, so the
+  requirement comes from the dependency rather than from a choice here. CI, the
+  release workflow and the dev container move with it, and the four places that
+  still advertised Go 1.22+/1.24+ as the minimum are corrected — they were
+  already behind the `go 1.25.0` in go.mod.
+
 ### Added
 - A test asserting every Jenkins route `internal/api` builds appears in the
   endpoint catalogue in `docs/DESIGN.md`. The existing docs checks prove a name
