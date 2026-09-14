@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
 )
@@ -67,6 +68,7 @@ func runSources(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	resolveLibrariesFromLog(client, src)
 	if showSecrets, _ := cmd.Flags().GetBool("show-secrets"); !showSecrets {
 		redactSourceRemotes(src)
 	}
@@ -79,6 +81,37 @@ func runSources(cmd *cobra.Command, args []string) error {
 
 	printBuildSources(os.Stdout, src)
 	return nil
+}
+
+// resolveLibrariesFromLog settles libraries the branch-name join could not,
+// from what the build's own console recorded about each library's resolution.
+//
+// The console is read only when something is actually unresolved, so a build
+// whose libraries all match a checkout by branch name costs no log request at
+// all. When one is unresolved the WHOLE console is read, not just until the
+// missing libraries appear: a library reloaded later at a different commit is
+// only visible by reading on, and stopping early would report the first commit
+// as though it were the answer.
+//
+// A console that cannot be read is not an error. The report stands as it was,
+// with a note, because the existing refusal is still true and still honest.
+func resolveLibrariesFromLog(client *api.Client, src *jenkins.BuildSources) {
+	if countUnresolved(src.Libraries) == 0 {
+		return
+	}
+
+	scanner := jenkins.NewLibraryLogScanner()
+	if err := forEachLogLine(client, src.Job, src.Build, func(line string) bool {
+		scanner.Line(line)
+		return true
+	}); err != nil {
+		src.Warnings = append(src.Warnings, fmt.Sprintf(
+			"could not read the console to resolve the remaining libraries: %v", err))
+		return
+	}
+
+	src.Warnings = append(src.Warnings,
+		jenkins.ApplyLibraryLogEvidence(src.Libraries, src.Checkouts, scanner)...)
 }
 
 // redactSourceRemotes masks credentials embedded in checkout urls. It runs
@@ -153,10 +186,14 @@ func printSharedLibraries(w io.Writer, src *jenkins.BuildSources) {
 // evidenceLabel says what the commit above it rests on. A commit only ever
 // reaches the report two ways, and the reader has to be able to tell which.
 func evidenceLabel(resolution string) string {
-	if resolution == jenkins.LibraryPinned {
+	switch resolution {
+	case jenkins.LibraryPinned:
 		return "the requested version is itself a commit id"
+	case jenkins.LibraryMatchedLog:
+		return "recorded in the build log when the library was loaded"
+	default:
+		return "matched to a checkout by branch name"
 	}
-	return "matched to a checkout by branch name"
 }
 
 // trustLabel names whether the library ran outside the Groovy sandbox. A
@@ -207,7 +244,7 @@ func printSourcesNotes(w io.Writer, src *jenkins.BuildSources) {
 	}
 	if unresolved := countUnresolved(src.Libraries); unresolved > 0 {
 		notes = append(notes, fmt.Sprintf(
-			"%d of %d libraries have no commit above. jkit reports one only where it cannot belong to another library; compare the checkouts by hand.",
+			"%d of %d libraries have no commit above. jkit reports one only where it cannot belong to another library, and the build log recorded nothing better; compare the checkouts by hand.",
 			unresolved, len(src.Libraries)))
 	}
 	notes = append(notes, src.Warnings...)

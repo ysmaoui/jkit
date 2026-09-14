@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- `jkit sources` now reports a commit for shared libraries that two libraries
+  requesting the same ref used to leave unresolved. When the branch-name join
+  cannot settle a library, the build's own console is read, where the retriever
+  recorded the repository it queried and the commit the ref resolved to. That is
+  a record of the build rather than an attribution made afterwards, so it needs
+  no access to the shared-library configuration and no administrator rights for
+  globally defined libraries. The console is read only when something is
+  unresolved, and then in full: a library reloaded later at a different commit is
+  reported at neither. A console that cannot be read leaves the previous refusal
+  standing.
+
 ## [0.7.0] - 2026-09-13
 
 ### Added

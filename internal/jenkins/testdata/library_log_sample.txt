@@ -1,0 +1,70 @@
+[2026-09-13T19:00:06.863Z] Started by an SCM change
+[2026-09-13T19:00:07.788Z] Obtained Jenkinsfile from git ssh://git@devstack.vwgroup.com:7999/e3sdk/e3_webhook_test.git
+[2026-09-13T19:00:07.813Z] Loading library e3-sdk-global-jenkins-shared-lib@master
+[2026-09-13T19:00:07.813Z] Library e3-sdk-global-jenkins-shared-lib@master is due for a refresh after 10 minutes, clearing.
+[2026-09-13T19:00:07.819Z] Caching library e3-sdk-global-jenkins-shared-lib@master
+[2026-09-13T19:00:07.819Z] Attempting to resolve master from remote references...
+[2026-09-13T19:00:07.819Z]  > git --version # timeout=10
+[2026-09-13T19:00:07.823Z]  > git --version # 'git version 2.47.3'
+[2026-09-13T19:00:07.823Z] using GIT_ASKPASS to set credentials ioi swf gecko github app
+[2026-09-13T19:00:08.278Z]  > git ls-remote -- https://cariad.ghe.com/swf/tools-global-jenkins-shared-lib-src.git # timeout=10
+[2026-09-13T19:00:08.678Z] Found match: refs/heads/master revision 327b5c22a40ee9ef448b917b2b4a5b22e8d63239
+[2026-09-13T19:00:08.678Z] WARNING: ignoring request to compute changelog in clone mode
+[2026-09-13T19:00:08.678Z] The recommended git tool is: NONE
+[2026-09-13T19:00:08.679Z] using credential IOI_SWF_GECKO_GITHUB_APP
+[2026-09-13T19:00:08.698Z] Cloning the remote Git repository
+[2026-09-13T19:00:08.699Z] Cloning repository https://cariad.ghe.com/swf/tools-global-jenkins-shared-lib-src.git
+[2026-09-13T19:00:08.699Z]  > git init /var/jenkins_home/global-libraries-cache/70af74364de1b3adad6b426b0938e4ff603e2f58bcbea232430cd653966b7554 # timeout=10
+[2026-09-13T19:00:08.724Z] Fetching upstream changes from https://cariad.ghe.com/swf/tools-global-jenkins-shared-lib-src.git
+[2026-09-13T19:00:08.724Z]  > git --version # timeout=10
+[2026-09-13T19:00:08.729Z]  > git --version # 'git version 2.47.3'
+[2026-09-13T19:00:08.729Z] using GIT_ASKPASS to set credentials ioi swf gecko github app
+[2026-09-13T19:00:08.997Z]  > git fetch --tags --force --progress -- https://cariad.ghe.com/swf/tools-global-jenkins-shared-lib-src.git +refs/heads/*:refs/remotes/origin/* # timeout=10
+[2026-09-13T19:00:09.735Z]  > git config remote.origin.url https://cariad.ghe.com/swf/tools-global-jenkins-shared-lib-src.git # timeout=10
+[2026-09-13T19:00:09.741Z]  > git config --add remote.origin.fetch +refs/heads/*:refs/remotes/origin/* # timeout=10
+[2026-09-13T19:00:09.746Z] Avoid second fetch
+[2026-09-13T19:00:09.746Z] Checking out Revision 327b5c22a40ee9ef448b917b2b4a5b22e8d63239 (master)
+[2026-09-13T19:00:09.746Z]  > git config core.sparsecheckout # timeout=10
+[2026-09-13T19:00:09.751Z]  > git checkout -f 327b5c22a40ee9ef448b917b2b4a5b22e8d63239 # timeout=10
+[2026-09-13T19:00:09.772Z] Commit message: "Merge pull request #30 from CARIAD/release/2026-kw36"
+[2026-09-13T19:00:09.772Z] The recommended git tool is: NONE
+[2026-09-13T19:00:09.772Z] using credential IOI_SWF_GECKO_GITHUB_APP
+[2026-09-13T19:00:09.785Z]  > git rev-parse HEAD^{commit} # timeout=10
+[2026-09-13T19:00:09.790Z] The recommended git tool is: NONE
+[2026-09-13T19:00:09.790Z] using credential IOI_SWF_GECKO_GITHUB_APP
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] Recording commits of 'git https://cariad.ghe.com/swf/tools-global-jenkins-shared-lib-src.git'
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] Found previous build 'E3_ADM/e3_webhook_test_bitbucket-azure #44' that contains recorded Git commits
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] -> Starting recording of new commits since '327b5c2'
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] -> Multiple parent commits found - storing latest commit of local merge '327b5c2'
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] -> Using parent commit '99b4548' of local merge as starting point
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] -> Storing target branch head '0633c3d' (second parent of local merge) 
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] -> Recorded 200 new commits
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] -> The latest commit '327b5c22a40ee9ef448b917b2b4a5b22e8d63239' is a merge commit
+[2026-09-13T19:00:09.810Z] [GitCheckoutListener] -> Git commit decorator could not be created for SCM 'hudson.plugins.git.GitSCM@38784a0e'
+[2026-09-13T19:00:09.829Z] Library e3-sdk-global-jenkins-shared-lib@master successfully cached.
+[2026-09-13T19:00:09.845Z] Loading library pipeline-generic-shared-lib-premium@master
+[2026-09-13T19:00:09.846Z] Library pipeline-generic-shared-lib-premium@master is due for a refresh after 10 minutes, clearing.
+[2026-09-13T19:00:09.849Z] Caching library pipeline-generic-shared-lib-premium@master
+[2026-09-13T19:00:09.849Z] Attempting to resolve master from remote references...
+[2026-09-13T19:00:09.850Z]  > git --version # timeout=10
+[2026-09-13T19:00:09.854Z]  > git --version # 'git version 2.47.3'
+[2026-09-13T19:00:09.854Z] using GIT_ASKPASS to set credentials ioi swf gecko github app
+[2026-09-13T19:00:09.859Z]  > git ls-remote -- https://cariad.ghe.com/swf/tools-premium-jenkins-shared-lib-src.git # timeout=10
+[2026-09-13T19:00:10.228Z] Found match: refs/heads/master revision f5d759ea6d051759908fedaf684e52bdfbdf0c2c
+[2026-09-13T19:00:10.228Z] WARNING: ignoring request to compute changelog in clone mode
+[2026-09-13T19:00:10.229Z] The recommended git tool is: NONE
+[2026-09-13T19:00:10.229Z] using credential IOI_SWF_GECKO_GITHUB_APP
+[2026-09-13T19:00:10.242Z] Cloning the remote Git repository
+[2026-09-13T19:00:10.242Z] Cloning repository https://cariad.ghe.com/swf/tools-premium-jenkins-shared-lib-src.git
+[2026-09-13T19:00:10.242Z]  > git init /var/jenkins_home/global-libraries-cache/7a94a59489f643b66ce1e3d3cd0d590425492a92069450c97822f77dfd602f6e # timeout=10
+[2026-09-13T19:00:10.253Z] Fetching upstream changes from https://cariad.ghe.com/swf/tools-premium-jenkins-shared-lib-src.git
+[2026-09-13T19:00:10.253Z]  > git --version # timeout=10
+[2026-09-13T19:00:10.258Z]  > git --version # 'git version 2.47.3'
+[2026-09-13T19:00:10.258Z] using GIT_ASKPASS to set credentials ioi swf gecko github app
+[2026-09-13T19:00:10.262Z]  > git fetch --tags --force --progress -- https://cariad.ghe.com/swf/tools-premium-jenkins-shared-lib-src.git +refs/heads/*:refs/remotes/origin/* # timeout=10
+[2026-09-13T19:00:11.285Z]  > git config remote.origin.url https://cariad.ghe.com/swf/tools-premium-jenkins-shared-lib-src.git # timeout=10
+[2026-09-13T19:00:11.289Z]  > git config --add remote.origin.fetch +refs/heads/*:refs/remotes/origin/* # timeout=10
+[2026-09-13T19:00:11.295Z] Avoid second fetch
+[2026-09-13T19:00:11.295Z] Checking out Revision f5d759ea6d051759908fedaf684e52bdfbdf0c2c (master)
+[2026-09-13T19:00:11.296Z]  > git config core.sparsecheckout # timeout=10
+[2026-09-13T19:00:11.300Z]  > git checkout -f f5d759ea6d051759908fedaf684e52bdfbdf0c2c # timeout=10
