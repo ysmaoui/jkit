@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- A test asserting every Jenkins route `internal/api` builds appears in the
+  endpoint catalogue in `docs/DESIGN.md`. The existing docs checks prove a name
+  is present, not that anything useful is written about it; an endpoint is the
+  part that is mechanically checkable. It found eight undocumented routes on its
+  first run: artifact download, EnvInject, `/stop`, test results, both Blue Ocean
+  step-log fallbacks, and the two queue-item routes. A path assembled from a
+  variable stays invisible to it, so `/enable` and `/disable` are noted in the
+  catalogue as kept by hand.
+
 ### Fixed
 - `jkit sources` now reports a commit for shared libraries that two libraries
   requesting the same ref used to leave unresolved. When the branch-name join

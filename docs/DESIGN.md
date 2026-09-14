@@ -159,6 +159,41 @@ GET /job/{path}/{number}/stages/log?nodeId={id}
 # Pipeline stages — Blue Ocean (fallback for instances without PGV ≥ 803)
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/log/
+# Blue Ocean answers node log with 500 on some parallel containers. The steps
+# below are the fallback: list the stage's steps, then read each step's log and
+# concatenate. Capped at the last 30 steps, fetched 5 at a time.
+GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/?limit=1000
+GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/{stepId}/log/
+
+# Abort a running build (requires crumb)
+POST /job/{path}/{number}/stop
+# Answers a redirect, not the resulting state. Re-read the build to confirm.
+
+# Run state (requires crumb; Job/Configure)
+POST /job/{path}/enable
+POST /job/{path}/disable
+# The route exists only for a job type whose supportsMakeDisabled is true, which
+# Jenkins defaults to false, so a 404 here means the type cannot be toggled
+# rather than that the job is missing. Like /stop it redirects rather than
+# reporting the new state, so the state is re-read afterwards. NOTE: these two
+# paths are built from a variable, so the catalogue test cannot see them —
+# keep them here by hand.
+
+# Build environment (EnvInject plugin, not core)
+GET /job/{path}/{number}/injectedEnvVars/api/json
+# Exists only when a job actually used EnvInject, which pipeline jobs never do,
+# so a 404 is the normal case and not evidence the plugin is absent. The
+# pipeline run's own EnvActionImpl is read from /api/json?tree=actions[environment]
+# instead, and carries only what the script assigned to env.*
+
+# Test results (junit plugin, not core)
+GET /job/{path}/{number}/testReport/api/json
+# A build that published no tests 404s, which is a normal answer meaning "no
+# report", not an error.
+
+# Artifacts
+GET /job/{path}/{number}/api/json?tree=artifacts[fileName,relativePath]
+GET /job/{path}/{number}/artifact/{relativePath}   # the bytes, streamed
 
 # Pending input steps (core exported beans; see the note below)
 GET /job/{path}/{number}/api/json?tree=actions[_class,waitingForInput,
@@ -175,6 +210,8 @@ GET /crumbIssuer/api/json
 
 # Queue
 GET /queue/api/json?tree=items[id,task[name,url],why,inQueueSince]
+GET /queue/item/{id}/api/json   # poll one item; `executable` appears once it starts
+POST /queue/cancelItem?id={id}  # requires crumb
 
 # Jenkinsfile validation (linting)
 POST /pipeline-model-converter/validate  # body: jenkinsfile=<contents>
