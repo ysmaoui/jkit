@@ -1046,6 +1046,39 @@ the guess cannot be wrong:
 - branch names are compared verbatim: a checkout recorded as
   `refs/remotes/origin/develop` is not treated as `develop`.
 
+### Reading the answer out of the build log
+
+When the join above cannot settle a library, `jkit` falls back to the build's
+own console, where the library retriever recorded what it did:
+
+```
+Loading library e3-sdk-global-jenkins-shared-lib@master
+ > git ls-remote -- https://git.example.com/swf/tools-global-shared-lib-src.git
+Found match: refs/heads/master revision 327b5c22a40ee9ef448b917b2b4a5b22e8d63239
+```
+
+That is a direct record of the build rather than an attribution made afterwards,
+so it settles the case two libraries on `@master` cannot settle by branch name,
+and such commits are labelled `matched-in-build-log`.
+
+- The console is read **only** when something is unresolved. A build whose
+  libraries all match a checkout by branch name costs no log request at all.
+- When it is read, it is read in full. A library can be loaded again later in
+  the build at a different commit, and stopping at the first match would report
+  the earlier commit as though it were the answer. A library the log resolved to
+  two different commits is reported at neither.
+- Where the console names a repository a checkout also recorded, the two are
+  cross-checked. Agreement attributes the checkout in the list below;
+  disagreement is printed as a note rather than resolved by preferring one.
+- An unreadable console leaves the existing refusal standing, with a note. It is
+  never treated as evidence of anything.
+
+`jkit` does not read the shared-library configuration, and so needs no
+administrator rights for globally defined libraries. That configuration would
+give the library's repository url, but the *current* one: a library repointed
+after the build would attribute the wrong checkout, in exactly the archaeology
+case this command exists for.
+
 Anything else prints as `SHA not resolvable` with the reason. The full checkout
 list is printed either way, so an unresolved library can still be settled by
 eye. A guessed commit would be worse than no commit: the point of the command

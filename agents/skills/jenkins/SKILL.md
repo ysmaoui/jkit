@@ -295,9 +295,17 @@ with no key between them, so a commit is printed only where it cannot belong to
 another library: a version that is already a 40-character commit id, or a
 version equal to the branch name of exactly one checkout. Two libraries on one
 ref, two checkouts on one branch name, a tag, or a ref name recorded with a
-`refs/remotes/origin/` prefix all print `SHA not resolvable` with the reason.
-Do not fill that gap yourself from the checkout list — it is printed as
-evidence, not as an answer, and the repository name is not proof of which
+`refs/remotes/origin/` prefix cannot be settled that way.
+
+What the join cannot settle, `jkit` then reads out of the build's own console,
+where the retriever logged `Loading library x@ref`, the `git ls-remote` it ran,
+and `Found match: <ref> revision <sha>`. Those commits are labelled
+`matched-in-build-log` and are a direct record of the build, so two libraries
+both on `@master` do resolve. The console is read only when something is
+unresolved, and a library the log resolved to two different commits is reported
+at neither. Whatever survives all of that still prints `SHA not resolvable` with
+the reason. Do not fill that gap yourself from the checkout list — it is printed
+as evidence, not as an answer, and the repository name is not proof of which
 library used it.
 
 `buildsByBranchName` is never read: it accumulates entries across builds, so it
