@@ -28,6 +28,13 @@ func (j Job) IsMultibranch() bool {
 	return strings.Contains(j.Class, "MultiBranch")
 }
 
+// IsBranchSource returns true if the job discovers branches by indexing or
+// scanning: a multibranch pipeline or an organization folder. Triggering one
+// starts a scan rather than a build.
+func (j Job) IsBranchSource() bool {
+	return j.IsMultibranch() || strings.Contains(j.Class, "OrganizationFolder")
+}
+
 // IsContainer returns true if the job holds child jobs rather than builds
 // (a folder or a multibranch pipeline).
 func (j Job) IsContainer() bool {

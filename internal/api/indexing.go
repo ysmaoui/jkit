@@ -69,7 +69,7 @@ func folderScanError(jobPath string, job jenkins.Job) error {
 	fmt.Fprintf(&b, "%q is a folder: it holds jobs but indexes nothing itself.\n", jobPath)
 	var indexing []string
 	for _, child := range job.Jobs {
-		if child.IsMultibranch() || strings.Contains(child.Class, "OrganizationFolder") {
+		if child.IsBranchSource() {
 			indexing = append(indexing, jobPath+"/"+child.Name)
 		}
 	}

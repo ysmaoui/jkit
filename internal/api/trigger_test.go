@@ -72,9 +72,9 @@ func TestTriggerBuildParameterizedNoParamsUsesDefaults(t *testing.T) {
 	srv := fakeTriggerJenkins(t, map[string]string{"ENV": "dev"}, &got, &hits)
 	defer srv.Close()
 
-	id, err := NewClient(srv.URL, "u", "p").TriggerBuild("team/svc", nil)
+	res, err := NewClient(srv.URL, "u", "p").TriggerBuild("team/svc", nil)
 	require.NoError(t, err)
-	assert.Equal(t, 8, id)
+	assert.Equal(t, 8, res.QueueID)
 	assert.Equal(t, []string{"/job/team/job/svc/buildWithParameters"}, hits)
 	assert.Equal(t, map[string]string{"ENV": "dev"}, got)
 }
@@ -85,9 +85,10 @@ func TestTriggerBuildUnparameterizedNoParamsUsesBuild(t *testing.T) {
 	srv := fakeTriggerJenkins(t, nil, &got, &hits)
 	defer srv.Close()
 
-	id, err := NewClient(srv.URL, "u", "p").TriggerBuild("team/svc", nil)
+	res, err := NewClient(srv.URL, "u", "p").TriggerBuild("team/svc", nil)
 	require.NoError(t, err)
-	assert.Equal(t, 7, id)
+	assert.Equal(t, 7, res.QueueID)
+	assert.False(t, res.Indexing)
 	assert.Equal(t, []string{"/job/team/job/svc/build"}, hits)
 }
 
@@ -152,4 +153,87 @@ func TestTriggerBuildUnknownJob(t *testing.T) {
 	var nf *jenkins.NotFoundError
 	require.ErrorAs(t, err, &nf)
 	assert.True(t, strings.HasPrefix(err.Error(), "triggering build: "), err.Error())
+}
+
+// branchSourceJenkins fakes a multibranch pipeline or organization folder:
+// POST /build starts a scan with no Location header, and there is no
+// /buildWithParameters action. requests logs every request as "METHOD path".
+func branchSourceJenkins(t *testing.T, class string, requests *[]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*requests = append(*requests, r.Method+" "+r.URL.Path)
+		switch r.URL.Path {
+		case "/crumbIssuer/api/json":
+			http.NotFound(w, r)
+		case "/job/team/job/svc/api/json":
+			_, _ = w.Write([]byte(`{"_class":"` + class + `","property":[]}`))
+		case "/job/team/job/svc/build":
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+var branchSourceClasses = map[string]string{
+	"multibranch":         "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+	"organization folder": "jenkins.branch.OrganizationFolder",
+}
+
+func TestTriggerBuildBranchSourceStartsIndexing(t *testing.T) {
+	for name, class := range branchSourceClasses {
+		t.Run(name, func(t *testing.T) {
+			var requests []string
+			srv := branchSourceJenkins(t, class, &requests)
+			defer srv.Close()
+
+			res, err := NewClient(srv.URL, "u", "p").TriggerBuild("team/svc", nil)
+			require.NoError(t, err)
+			assert.True(t, res.Indexing)
+			assert.Equal(t, 0, res.QueueID)
+			var posts []string
+			for _, r := range requests {
+				if strings.HasPrefix(r, "POST /job/") {
+					posts = append(posts, r)
+				}
+			}
+			assert.Equal(t, []string{"POST /job/team/job/svc/build"}, posts)
+		})
+	}
+}
+
+func TestTriggerBuildParamsOnBranchSource(t *testing.T) {
+	for name, class := range branchSourceClasses {
+		t.Run(name, func(t *testing.T) {
+			var requests []string
+			srv := branchSourceJenkins(t, class, &requests)
+			defer srv.Close()
+
+			_, err := NewClient(srv.URL, "u", "p").TriggerBuild("team/svc", map[string]string{"X": "1"})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "takes no parameters; target a branch job (team/svc/<branch>)")
+			assert.NotContains(t, err.Error(), "-p")
+			assert.NotContains(t, requests, "POST /job/team/job/svc/build")
+		})
+	}
+}
+
+func TestTriggerBuildParamsSkipJobLookup(t *testing.T) {
+	var got map[string]string
+	var hits []string
+	srv := fakeTriggerJenkins(t, map[string]string{"ENV": "dev"}, &got, &hits)
+	defer srv.Close()
+
+	var gets int
+	counting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path != "/crumbIssuer/api/json" {
+			gets++
+		}
+		srv.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer counting.Close()
+
+	_, err := NewClient(counting.URL, "u", "p").TriggerBuild("team/svc", map[string]string{"ENV": "prod"})
+	require.NoError(t, err)
+	assert.Equal(t, 0, gets)
 }

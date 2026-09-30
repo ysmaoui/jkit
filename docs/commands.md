@@ -601,11 +601,15 @@ jkit run [job] [-p KEY=VALUE]... [--wait] [--log]
 
 Progress messages go to stderr, log output to stdout. Ctrl+C interrupts gracefully. Queue timeout: 5 minutes. Build timeout: 2 hours.
 
+**Multibranch projects and organization folders.** `jkit run <project>` without `--branch` starts a scan (branch indexing), not a build, and exits 0 after printing a stderr notice pointing at `--branch` and `jkit scan`. Add `--branch <name>` to build a branch. `--wait` and `--log` do not apply to a scan: the notice adds a note and the command still exits 0. `-p` on the project itself is an error because a container takes no parameters; nothing is triggered.
+
 ```bash
 jkit run my-app                              # fire and forget
 jkit run my-app -p BRANCH=main -p ENV=prod   # with parameters
 jkit run my-app --wait                       # wait for result
 jkit run my-app --wait --log                 # wait + stream log
+jkit run my-mb-app                           # multibranch: start branch indexing
+jkit run my-mb-app --branch main             # multibranch: build one branch
 jkit run --log                               # auto-detect job
 ```
 

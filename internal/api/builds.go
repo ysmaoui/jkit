@@ -191,18 +191,31 @@ func (c *Client) pipelineEnv(jobPath string, number int) (map[string]string, err
 	return nil, nil
 }
 
-// TriggerBuild queues a build. On a parameterized job Jenkins answers a bare
-// POST /build with 400 "Nothing is submitted" (it expects the UI's json form),
-// while /buildWithParameters fills every omitted parameter with its default and
-// rejects unparameterized jobs, so the route follows the job's live definitions.
-// A multibranch branch job has none until its first run executes properties().
-func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, error) {
+// TriggerResult is the outcome of TriggerBuild. Indexing is true when the target
+// was a multibranch pipeline or organization folder: POST /build starts a scan
+// there instead of queueing a build, so there is no queue item (QueueID is 0).
+type TriggerResult struct {
+	QueueID  int
+	Indexing bool
+}
+
+// TriggerBuild queues a build, or starts a scan on a multibranch pipeline or
+// organization folder. On a parameterized job Jenkins answers a bare POST /build
+// with 400 "Nothing is submitted" (it expects the UI's json form), while
+// /buildWithParameters fills every omitted parameter with its default and
+// rejects unparameterized jobs, so with no params the route follows the job's
+// live definitions. A multibranch branch job has none until its first run
+// executes properties(). With params the job is not looked up first: a branch
+// source has no /buildWithParameters, and only that failure pays for the lookup.
+func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*TriggerResult, error) {
 	parameterized := len(params) > 0
+	indexing := false
 	if !parameterized {
-		defs, err := c.GetJobParameters(jobPath)
+		class, defs, err := c.getJobClassAndParameters(jobPath)
 		if err != nil {
-			return 0, fmt.Errorf("triggering build: %w", err)
+			return nil, fmt.Errorf("triggering build: %w", err)
 		}
+		indexing = jenkins.Job{Class: class}.IsBranchSource()
 		parameterized = len(defs) > 0
 	}
 
@@ -225,27 +238,37 @@ func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, er
 	resp, err := c.Post(path, body, contentType)
 	if err != nil {
 		var srvErr *jenkins.ServerError
-		if errors.As(err, &srvErr) && srvErr.StatusCode == http.StatusBadRequest {
-			return 0, c.explainRejectedTrigger(jobPath, params, err)
+		var nfErr *jenkins.NotFoundError
+		switch {
+		case errors.As(err, &srvErr) && srvErr.StatusCode == http.StatusBadRequest:
+			return nil, c.explainRejectedTrigger(jobPath, params, err)
+		case len(params) > 0 && (errors.As(err, &nfErr) || errors.As(err, &srvErr) && srvErr.StatusCode == http.StatusMethodNotAllowed):
+			if class, _, lookupErr := c.getJobClassAndParameters(jobPath); lookupErr == nil && (jenkins.Job{Class: class}).IsBranchSource() {
+				return nil, fmt.Errorf("%s is a multibranch project or organization folder and takes no parameters; target a branch job (%s/<branch>) to set parameters", jobPath, jobPath)
+			}
 		}
-		return 0, fmt.Errorf("triggering build: %w", err)
+		return nil, fmt.Errorf("triggering build: %w", err)
 	}
 	defer CloseBody(resp)
 
+	if indexing {
+		return &TriggerResult{Indexing: true}, nil
+	}
+
 	loc := resp.Header.Get("Location")
 	if loc == "" {
-		return 0, fmt.Errorf("no queue item returned — Jenkins did not provide a Location header")
+		return nil, fmt.Errorf("no queue item returned — Jenkins did not provide a Location header")
 	}
 	// Parse queue item ID from Location header: .../queue/item/123/
 	parts := strings.Split(strings.TrimRight(loc, "/"), "/")
 	if len(parts) == 0 {
-		return 0, fmt.Errorf("could not parse queue item from Location: %s", loc)
+		return nil, fmt.Errorf("could not parse queue item from Location: %s", loc)
 	}
 	id, err := strconv.Atoi(parts[len(parts)-1])
 	if err != nil {
-		return 0, fmt.Errorf("could not parse queue item ID from Location %q: %w", loc, err)
+		return nil, fmt.Errorf("could not parse queue item ID from Location %q: %w", loc, err)
 	}
-	return id, nil
+	return &TriggerResult{QueueID: id}, nil
 }
 
 // explainRejectedTrigger turns a 400 from a trigger into advice. The common

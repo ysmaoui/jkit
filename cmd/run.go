@@ -54,10 +54,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Trigger
-	queueID, err := client.TriggerBuild(jobPath, params)
+	res, err := client.TriggerBuild(jobPath, params)
 	if err != nil {
 		return err
 	}
+	if res.Indexing {
+		_, _ = fmt.Fprintf(os.Stderr, "Scan triggered for %s. Pass --branch <name> to build a branch; see 'jkit scan %s' for the scan result.\n", jobPath, jobPath)
+		if wait {
+			_, _ = fmt.Fprintln(os.Stderr, "Note: --wait and --log do not apply to a scan.")
+		}
+		return nil
+	}
+	queueID := res.QueueID
 	_, _ = fmt.Fprintf(os.Stderr, "Build queued (queue item #%d)\n", queueID)
 
 	if !wait {

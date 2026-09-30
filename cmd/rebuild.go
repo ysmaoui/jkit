@@ -58,10 +58,14 @@ func runRebuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Trigger new build
-	queueID, err := client.TriggerBuild(jobPath, params)
+	res, err := client.TriggerBuild(jobPath, params)
 	if err != nil {
 		return err
 	}
+	if res.Indexing {
+		return fmt.Errorf("%s indexes branches and has no builds to rebuild; use 'jkit run %s'", jobPath, jobPath)
+	}
+	queueID := res.QueueID
 	_, _ = fmt.Fprintf(os.Stderr, "Rebuild queued from #%d (queue item #%d)\n", buildNum, queueID)
 
 	wait, _ := cmd.Flags().GetBool("wait")

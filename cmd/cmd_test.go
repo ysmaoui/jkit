@@ -343,6 +343,10 @@ func TestRunCommandWithParams(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if r.URL.Path == "/job/my-app/api/json" {
+			_, _ = w.Write([]byte(`{"property":[]}`))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/buildWithParameters") && r.Method == "POST" {
 			gotPath = r.URL.Path
 			b, _ := io.ReadAll(r.Body)
@@ -362,6 +366,69 @@ func TestRunCommandWithParams(t *testing.T) {
 	assert.Contains(t, gotPath, "buildWithParameters")
 	assert.Contains(t, gotBody, "BRANCH=main")
 	assert.Contains(t, gotBody, "ENV=staging")
+}
+
+// multibranchRunServer fakes a multibranch container: POST /build starts
+// indexing and returns no Location header. posts collects POST paths.
+func multibranchRunServer(t *testing.T, posts *[]string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/crumbIssuer/api/json":
+			w.WriteHeader(http.StatusNotFound)
+		case r.URL.Path == "/job/my-app/api/json":
+			_, _ = w.Write([]byte(`{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","property":[]}`))
+		case r.URL.Path == "/job/my-app/buildWithParameters":
+			w.WriteHeader(http.StatusNotFound) // containers have no such action
+		case r.Method == "POST":
+			*posts = append(*posts, r.URL.Path)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	setupTestConfig(t, srv.URL)
+	return srv
+}
+
+func TestRunCommandMultibranchTriggersIndexing(t *testing.T) {
+	var posts []string
+	srv := multibranchRunServer(t, &posts)
+	defer srv.Close()
+
+	var err error
+	stderr := captureStderr(t, func() { _, err = executeCmd(t, "run", "my-app") })
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/job/my-app/build"}, posts)
+	assert.Contains(t, stderr, "Scan triggered for my-app. Pass --branch <name> to build a branch; see 'jkit scan my-app' for the scan result.")
+	assert.NotContains(t, stderr, "does not apply")
+}
+
+func TestRunCommandMultibranchWaitNote(t *testing.T) {
+	var posts []string
+	srv := multibranchRunServer(t, &posts)
+	defer srv.Close()
+
+	for _, flag := range []string{"--wait", "--log"} {
+		posts = nil
+		var err error
+		stderr := captureStderr(t, func() { _, err = executeCmd(t, "run", "my-app", flag) })
+		require.NoError(t, err, flag)
+		assert.Equal(t, []string{"/job/my-app/build"}, posts, flag)
+		assert.Contains(t, stderr, "Scan triggered for my-app.", flag)
+		assert.Contains(t, stderr, "--wait and --log do not apply to a scan", flag)
+	}
+}
+
+func TestRunCommandMultibranchRejectsParams(t *testing.T) {
+	var posts []string
+	srv := multibranchRunServer(t, &posts)
+	defer srv.Close()
+
+	_, err := executeCmd(t, "run", "my-app", "-p", "ENV=prod")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "takes no parameters")
+	assert.Empty(t, posts)
 }
 
 func TestRunCommandExitError(t *testing.T) {
