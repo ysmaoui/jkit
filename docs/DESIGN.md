@@ -112,7 +112,7 @@ type Client struct { ... }
 
 func NewClient(host string, auth Auth) *Client
 func (c *Client) GetBuild(jobPath string, number int) (*Build, error)
-func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*QueueItem, error)
+func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*TriggerResult, error)
 func (c *Client) GetBuildLog(jobPath string, number int, start int64) (*LogChunk, error)
 func (c *Client) GetPipelineStages(jobPath string, number int) ([]Stage, error)
 func (c *Client) GetPendingInputs(jobPath string, number int) ([]PendingInput, error)

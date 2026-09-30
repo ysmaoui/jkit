@@ -59,7 +59,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if res.Indexing {
-		_, _ = fmt.Fprintf(os.Stderr, "Scan triggered for %s. Pass --branch <name> to build a branch; see 'jkit scan %s' for the scan result.\n", jobPath, jobPath)
+		if res.OrgFolder {
+			_, _ = fmt.Fprintf(os.Stderr, "Scan triggered for %s. Pick a repository and branch: jkit run %s/<repo> --branch <name>; see 'jkit scan %s' for the scan result.\n", jobPath, jobPath, jobPath)
+		} else {
+			_, _ = fmt.Fprintf(os.Stderr, "Scan triggered for %s. Pass --branch <name> to build a branch; see 'jkit scan %s' for the scan result.\n", jobPath, jobPath)
+		}
 		if wait {
 			_, _ = fmt.Fprintln(os.Stderr, "Note: --wait and --log do not apply to a scan.")
 		}

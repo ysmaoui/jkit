@@ -194,9 +194,12 @@ func (c *Client) pipelineEnv(jobPath string, number int) (map[string]string, err
 // TriggerResult is the outcome of TriggerBuild. Indexing is true when the target
 // was a multibranch pipeline or organization folder: POST /build starts a scan
 // there instead of queueing a build, so there is no queue item (QueueID is 0).
+// OrgFolder is true when that target was an organization folder, whose branch
+// jobs sit one level deeper (<org>/<repo>/<branch>) than a multibranch project's.
 type TriggerResult struct {
-	QueueID  int
-	Indexing bool
+	QueueID   int
+	Indexing  bool
+	OrgFolder bool
 }
 
 // TriggerBuild queues a build, or starts a scan on a multibranch pipeline or
@@ -209,13 +212,14 @@ type TriggerResult struct {
 // source has no /buildWithParameters, and only that failure pays for the lookup.
 func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*TriggerResult, error) {
 	parameterized := len(params) > 0
-	indexing := false
+	indexing, orgFolder := false, false
 	if !parameterized {
 		class, defs, err := c.getJobClassAndParameters(jobPath)
 		if err != nil {
 			return nil, fmt.Errorf("triggering build: %w", err)
 		}
-		indexing = jenkins.Job{Class: class}.IsBranchSource()
+		job := jenkins.Job{Class: class}
+		indexing, orgFolder = job.IsBranchSource(), job.IsOrgFolder()
 		parameterized = len(defs) > 0
 	}
 
@@ -243,8 +247,13 @@ func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*Trigge
 		case errors.As(err, &srvErr) && srvErr.StatusCode == http.StatusBadRequest:
 			return nil, c.explainRejectedTrigger(jobPath, params, err)
 		case len(params) > 0 && (errors.As(err, &nfErr) || errors.As(err, &srvErr) && srvErr.StatusCode == http.StatusMethodNotAllowed):
-			if class, _, lookupErr := c.getJobClassAndParameters(jobPath); lookupErr == nil && (jenkins.Job{Class: class}).IsBranchSource() {
-				return nil, fmt.Errorf("%s is a multibranch project or organization folder and takes no parameters; target a branch job (%s/<branch>) to set parameters", jobPath, jobPath)
+			if class, _, lookupErr := c.getJobClassAndParameters(jobPath); lookupErr == nil {
+				switch job := (jenkins.Job{Class: class}); {
+				case job.IsOrgFolder():
+					return nil, fmt.Errorf("%s is an organization folder and takes no parameters; target a branch job (%s/<repo>/<branch>) to set parameters", jobPath, jobPath)
+				case job.IsMultibranch():
+					return nil, fmt.Errorf("%s is a multibranch project and takes no parameters; target a branch job (%s/<branch>) to set parameters", jobPath, jobPath)
+				}
 			}
 		}
 		return nil, fmt.Errorf("triggering build: %w", err)
@@ -252,7 +261,7 @@ func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*Trigge
 	defer CloseBody(resp)
 
 	if indexing {
-		return &TriggerResult{Indexing: true}, nil
+		return &TriggerResult{Indexing: true, OrgFolder: orgFolder}, nil
 	}
 
 	loc := resp.Header.Get("Location")

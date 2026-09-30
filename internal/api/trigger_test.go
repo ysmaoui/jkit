@@ -190,6 +190,7 @@ func TestTriggerBuildBranchSourceStartsIndexing(t *testing.T) {
 			res, err := NewClient(srv.URL, "u", "p").TriggerBuild("team/svc", nil)
 			require.NoError(t, err)
 			assert.True(t, res.Indexing)
+			assert.Equal(t, name == "organization folder", res.OrgFolder)
 			assert.Equal(t, 0, res.QueueID)
 			var posts []string
 			for _, r := range requests {
@@ -211,7 +212,11 @@ func TestTriggerBuildParamsOnBranchSource(t *testing.T) {
 
 			_, err := NewClient(srv.URL, "u", "p").TriggerBuild("team/svc", map[string]string{"X": "1"})
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "takes no parameters; target a branch job (team/svc/<branch>)")
+			if name == "organization folder" {
+				assert.Contains(t, err.Error(), "takes no parameters; target a branch job (team/svc/<repo>/<branch>)")
+			} else {
+				assert.Contains(t, err.Error(), "takes no parameters; target a branch job (team/svc/<branch>)")
+			}
 			assert.NotContains(t, err.Error(), "-p")
 			assert.NotContains(t, requests, "POST /job/team/job/svc/build")
 		})

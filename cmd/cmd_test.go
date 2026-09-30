@@ -372,12 +372,19 @@ func TestRunCommandWithParams(t *testing.T) {
 // indexing and returns no Location header. posts collects POST paths.
 func multibranchRunServer(t *testing.T, posts *[]string) *httptest.Server {
 	t.Helper()
+	return branchSourceRunServer(t, "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject", posts)
+}
+
+// branchSourceRunServer fakes a branch-source container of the given class
+// named my-app.
+func branchSourceRunServer(t *testing.T, class string, posts *[]string) *httptest.Server {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/crumbIssuer/api/json":
 			w.WriteHeader(http.StatusNotFound)
 		case r.URL.Path == "/job/my-app/api/json":
-			_, _ = w.Write([]byte(`{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","property":[]}`))
+			_, _ = w.Write([]byte(`{"_class":"` + class + `","property":[]}`))
 		case r.URL.Path == "/job/my-app/buildWithParameters":
 			w.WriteHeader(http.StatusNotFound) // containers have no such action
 		case r.Method == "POST":
@@ -402,6 +409,30 @@ func TestRunCommandMultibranchTriggersIndexing(t *testing.T) {
 	assert.Equal(t, []string{"/job/my-app/build"}, posts)
 	assert.Contains(t, stderr, "Scan triggered for my-app. Pass --branch <name> to build a branch; see 'jkit scan my-app' for the scan result.")
 	assert.NotContains(t, stderr, "does not apply")
+}
+
+func TestRunCommandOrgFolderTriggersIndexing(t *testing.T) {
+	var posts []string
+	srv := branchSourceRunServer(t, "jenkins.branch.OrganizationFolder", &posts)
+	defer srv.Close()
+
+	var err error
+	stderr := captureStderr(t, func() { _, err = executeCmd(t, "run", "my-app") })
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/job/my-app/build"}, posts)
+	assert.Contains(t, stderr, "Scan triggered for my-app. Pick a repository and branch: jkit run my-app/<repo> --branch <name>; see 'jkit scan my-app' for the scan result.")
+}
+
+func TestRunCommandOrgFolderRejectsParams(t *testing.T) {
+	var posts []string
+	srv := branchSourceRunServer(t, "jenkins.branch.OrganizationFolder", &posts)
+	defer srv.Close()
+
+	_, err := executeCmd(t, "run", "my-app", "-p", "ENV=prod")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target a branch job (my-app/<repo>/<branch>)")
+	assert.NotContains(t, err.Error(), "--")
+	assert.Empty(t, posts)
 }
 
 func TestRunCommandMultibranchWaitNote(t *testing.T) {

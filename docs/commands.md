@@ -601,7 +601,10 @@ jkit run [job] [-p KEY=VALUE]... [--wait] [--log]
 
 Progress messages go to stderr, log output to stdout. Ctrl+C interrupts gracefully. Queue timeout: 5 minutes. Build timeout: 2 hours.
 
-**Multibranch projects and organization folders.** `jkit run <project>` without `--branch` starts a scan (branch indexing), not a build, and exits 0 after printing a stderr notice pointing at `--branch` and `jkit scan`. Add `--branch <name>` to build a branch. `--wait` and `--log` do not apply to a scan: the notice adds a note and the command still exits 0. `-p` on the project itself is an error because a container takes no parameters; nothing is triggered.
+**Multibranch projects and organization folders.** `jkit run <container>` without `--branch` starts a scan (branch indexing), not a build, and exits 0 after printing a stderr notice pointing at `jkit scan`. `--wait` and `--log` do not apply to a scan: the notice adds a note and the command still exits 0. `-p` on the container itself is an error because a container takes no parameters; nothing is triggered.
+
+- Multibranch project: the notice points at `--branch <name>` to build a branch (`jkit run <project> --branch <name>`).
+- Organization folder: its children are repositories, so branch jobs live at `<org>/<repo>/<branch>` and `jkit run <org> --branch <name>` would target `<org>/<name>`, not a branch. The notice says to pick a repository first: `jkit run <org>/<repo> --branch <name>`. The `-p` error names `<org>/<repo>/<branch>`.
 
 ```bash
 jkit run my-app                              # fire and forget
@@ -610,6 +613,8 @@ jkit run my-app --wait                       # wait for result
 jkit run my-app --wait --log                 # wait + stream log
 jkit run my-mb-app                           # multibranch: start branch indexing
 jkit run my-mb-app --branch main             # multibranch: build one branch
+jkit run my-org                              # organization folder: start a scan
+jkit run my-org/my-repo --branch main        # organization folder: build one branch
 jkit run --log                               # auto-detect job
 ```
 

@@ -32,7 +32,14 @@ func (j Job) IsMultibranch() bool {
 // scanning: a multibranch pipeline or an organization folder. Triggering one
 // starts a scan rather than a build.
 func (j Job) IsBranchSource() bool {
-	return j.IsMultibranch() || strings.Contains(j.Class, "OrganizationFolder")
+	return j.IsMultibranch() || j.IsOrgFolder()
+}
+
+// IsOrgFolder returns true if the job is an organization folder (GitHub,
+// Bitbucket, ...). Its children are repositories, each a multibranch project,
+// so branch jobs sit at <org>/<repo>/<branch>.
+func (j Job) IsOrgFolder() bool {
+	return strings.Contains(j.Class, "OrganizationFolder")
 }
 
 // IsContainer returns true if the job holds child jobs rather than builds
