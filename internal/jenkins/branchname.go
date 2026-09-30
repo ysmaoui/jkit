@@ -63,8 +63,9 @@ func IsBranchJobName(name string) bool {
 }
 
 // DecodeBranchJobName reverses BranchJobName, turning a branch job's name back
-// into the branch name indexing logs print. A "%" that starts no NameEncoder
-// escape stays literal, as in NameEncoder.decode.
+// into the branch name indexing logs print. A "%" that starts no known escape
+// stays literal. Malformed input is not guaranteed to match Jenkins' own
+// decoder, which drops a trailing "%" or "%2".
 func DecodeBranchJobName(name string) string {
 	switch name {
 	case "%00":

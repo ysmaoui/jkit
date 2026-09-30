@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -186,7 +187,13 @@ func TestDiagnoseBuilding(t *testing.T) {
 }
 
 func TestDiagnoseNestedParallel(t *testing.T) {
+	var mu sync.Mutex
 	logRequests := make(map[string]bool)
+	markLogged := func(id string) {
+		mu.Lock()
+		defer mu.Unlock()
+		logRequests[id] = true
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/job/proj/1/api/json" {
@@ -210,18 +217,18 @@ func TestDiagnoseNestedParallel(t *testing.T) {
 		}
 		// branch-a (node 3) and compile (node 5) should both be fetched
 		if path == "/blue/rest/organizations/jenkins/pipelines/proj/runs/1/nodes/3/log/" {
-			logRequests["3"] = true
+			markLogged("3")
 			_, _ = fmt.Fprint(w, "ERROR: setup failed\n")
 			return
 		}
 		if path == "/blue/rest/organizations/jenkins/pipelines/proj/runs/1/nodes/5/log/" {
-			logRequests["5"] = true
+			markLogged("5")
 			_, _ = fmt.Fprint(w, "ERROR: compilation failed\n")
 			return
 		}
 		// Track log requests to fan-out container
 		if path == "/blue/rest/organizations/jenkins/pipelines/proj/runs/1/nodes/2/log/" {
-			logRequests["2"] = true
+			markLogged("2")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -239,6 +246,8 @@ func TestDiagnoseNestedParallel(t *testing.T) {
 	assert.Equal(t, "compile", result.FailedStages[1].Name)
 
 	// Fan-out container should NOT have its log fetched
+	mu.Lock()
+	defer mu.Unlock()
 	assert.True(t, logRequests["3"], "branch-a log should be fetched")
 	assert.True(t, logRequests["5"], "compile log should be fetched")
 	assert.False(t, logRequests["2"], "Parallel container log should NOT be fetched")
