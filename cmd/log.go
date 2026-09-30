@@ -218,6 +218,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			if stages == nil {
+				if err := requireBuild(client, jobPath, buildNum); err != nil {
+					return err
+				}
 				return fmt.Errorf("blue ocean plugin required for stage logs")
 			}
 			nodeID, err = jenkins.ResolveStageID(stages, stageName)

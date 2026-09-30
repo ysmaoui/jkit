@@ -28,6 +28,14 @@ func newFetchLog(client *api.Client) output.FetchLogFunc {
 	}
 }
 
+// requireBuild returns the typed not-found (or container) error when the build
+// is missing. GetPipelineStages returns nil, nil when both stage endpoints
+// 404, which a missing build produces just as a missing plugin does.
+func requireBuild(client *api.Client, jobPath string, buildNum int) error {
+	_, err := client.GetBuild(jobPath, buildNum)
+	return err
+}
+
 // resolveJobArgs extracts client, job path, and optional build number from command arguments.
 // If the first argument is a Jenkins URL, it parses host/job/build from it and looks up credentials.
 // Otherwise falls back to positional args and context resolution.

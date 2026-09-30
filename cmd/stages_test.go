@@ -113,3 +113,65 @@ func TestStatusListShowsElapsedForRunningBuild(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "1m30s")
 }
+
+// stageEndpoints404Server 404s both stage endpoints. The build itself exists
+// only when buildExists is true. The counter tracks build lookups.
+func stageEndpoints404Server(t *testing.T, buildExists bool) (*httptest.Server, *int) {
+	t.Helper()
+	var buildRequests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/5/api/json") {
+			buildRequests++
+			if buildExists {
+				_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "duration": 1, "url": "http://jenkins/job/my-app/5/"})
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	return srv, &buildRequests
+}
+
+func TestStagesReportsMissingBuildNotPluginHint(t *testing.T) {
+	srv, _ := stageEndpoints404Server(t, false)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "stages", "my-app", "5")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+	assert.Contains(t, err.Error(), "jkit list")
+	assert.NotContains(t, err.Error(), "plugin required")
+}
+
+func TestStagesKeepsPluginHintWhenBuildExists(t *testing.T) {
+	srv, buildRequests := stageEndpoints404Server(t, true)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "stages", "my-app", "5")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plugin required")
+	assert.Equal(t, 1, *buildRequests)
+}
+
+func TestLogStageReportsMissingBuildNotPluginHint(t *testing.T) {
+	srv, _ := stageEndpoints404Server(t, false)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Build")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+	assert.NotContains(t, err.Error(), "plugin required")
+}
+
+func TestLogStageKeepsPluginHintWhenBuildExists(t *testing.T) {
+	srv, _ := stageEndpoints404Server(t, true)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Build")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plugin required")
+}

@@ -68,6 +68,11 @@ func runStages(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if stages == nil {
+		if err := requireBuild(client, jobPath, buildNum); err != nil {
+			return err
+		}
+	}
 	if len(stages) == 0 {
 		if hint := client.ContainerHint(jobPath); hint != nil {
 			return hint
