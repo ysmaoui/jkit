@@ -45,6 +45,7 @@ type Client struct {
 	crumbs         *crumbIssuer
 	verbose        bool
 	pipelineSource PipelineSource
+	stageLogCap    int
 }
 
 type authTransport struct {
@@ -84,6 +85,16 @@ func WithPipelineSource(src PipelineSource) ClientOption {
 	}
 }
 
+// WithStageLogCap overrides how many bytes of a stage log one read keeps.
+func WithStageLogCap(n int) ClientOption {
+	return func(c *Client) {
+		c.stageLogCap = n
+	}
+}
+
+// StageLogCap returns how many bytes of a stage log one read keeps.
+func (c *Client) StageLogCap() int { return c.stageLogCap }
+
 // PipelineSource returns the configured backend selector.
 func (c *Client) PipelineSource() PipelineSource { return c.pipelineSource }
 
@@ -122,6 +133,7 @@ func NewClient(host, user, token string, opts ...ClientOption) *Client {
 		token: token,
 	}
 	c.crumbs = newCrumbIssuer(c)
+	c.stageLogCap = defaultStageLogCap
 	c.pipelineSource = parsePipelineSource(os.Getenv("JKIT_PIPELINE_SOURCE"))
 	for _, opt := range opts {
 		opt(c)

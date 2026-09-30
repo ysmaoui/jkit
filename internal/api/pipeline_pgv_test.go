@@ -139,7 +139,7 @@ func TestGetStageLogPrefersPGV(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "u", "t")
-	log, err := client.GetStageLog("team/svc", 7, "42")
+	log, _, err := client.GetStageLog("team/svc", 7, "42")
 	require.NoError(t, err)
 	assert.Equal(t, "pgv-log-for-42", log)
 }
@@ -155,7 +155,7 @@ func TestGetStageLogFallsBackToBlueOceanOn404(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "u", "t")
-	log, err := client.GetStageLog("team/svc", 7, "42")
+	log, _, err := client.GetStageLog("team/svc", 7, "42")
 	require.NoError(t, err)
 	assert.Equal(t, "blue-ocean-log", log)
 }

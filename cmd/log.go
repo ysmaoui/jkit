@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
+	"github.com/ysmaoui/jkit/internal/waiter"
 )
 
 // stagePollInterval is how often streamStageLog polls for new output.
@@ -108,27 +112,50 @@ func withStageHint(err error, byID string) error {
 	return err
 }
 
-// stageRunning reports whether the stage with the given ID is still in a
-// non-terminal state in the supplied stage list. A stage absent from the list
-// (or in an unknown state) is treated as finished to avoid looping forever.
-func stageRunning(stages []jenkins.Stage, nodeID string) bool {
-	for _, s := range stages {
-		if s.ID == nodeID {
-			switch s.Status {
-			case "IN_PROGRESS", "PAUSED_PENDING_INPUT", "QUEUED":
-				return true
-			}
-			return false
-		}
+// stageRunning reports whether the stage may still write output, and its
+// status. A stage with no final result counts as running while the build does:
+// Blue Ocean reports UNKNOWN for a running stage, and both sources NOT_BUILT for
+// one not started or skipped by when{}. A stage absent from the list counts as
+// finished so the loop cannot spin.
+func stageRunning(client *api.Client, jobPath string, buildNum int, nodeID string) (bool, string, error) {
+	stages, err := client.GetPipelineStages(jobPath, buildNum)
+	if err != nil {
+		return false, "", err
 	}
-	return false
+	i := slices.IndexFunc(stages, func(s jenkins.Stage) bool { return s.ID == nodeID })
+	if i < 0 {
+		return false, "", nil
+	}
+	status := stages[i].Status
+	switch {
+	case status == "IN_PROGRESS", status == "PAUSED_PENDING_INPUT", status == "QUEUED":
+		return true, status, nil
+	case waiter.HasResult(status):
+		return false, status, nil
+	}
+	building, err := client.IsBuilding(jobPath, buildNum)
+	return building, status, err
 }
 
 // streamStageLog tails a single stage's log until the stage finishes or the
-// context is cancelled. PGV/Blue Ocean stage-log endpoints return the full log
-// per call, so we print only the bytes appended since the previous poll.
-func streamStageLog(ctx context.Context, client *api.Client, jobPath string, buildNum int, nodeID string, w io.Writer) error {
-	var printed int
+// context is cancelled. Every poll re-downloads the log from byte 0, so it
+// stops once the output reaches the client's stage log cap rather than pull an
+// ever larger prefix each second.
+func streamStageLog(ctx context.Context, client *api.Client, jobPath string, buildNum int, nodeID string, w, errW io.Writer) error {
+	lw := &sanitizingLineWriter{w: w}
+	defer lw.Flush()
+	var printed int64
+	var notedNotBuilt bool
+	copyNew := func() (capped bool, err error) {
+		n, capped, err := client.CopyStageLogFrom(jobPath, buildNum, nodeID, printed, lw)
+		printed += n
+		if capped {
+			lw.Flush()
+			_, _ = fmt.Fprintf(errW, "warning: stage %s log passed %s; stopped following. "+
+				"Re-run with --tail N instead of -f after the stage finishes\n", nodeID, humanBytes(int64(client.StageLogCap())))
+		}
+		return capped, withTimeoutHint(err)
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -136,21 +163,21 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 		default:
 		}
 
-		raw, err := client.GetStageLog(jobPath, buildNum, nodeID)
+		if capped, err := copyNew(); capped || err != nil {
+			return err
+		}
+		running, status, err := stageRunning(client, jobPath, buildNum, nodeID)
 		if err != nil {
 			return err
 		}
-		if len(raw) > printed {
-			_, _ = fmt.Fprint(w, output.SanitizeLog(raw[printed:]))
-			printed = len(raw)
+		if running && status == "NOT_BUILT" && !notedNotBuilt {
+			notedNotBuilt = true
+			_, _ = fmt.Fprintf(errW, "note: stage %s has not run (NOT_BUILT); following until it starts or the build ends\n", nodeID)
 		}
-
-		stages, err := client.GetPipelineStages(jobPath, buildNum)
-		if err != nil {
+		if !running {
+			// Output written between the read above and the stage finishing.
+			_, err := copyNew()
 			return err
-		}
-		if !stageRunning(stages, nodeID) {
-			return nil
 		}
 
 		select {
@@ -159,6 +186,78 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 		case <-time.After(stagePollInterval):
 		}
 	}
+}
+
+// maxPendingLine bounds how much of an unterminated line sanitizingLineWriter
+// holds back. Past it the line is written as is, and an annotation split at
+// that point may survive.
+const maxPendingLine = 64 << 10
+
+// sanitizingLineWriter sanitizes whole lines only, holding back a trailing
+// partial line, so an annotation split across two reads is still stripped.
+type sanitizingLineWriter struct {
+	w       io.Writer
+	pending []byte
+}
+
+func (l *sanitizingLineWriter) Write(p []byte) (int, error) {
+	l.pending = append(l.pending, p...)
+	i := bytes.LastIndexByte(l.pending, '\n')
+	if i < 0 && len(l.pending) > maxPendingLine {
+		i = len(l.pending) - 1
+	}
+	if i >= 0 {
+		if _, err := io.WriteString(l.w, output.SanitizeLog(string(l.pending[:i+1]))); err != nil {
+			return 0, err
+		}
+		l.pending = append(l.pending[:0], l.pending[i+1:]...)
+	}
+	return len(p), nil
+}
+
+// Flush writes the held-back partial line.
+func (l *sanitizingLineWriter) Flush() {
+	if len(l.pending) > 0 {
+		_, _ = io.WriteString(l.w, output.SanitizeLog(string(l.pending)))
+		l.pending = l.pending[:0]
+	}
+}
+
+// warnStageLogTruncated tells the user when a stage log read hit the window
+// and the output may be incomplete. shown is the number of lines printed.
+func warnStageLogTruncated(w io.Writer, nodeID string, window int, truncated bool, tail, head int, grep bool, shown int) {
+	if !truncated {
+		return
+	}
+	size := humanBytes(int64(window))
+	switch {
+	case tail > 0 && shown >= tail, head > 0 && shown >= head:
+	case tail > 0 && grep:
+		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; --grep searched only the last %s\n", nodeID, size, size)
+	case tail > 0:
+		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; only %d of %d lines fit in the last %s\n", nodeID, size, shown, tail, size)
+	case grep:
+		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; --grep searched only the first %s, add --tail N to search the end\n", nodeID, size, size)
+	default:
+		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; showing the first %s, use --tail N to read the end\n", nodeID, size, size)
+	}
+}
+
+// withTimeoutHint points at --timeout when a stage log read timed out. Stage
+// logs cannot be read from an offset, so a whole large log must arrive within
+// the HTTP client timeout.
+func withTimeoutHint(err error) error {
+	if isTimeout(err) {
+		return fmt.Errorf("%w\n%s", err, stageLogTimeoutHint)
+	}
+	return err
+}
+
+const stageLogTimeoutHint = "the whole stage log has to download within the HTTP timeout; raise it with --timeout (e.g. --timeout 5m)"
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 func runLog(cmd *cobra.Command, args []string) error {
@@ -235,15 +334,20 @@ func runLog(cmd *cobra.Command, args []string) error {
 		if follow {
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer cancel()
-			return streamStageLog(ctx, client, jobPath, buildNum, nodeID, os.Stdout)
+			return streamStageLog(ctx, client, jobPath, buildNum, nodeID, os.Stdout, os.Stderr)
 		}
 
-		log, err := client.GetStageLog(jobPath, buildNum, nodeID)
-		if err != nil {
-			return err
+		getLog := client.GetStageLog
+		if tail > 0 {
+			getLog = client.GetStageLogTail
 		}
-		text := filterLines(output.SanitizeLog(log), grepPattern, grepI)
-		fmt.Print(applyTailHead(text, tail, head))
+		log, truncated, err := getLog(jobPath, buildNum, nodeID)
+		if err != nil {
+			return withTimeoutHint(err)
+		}
+		text := applyTailHead(filterLines(output.SanitizeLog(log), grepPattern, grepI), tail, head)
+		fmt.Print(text)
+		warnStageLogTruncated(os.Stderr, nodeID, client.StageLogCap(), truncated, tail, head, grepPattern != "", len(splitLogLines(text)))
 		return nil
 	}
 

@@ -119,6 +119,27 @@ func (c *Client) GetBuild(jobPath string, number int) (*jenkins.Build, error) {
 	return &build, nil
 }
 
+// IsBuilding reports whether a build is still running, fetching only that flag.
+func (c *Client) IsBuilding(jobPath string, number int) (bool, error) {
+	path := fmt.Sprintf("%s/%d/api/json", NormalizeJobPath(jobPath), number)
+	resp, err := c.Get(path, url.Values{"tree": {"building"}})
+	if err != nil {
+		if e := c.enrichNotFound(jobPath, err); e != err {
+			return false, e
+		}
+		return false, fmt.Errorf("getting build: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var build struct {
+		Building bool `json:"building"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&build); err != nil {
+		return false, fmt.Errorf("decoding build: %w", err)
+	}
+	return build.Building, nil
+}
+
 // GetBuildEnv returns a build's environment variables and where they came from.
 // EnvInject's /injectedEnvVars only exists when a job actually used the plugin,
 // which pipeline jobs never do, so a 404 there is the normal case rather than a

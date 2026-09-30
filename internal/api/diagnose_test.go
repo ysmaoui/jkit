@@ -3,8 +3,10 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -310,4 +312,43 @@ func TestFormatAPIDuration(t *testing.T) {
 	assert.Equal(t, "1m5s", formatAPIDuration(65e9))
 	assert.Equal(t, "1h0m", formatAPIDuration(3600e9))
 	assert.Equal(t, "1h1m", formatAPIDuration(3661e9))
+}
+
+// stallingStageLogServer serves failed build 42 of job test whose stage 20 log
+// sends a first chunk, then stalls until release is closed.
+func stallingStageLogServer(t *testing.T, release chan struct{}) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/job/test/42/api/json":
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 42, "result": "FAILURE"})
+		case "/blue/rest/organizations/jenkins/pipelines/test/runs/42/nodes/":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "20", "displayName": "Test", "result": "FAILURE"}})
+		case "/blue/rest/organizations/jenkins/pipelines/test/runs/42/nodes/20/log/":
+			_, _ = fmt.Fprint(w, "ERROR: early failure\n"+strings.Repeat("progress\n", 20))
+			w.(http.Flusher).Flush()
+			<-release
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestDiagnoseFallsBackToHeadWhenTailTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	srv := stallingStageLogServer(t, release)
+	defer srv.Close()
+	defer close(release)
+
+	client := NewClient(srv.URL, "admin", "token", WithTimeout(200*time.Millisecond), WithStageLogCap(64))
+	result, err := client.Diagnose("test", 42)
+	require.NoError(t, err)
+
+	require.Len(t, result.FailedStages, 1)
+	fs := result.FailedStages[0]
+	assert.Contains(t, fs.Errors, "ERROR: early failure")
+	assert.Contains(t, fs.Warning, "could not read the end of the stage log")
+	var ne net.Error
+	require.ErrorAs(t, fs.ReadErr, &ne)
+	assert.True(t, ne.Timeout())
 }

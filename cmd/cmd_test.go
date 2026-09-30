@@ -673,6 +673,361 @@ func TestLogStageFollow(t *testing.T) {
 	assert.Contains(t, out, "remote exec branch log")
 }
 
+// bigStageLogBody is a stage log well past the 64-byte cap the tests set,
+// ending in a Bazel-style summary.
+var bigStageLogBody = "first line\n" + strings.Repeat("filler line\n", 50) +
+	"Build did NOT complete successfully\nsummary last line\n"
+
+// stageLogServer serves stage 4 of build 5 through PGV. log returns the stage
+// log for the n-th log request; running reports the stage and build state as of
+// the n-th tree request.
+func stageLogServer(t *testing.T, log func(n int) string, running func(n int) bool) *httptest.Server {
+	t.Helper()
+	var logCalls, treeCalls int
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
+			treeCalls++
+			state := "failure"
+			if running(treeCalls) {
+				state = "running"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data": map[string]any{
+					"complete": !running(treeCalls),
+					"stages":   []map[string]any{{"id": "4", "name": "Build", "type": "STAGE", "state": state}},
+				},
+			})
+		case strings.Contains(r.URL.Path, "/stages/log"):
+			logCalls++
+			_, _ = fmt.Fprint(w, log(logCalls))
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": running(treeCalls)})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func shrinkStageLogCap(t *testing.T) {
+	t.Helper()
+	old := stageLogCap
+	stageLogCap = 64
+	t.Cleanup(func() { stageLogCap = old })
+}
+
+func bigStageLogServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	shrinkStageLogCap(t)
+	return stageLogServer(t, func(int) string { return bigStageLogBody }, func(int) bool { return false })
+}
+
+func TestLogStagePastCapWarns(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4") })
+	require.NoError(t, err)
+	assert.Equal(t, bigStageLogBody[:64], out)
+	assert.Contains(t, stderr, "stage 4 log exceeds")
+	assert.Contains(t, stderr, "use --tail N to read the end")
+}
+
+func TestLogStageHeadWithinCapDoesNotWarn(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--head", "1") })
+	require.NoError(t, err)
+	assert.Equal(t, "first line\n", out)
+	assert.Empty(t, stderr)
+}
+
+func TestLogStageTailPastCap(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "2") })
+	require.NoError(t, err)
+	assert.Equal(t, "Build did NOT complete successfully\nsummary last line\n", out)
+	assert.Empty(t, stderr)
+}
+
+func TestLogStageTailMoreLinesThanWindowWarns(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "100") })
+	require.NoError(t, err)
+	assert.True(t, strings.HasSuffix(out, "summary last line\n"))
+	assert.Contains(t, stderr, "only 2 of 100 lines fit")
+}
+
+func TestLogStageTailGrepPastCap(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var err error
+	stderr := captureStderr(t, func() {
+		_, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "5", "--grep", "line")
+	})
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "--grep searched only the last")
+
+	// Enough matches for --tail: nothing was missed that the output needed.
+	stderr = captureStderr(t, func() {
+		_, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "1", "--grep", "summary")
+	})
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+}
+
+func TestLogStageTimeoutHintsAtFlag(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "partial\n")
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "1", "--timeout", "100ms")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--timeout")
+}
+
+func TestLogStageFollowStopsAtCap(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, bigStageLogBody[:64], out)
+	assert.Contains(t, stderr, "stopped following")
+	assert.Contains(t, stderr, "--tail N")
+}
+
+func TestLogStageFollowPrintsLinesWrittenAsStageFinishes(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	// The second log read already carries the final line, but the tree request
+	// between the reads reports the stage finished.
+	srv := stageLogServer(t,
+		func(n int) string {
+			if n == 1 {
+				return "building\n"
+			}
+			return "building\nfinal line\n"
+		},
+		func(int) bool { return false })
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	assert.Equal(t, "building\nfinal line\n", out)
+}
+
+func TestLogStageFollowSkipsPGVPlaceholder(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	// A stage with no step logs yet gets PGV's placeholder; it must not shift
+	// the offset of the real log that follows.
+	srv := stageLogServer(t,
+		func(n int) string {
+			if n == 1 {
+				return "No logs found\n"
+			}
+			return "step output\n"
+		},
+		func(n int) bool { return n == 1 })
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	assert.Equal(t, "step output\n", out)
+}
+
+// blueOceanFollowServer serves stage 4 through Blue Ocean only, which reports
+// a running stage as UNKNOWN. The build is building for the first two build
+// lookups; each log request returns one more line.
+func blueOceanFollowServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	var logCalls, buildCalls int
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/nodes/"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "4", "displayName": "Build", "result": "UNKNOWN", "state": "RUNNING"}})
+		case strings.HasSuffix(r.URL.Path, "/nodes/4/log/"):
+			logCalls++
+			for i := 1; i <= logCalls; i++ {
+				_, _ = fmt.Fprintf(w, "line %d\n", i)
+			}
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			buildCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": buildCalls <= 2})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestLogStageFollowBlueOceanUnknownKeepsFollowing(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	srv := blueOceanFollowServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	// Three polls while building, then the final read after the build ends.
+	assert.Equal(t, "line 1\nline 2\nline 3\nline 4\n", out)
+}
+
+// stageStateServer serves stage 4 of build 5 through PGV with a one-line log.
+// states[n] is the PGV state for tree request n+1, the last one repeating. The
+// build is always building; buildCalls counts the build lookups.
+func stageStateServer(t *testing.T, states []string, buildCalls *int) *httptest.Server {
+	t.Helper()
+	var treeCalls int
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
+			state := states[min(treeCalls, len(states)-1)]
+			treeCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data": map[string]any{
+					"stages": []map[string]any{{"id": "4", "name": "Deploy", "type": "STAGE", "state": state}},
+				},
+			})
+		case strings.Contains(r.URL.Path, "/stages/log"):
+			_, _ = fmt.Fprint(w, "deploy log\n")
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			*buildCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": true})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestLogStageFollowRunningSkipsBuildLookup(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	var buildCalls int
+	srv := stageStateServer(t, []string{"running", "paused", "queued", "success"}, &buildCalls)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	assert.Equal(t, "deploy log\n", out)
+	assert.Zero(t, buildCalls)
+}
+
+func TestLogStageFollowNotBuiltNotesOnce(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	var buildCalls int
+	srv := stageStateServer(t, []string{"skipped", "skipped", "success"}, &buildCalls)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var err error
+	stderr := captureStderr(t, func() { _, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(stderr, "stage 4 has not run (NOT_BUILT); following until it starts or the build ends"))
+	assert.Equal(t, 2, buildCalls)
+}
+
+func TestDiagnoseHintsAtTimeoutWhenStageLogStalls(t *testing.T) {
+	shrinkStageLogCap(t)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "result": "FAILURE"})
+		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data":   map[string]any{"stages": []map[string]any{{"id": "4", "name": "Build", "type": "STAGE", "state": "failure"}}},
+			})
+		case strings.Contains(r.URL.Path, "/stages/log"):
+			_, _ = fmt.Fprint(w, "ERROR: early failure\n"+strings.Repeat("progress\n", 20))
+			w.(http.Flusher).Flush()
+			<-release
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "diagnose", "my-app", "5", "--timeout", "200ms") })
+	require.NoError(t, err)
+	assert.Contains(t, out, "ERROR: early failure")
+	assert.Contains(t, stderr, "warning: stage Build: could not read the end of the stage log")
+	assert.Contains(t, stderr, "--timeout")
+}
+
+func TestSanitizingLineWriterStripsSplitAnnotation(t *testing.T) {
+	var out strings.Builder
+	lw := &sanitizingLineWriter{w: &out}
+	line := "a \x1b[8mha:AAAABBBB\x1b[0mb\nc"
+	for i := 0; i < len(line); i += 3 {
+		_, _ = lw.Write([]byte(line[i:min(i+3, len(line))]))
+	}
+	lw.Flush()
+	assert.Equal(t, "a b\nc", out.String())
+}
+
+func TestSanitizingLineWriterBoundsUnterminatedLine(t *testing.T) {
+	var out strings.Builder
+	lw := &sanitizingLineWriter{w: &out}
+	chunk := strings.Repeat("x", 4096)
+	for i := 0; i < 32; i++ {
+		_, _ = lw.Write([]byte(chunk))
+	}
+	assert.LessOrEqual(t, len(lw.pending), maxPendingLine)
+	lw.Flush()
+	assert.Equal(t, 32*4096, out.Len())
+}
+
 // --- stages command ---
 
 func TestStagesCommand(t *testing.T) {

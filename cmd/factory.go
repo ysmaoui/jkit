@@ -86,8 +86,15 @@ func clientOpts(cmd *cobra.Command) []api.ClientOption {
 	if s, _ := cmd.Flags().GetString("pipeline-source"); s != "" {
 		opts = append(opts, api.WithPipelineSource(parsePipelineSourceFlag(s)))
 	}
+	if stageLogCap > 0 {
+		opts = append(opts, api.WithStageLogCap(stageLogCap))
+	}
 	return opts
 }
+
+// stageLogCap overrides the client's stage log cap when positive, so tests can
+// exceed it with a small log.
+var stageLogCap int
 
 func parsePipelineSourceFlag(s string) api.PipelineSource {
 	switch strings.ToLower(strings.TrimSpace(s)) {

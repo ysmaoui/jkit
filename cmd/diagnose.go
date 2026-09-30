@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -51,6 +52,7 @@ func runDiagnose(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	warnDiagnoseReads(os.Stderr, result)
 
 	if isJSON || tmpl != "" {
 		return f.Output(result, nil)
@@ -58,6 +60,20 @@ func runDiagnose(cmd *cobra.Command, args []string) error {
 
 	printDiagnosis(result)
 	return nil
+}
+
+// warnDiagnoseReads reports failed stages whose log could not be read in full,
+// since their error lines may be incomplete.
+func warnDiagnoseReads(w io.Writer, r *api.DiagnoseResult) {
+	for _, fs := range r.FailedStages {
+		if fs.Warning == "" {
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "warning: stage %s: %s\n", fs.Name, fs.Warning)
+		if isTimeout(fs.ReadErr) {
+			_, _ = fmt.Fprintf(w, "  %s\n", stageLogTimeoutHint)
+		}
+	}
 }
 
 func printDiagnosis(r *api.DiagnoseResult) {

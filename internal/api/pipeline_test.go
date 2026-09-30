@@ -102,7 +102,7 @@ func TestGetStageLogDirect(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "admin", "secret")
-	log, err := client.GetStageLog("team/svc", 42, "10")
+	log, _, err := client.GetStageLog("team/svc", 42, "10")
 	require.NoError(t, err)
 	assert.Contains(t, log, "stage log line 1")
 	assert.Contains(t, log, "stage log line 2")
@@ -115,7 +115,7 @@ func TestGetStageLog404(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "admin", "secret")
-	_, err := client.GetStageLog("team/svc", 42, "10")
+	_, _, err := client.GetStageLog("team/svc", 42, "10")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "blue ocean plugin required")
 }
@@ -153,7 +153,7 @@ func TestGetStageLogFallbackToSteps(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "admin", "secret")
-	log, err := client.GetStageLog("svc", 42, "10")
+	log, _, err := client.GetStageLog("svc", 42, "10")
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&nodeLogCalls))
 	assert.Contains(t, log, "step 1 output")
@@ -176,7 +176,7 @@ func TestGetStageLogFallbackNoSteps(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "admin", "secret")
-	_, err := client.GetStageLog("svc", 42, "10")
+	_, _, err := client.GetStageLog("svc", 42, "10")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no steps found")
 }
@@ -204,7 +204,7 @@ func TestGetStageLogFallbackStepLogErrors(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "admin", "secret")
-	_, err := client.GetStageLog("svc", 42, "10")
+	_, _, err := client.GetStageLog("svc", 42, "10")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no log content")
 }
@@ -236,7 +236,113 @@ func TestGetStageLogFallbackPartialStepLogs(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "admin", "secret")
-	log, err := client.GetStageLog("svc", 42, "10")
+	log, _, err := client.GetStageLog("svc", 42, "10")
 	require.NoError(t, err)
 	assert.Contains(t, log, "only good output")
+}
+
+// stageLogBodyServer serves body as every PGV stage log.
+func stageLogBodyServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, body)
+	}))
+}
+
+// numberedLines returns "line 1\n".."line n\n".
+func numberedLines(n int) string {
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		_, _ = fmt.Fprintf(&b, "line %d\n", i)
+	}
+	return b.String()
+}
+
+func TestGetStageLogOverCap(t *testing.T) {
+	srv := stageLogBodyServer(t, numberedLines(100))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "secret", WithStageLogCap(64))
+	log, truncated, err := client.GetStageLog("svc", 42, "10")
+	require.NoError(t, err)
+	assert.Len(t, log, 64)
+	assert.True(t, strings.HasPrefix(log, "line 1\n"))
+	assert.True(t, truncated)
+}
+
+func TestGetStageLogAtCapNotTruncated(t *testing.T) {
+	body := numberedLines(3)
+	srv := stageLogBodyServer(t, body)
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "secret", WithStageLogCap(len(body)))
+	log, truncated, err := client.GetStageLog("svc", 42, "10")
+	require.NoError(t, err)
+	assert.Equal(t, body, log)
+	assert.False(t, truncated)
+
+	log, truncated, err = client.GetStageLogTail("svc", 42, "10")
+	require.NoError(t, err)
+	assert.Equal(t, body, log)
+	assert.False(t, truncated)
+}
+
+func TestGetStageLogTailReturnsEnd(t *testing.T) {
+	srv := stageLogBodyServer(t, numberedLines(100000))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "secret", WithStageLogCap(64))
+	log, truncated, err := client.GetStageLogTail("svc", 42, "10")
+	require.NoError(t, err)
+	assert.True(t, truncated)
+	assert.LessOrEqual(t, len(log), 64)
+	assert.True(t, strings.HasPrefix(log, "line "), "partial first line dropped: %q", log)
+	assert.True(t, strings.HasSuffix(log, "line 99999\nline 100000\n"))
+}
+
+func TestCopyStageLogFromOffset(t *testing.T) {
+	srv := stageLogBodyServer(t, numberedLines(3))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "secret")
+	var out strings.Builder
+	n, capped, err := client.CopyStageLogFrom("svc", 42, "10", int64(len("line 1\n")), &out)
+	require.NoError(t, err)
+	assert.Equal(t, "line 2\nline 3\n", out.String())
+	assert.Equal(t, int64(out.Len()), n)
+	assert.False(t, capped)
+
+	out.Reset()
+	n, capped, err = client.CopyStageLogFrom("svc", 42, "10", 1000, &out)
+	require.NoError(t, err)
+	assert.Zero(t, n)
+	assert.False(t, capped)
+	assert.Empty(t, out.String())
+}
+
+func TestCopyStageLogFromStopsAtCap(t *testing.T) {
+	body := numberedLines(100)
+	srv := stageLogBodyServer(t, body)
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "secret", WithStageLogCap(64))
+	var out strings.Builder
+	n, capped, err := client.CopyStageLogFrom("svc", 42, "10", 20, &out)
+	require.NoError(t, err)
+	assert.True(t, capped)
+	assert.Equal(t, int64(44), n)
+	assert.Equal(t, body[20:64], out.String())
+}
+
+func TestCopyStageLogFromSkipsPGVPlaceholder(t *testing.T) {
+	srv := stageLogBodyServer(t, "No logs found\n")
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "secret")
+	var out strings.Builder
+	n, capped, err := client.CopyStageLogFrom("svc", 42, "10", 0, &out)
+	require.NoError(t, err)
+	assert.Zero(t, n)
+	assert.False(t, capped)
+	assert.Empty(t, out.String())
 }

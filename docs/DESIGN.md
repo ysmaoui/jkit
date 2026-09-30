@@ -154,6 +154,9 @@ GET /job/{path}/{number}/timestamps/?elapsed=SSSSS          # times only, no log
 # nothing here can drive a live tail or a size guard. See the note below.
 
 # Pipeline stage / step log (single endpoint, accepts stage IDs and step IDs)
+# Takes no start offset and sends no X-Text-Size; always the whole log from
+# byte 0. Blue Ocean's nodes/{id}/log/ is the same. Tails and follows read past
+# the head client-side.
 GET /job/{path}/{number}/stages/log?nodeId={id}
 
 # Pipeline stages — Blue Ocean (fallback for instances without PGV ≥ 803)

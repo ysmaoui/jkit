@@ -1,28 +1,28 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
-	"os"
+	"slices"
 	"strings"
 	"sync"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
-// maxStageLog bounds how many bytes a single stage log read buffers.
-const maxStageLog = 10 << 20 // 10 MB
+// defaultStageLogCap bounds how many bytes of a stage log one read keeps in
+// memory or, when following, reads at all. Neither stage log endpoint takes a
+// start offset: PGV's stages/log and Blue Ocean's nodes/<id>/log/ both write
+// every step from byte 0, so reading past the cap means downloading the head.
+const defaultStageLogCap = 10 << 20 // 10 MB
 
-// warnIfStageLogTruncated emits a stderr notice when a stage log read hit the
-// cap, so truncation is never silent.
-func warnIfStageLogTruncated(n int, nodeID string) {
-	if n >= maxStageLog {
-		_, _ = fmt.Fprintf(os.Stderr, "warning: stage %s log reached %d MB cap — output truncated\n", nodeID, maxStageLog>>20)
-	}
-}
+// pgvNoLogs is the whole body PGV's stages/log sends for a node with no step
+// logs yet. It is not log text, so it must not advance a follow offset.
+const pgvNoLogs = "No logs found\n"
 
 // GetPipelineStages returns the flat stage list for a build. It prefers the
 // Pipeline Graph View plugin (`/stages/tree`, v803+) and falls back to Blue
@@ -94,69 +94,150 @@ func (c *Client) getPipelineStagesBlueOcean(jobPath string, number int) ([]jenki
 	return stages, nil
 }
 
-// GetStageLog returns the console log for a pipeline node. It prefers the PGV
-// endpoint (`/stages/log?nodeId=...`, which also serves step IDs) and falls
-// back to Blue Ocean on 404. The legacy step-aggregation fallback remains for
-// Blue Ocean parallel containers that return 500 on node log.
-func (c *Client) GetStageLog(jobPath string, number int, nodeID string) (string, error) {
+// GetStageLog returns the first StageLogCap bytes of a pipeline node's log.
+// truncated reports that the log is longer.
+func (c *Client) GetStageLog(jobPath string, number int, nodeID string) (text string, truncated bool, err error) {
+	body, err := c.openStageLog(jobPath, number, nodeID)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = body.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(body, int64(c.stageLogCap)+1))
+	if err != nil {
+		return "", false, fmt.Errorf("reading stage log: %w", err)
+	}
+	if len(data) > c.stageLogCap {
+		return string(data[:c.stageLogCap]), true, nil
+	}
+	return string(data), false, nil
+}
+
+// CopyStageLogFrom copies a pipeline node's log from byte offset start up to
+// StageLogCap to w and returns the bytes written. No call reads more than the
+// cap plus one byte; capped reports that the log runs past the cap.
+func (c *Client) CopyStageLogFrom(jobPath string, number int, nodeID string, start int64, w io.Writer) (n int64, capped bool, err error) {
+	body, err := c.openStageLog(jobPath, number, nodeID)
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = body.Close() }()
+
+	limit := int64(c.stageLogCap)
+	lr := &io.LimitedReader{R: body, N: limit + 1}
+	if _, err := io.CopyN(io.Discard, lr, start); err != nil {
+		if errors.Is(err, io.EOF) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("reading stage log: %w", err)
+	}
+	src := io.LimitReader(lr, limit-start)
+	if start == 0 {
+		head := make([]byte, len(pgvNoLogs)+1)
+		k, err := io.ReadFull(src, head)
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			return 0, false, fmt.Errorf("reading stage log: %w", err)
+		}
+		if string(head[:k]) == pgvNoLogs {
+			return 0, false, nil
+		}
+		src = io.MultiReader(bytes.NewReader(head[:k]), src)
+	}
+	n, err = io.Copy(w, src)
+	if err != nil {
+		return n, false, fmt.Errorf("reading stage log: %w", err)
+	}
+	var past [1]byte
+	m, _ := io.ReadFull(lr, past[:])
+	return n, m == 1, nil
+}
+
+// GetStageLogTail returns the end of a pipeline node's log, at most
+// StageLogCap bytes. The endpoints cannot seek, so the whole log is downloaded
+// through a ring buffer of one window. truncated reports that the head was
+// dropped; the partial first line is then dropped too.
+func (c *Client) GetStageLogTail(jobPath string, number int, nodeID string) (text string, truncated bool, err error) {
+	body, err := c.openStageLog(jobPath, number, nodeID)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = body.Close() }()
+
+	ring, err := io.ReadAll(io.LimitReader(body, int64(c.stageLogCap)))
+	if err != nil {
+		return "", false, fmt.Errorf("reading stage log: %w", err)
+	}
+	if len(ring) < c.stageLogCap {
+		return string(ring), false, nil
+	}
+	pos := 0
+	for {
+		n, err := body.Read(ring[pos:])
+		if n > 0 {
+			truncated = true
+			pos = (pos + n) % len(ring)
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", false, fmt.Errorf("reading stage log: %w", err)
+		}
+	}
+	if !truncated {
+		return string(ring), false, nil
+	}
+	// Rotate in place so the oldest byte comes first, without a second window.
+	slices.Reverse(ring[:pos])
+	slices.Reverse(ring[pos:])
+	slices.Reverse(ring)
+	if i := bytes.IndexByte(ring, '\n'); i >= 0 {
+		ring = ring[i+1:]
+	}
+	return string(ring), true, nil
+}
+
+// openStageLog opens a pipeline node's log. It prefers the PGV endpoint
+// (`/stages/log?nodeId=...`, which also serves step IDs) and falls back to
+// Blue Ocean on 404. The legacy step-aggregation fallback remains for Blue
+// Ocean parallel containers that return 500 on node log.
+func (c *Client) openStageLog(jobPath string, number int, nodeID string) (io.ReadCloser, error) {
 	if c.pipelineSource != PipelineSourceBlueOcean {
-		log, err := c.getStageLogPGV(jobPath, number, nodeID)
+		path := fmt.Sprintf("%s/%d/stages/log", NormalizeJobPath(jobPath), number)
+		resp, err := c.Get(path, url.Values{"nodeId": {nodeID}})
 		if err == nil {
-			return log, nil
+			return resp.Body, nil
 		}
 		var nfe *jenkins.NotFoundError
 		if !errors.As(err, &nfe) || c.pipelineSource == PipelineSourcePGV {
-			return "", err
+			return nil, err
 		}
 		// 404 → fall through to Blue Ocean
 	}
 	if c.pipelineSource == PipelineSourcePGV {
-		return "", fmt.Errorf("PGV endpoint unavailable and fallback disabled")
+		return nil, fmt.Errorf("PGV endpoint unavailable and fallback disabled")
 	}
-	return c.getStageLogBlueOcean(jobPath, number, nodeID)
-}
 
-func (c *Client) getStageLogPGV(jobPath string, number int, nodeID string) (string, error) {
-	path := fmt.Sprintf("%s/%d/stages/log", NormalizeJobPath(jobPath), number)
-	resp, err := c.Get(path, url.Values{"nodeId": {nodeID}})
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxStageLog))
-	if err != nil {
-		return "", fmt.Errorf("reading PGV stage log: %w", err)
-	}
-	warnIfStageLogTruncated(len(data), nodeID)
-	return string(data), nil
-}
-
-func (c *Client) getStageLogBlueOcean(jobPath string, number int, nodeID string) (string, error) {
 	segments := normalizeBluePath(jobPath)
 	path := fmt.Sprintf("/blue/rest/organizations/jenkins/pipelines/%s/runs/%d/nodes/%s/log/", segments, number, nodeID)
-
 	resp, err := c.Get(path, nil)
 	if err != nil {
 		var nfe *jenkins.NotFoundError
 		if errors.As(err, &nfe) {
-			return "", fmt.Errorf("blue ocean plugin required for stage logs")
+			return nil, fmt.Errorf("blue ocean plugin required for stage logs")
 		}
 		var se *jenkins.ServerError
 		if errors.As(err, &se) {
 			// Fallback: aggregate step-level logs when node log returns 500
-			return c.getStageLogViaSteps(segments, number, nodeID)
+			text, err := c.getStageLogViaSteps(segments, number, nodeID)
+			if err != nil {
+				return nil, err
+			}
+			return io.NopCloser(strings.NewReader(text)), nil
 		}
-		return "", fmt.Errorf("getting stage log: %w", err)
+		return nil, fmt.Errorf("getting stage log: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxStageLog))
-	if err != nil {
-		return "", fmt.Errorf("reading stage log: %w", err)
-	}
-	warnIfStageLogTruncated(len(data), nodeID)
-	return string(data), nil
+	return resp.Body, nil
 }
 
 // getStageLogViaSteps fetches logs by aggregating individual step logs.

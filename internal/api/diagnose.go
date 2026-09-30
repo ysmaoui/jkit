@@ -26,6 +26,10 @@ type DiagnoseResult struct {
 type FailedStage struct {
 	Name   string   `json:"name"`
 	Errors []string `json:"errors"`
+	// Warning says the stage log could not be read in full, so Errors may
+	// miss lines. ReadErr is the read failure behind it.
+	Warning string `json:"warning,omitempty"`
+	ReadErr error  `json:"-"`
 }
 
 // CommitSummary is a compact commit representation.
@@ -115,18 +119,33 @@ func (c *Client) Diagnose(jobPath string, number int) (*DiagnoseResult, error) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = FailedStage{Name: s.Name}
-			log, logErr := c.GetStageLog(jobPath, number, s.ID)
-			if logErr == nil {
-				log = output.SanitizeLog(log)
-				results[i].Errors = extractErrors(log)
-			}
+			results[i] = c.diagnoseStage(jobPath, number, s)
 		}(i, s)
 	}
 	wg.Wait()
 	res.FailedStages = results
 
 	return res, nil
+}
+
+// diagnoseStage extracts errors from a failed stage's log. It reads the tail,
+// where the failure summary is, which downloads the whole stage log and can
+// time out on a large one; the capped head read is the fallback.
+func (c *Client) diagnoseStage(jobPath string, number int, s jenkins.Stage) FailedStage {
+	fs := FailedStage{Name: s.Name}
+	log, _, err := c.GetStageLogTail(jobPath, number, s.ID)
+	if err != nil {
+		fs.ReadErr = err
+		head, _, headErr := c.GetStageLog(jobPath, number, s.ID)
+		if headErr != nil {
+			fs.Warning = fmt.Sprintf("could not read the stage log: %v", err)
+			return fs
+		}
+		fs.Warning = fmt.Sprintf("could not read the end of the stage log (%v); errors come from its first %.1f MB only", err, float64(c.stageLogCap)/(1<<20))
+		log = head
+	}
+	fs.Errors = extractErrors(output.SanitizeLog(log))
+	return fs
 }
 
 // diagnoseFallbackConsole extracts errors from the console log when stages

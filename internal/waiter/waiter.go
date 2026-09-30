@@ -154,7 +154,7 @@ func stageResult(stages []jenkins.Stage, t Target, stageID *string, build *jenki
 			continue
 		}
 		res := Result{Status: s.Status, DurationMillis: s.DurationMillis, StagePath: jenkins.QualifiedStagePaths(stages)[s.ID]}
-		if hasResult(s.Status) {
+		if HasResult(s.Status) {
 			return res, true, nil
 		}
 		if build.Building {
@@ -176,11 +176,11 @@ func stageResult(stages []jenkins.Stage, t Target, stageID *string, build *jenki
 	}, true, nil
 }
 
-// hasResult reports a final stage status. NOT_BUILT is not one while the
+// HasResult reports a final stage status. NOT_BUILT is not one while the
 // build runs: both sources use it for a stage that has not started yet as well
 // as for one skipped by when{}, and Blue Ocean reports UNKNOWN for a running
 // stage.
-func hasResult(status string) bool {
+func HasResult(status string) bool {
 	switch status {
 	case "SUCCESS", "FAILURE", "UNSTABLE", "ABORTED":
 		return true
