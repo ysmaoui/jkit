@@ -796,6 +796,83 @@ func TestLogStageTailGrepPastCap(t *testing.T) {
 	assert.Empty(t, stderr)
 }
 
+// stepsOnlyStageServer serves stage 4 only step by step: the PGV log endpoint
+// is absent and Blue Ocean answers the node log with 500. Each step log is
+// bigStageLogBody. running sets the stage state PGV's tree reports.
+func stepsOnlyStageServer(t *testing.T, running bool) *httptest.Server {
+	t.Helper()
+	shrinkStageLogCap(t)
+	state := "failure"
+	if running {
+		state = "running"
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch p := r.URL.Path; {
+		case strings.HasSuffix(p, "/stages/tree"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data": map[string]any{
+					"complete": !running,
+					"stages":   []map[string]any{{"id": "4", "name": "Build", "type": "STAGE", "state": state}},
+				},
+			})
+		case strings.HasSuffix(p, "/5/api/json"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": running})
+		case strings.HasSuffix(p, "/nodes/4/log/"):
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasSuffix(p, "/nodes/4/steps/"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "7"}, {"id": "8"}})
+		case strings.HasSuffix(p, "/steps/7/log/"), strings.HasSuffix(p, "/steps/8/log/"):
+			_, _ = fmt.Fprint(w, bigStageLogBody)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestLogStageStepsFallbackPastCapWarns(t *testing.T) {
+	srv := stepsOnlyStageServer(t, false)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4") })
+	require.NoError(t, err)
+	assert.Equal(t, bigStageLogBody[:64], out)
+	assert.Contains(t, stderr, "stage 4 log exceeds")
+
+	stderr = captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "2") })
+	require.NoError(t, err)
+	assert.Equal(t, "Build did NOT complete successfully\nsummary last line\n", out)
+	assert.Empty(t, stderr)
+}
+
+func TestLogStageStepsFallbackFollowRefusesRunningStage(t *testing.T) {
+	srv := stepsOnlyStageServer(t, true)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.Error(t, err)
+	assert.Empty(t, out)
+	assert.Contains(t, err.Error(), "only available per step")
+	assert.Contains(t, err.Error(), "use --tail after the stage finishes")
+}
+
+func TestLogStageStepsFallbackFollowPrintsFinishedStage(t *testing.T) {
+	srv := stepsOnlyStageServer(t, false)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, bigStageLogBody[:64], out)
+	assert.Contains(t, stderr, "stage 4 log exceeds")
+}
+
 func TestLogStageTimeoutHintsAtFlag(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

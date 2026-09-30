@@ -668,6 +668,18 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
     with `--timeout`
   - `--stage -f` stops following with a warning once the stage log passes
     10 MB. Re-run with `--tail N` after the stage finishes
+  - When Blue Ocean fails on a stage's log (500, seen on some parallel
+    containers), the log is read step by step under the same limits. Step logs
+    are fetched one at a time, so this can be slow on a stage with many steps.
+    A step whose log fails to load shows as a
+    `[jkit: step <id> log unavailable: ...]` line, and one cut off mid-download
+    as `[jkit: step <id> log incomplete: ...]`. An authentication or permission
+    error, or a server that cannot be reached, fails the command instead
+  - That step-by-step log cannot be followed. `--stage -f` on a finished stage
+    prints it once, as without `-f`; on a running stage it errors. Use
+    `--tail N` after the stage finishes
+- `--stage`/`--stage-id` on a build that does not exist reports the missing
+  build, not a missing plugin
 - `--stage -f` follows a stage without a result until it gets one or the build
   ends. For a stage that has not run (NOT_BUILT, e.g. skipped by `when{}`), a
   note on stderr says so, since the wait can last until the build ends

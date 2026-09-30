@@ -222,3 +222,27 @@ func TestLogStageKeepsPluginHintWhenBuildExists(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "plugin required")
 }
+
+func TestLogStageIDReportsMissingBuildNotPluginHint(t *testing.T) {
+	srv, _ := stageEndpoints404Server(t, false)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	for _, extra := range [][]string{nil, {"--tail", "5"}, {"-f"}} {
+		args := append([]string{"log", "my-app", "5", "--stage-id", "4"}, extra...)
+		_, err := executeCmd(t, args...)
+		require.Error(t, err, extra)
+		assert.Contains(t, err.Error(), "not found", extra)
+		assert.NotContains(t, err.Error(), "plugin required", extra)
+	}
+}
+
+func TestLogStageIDKeepsPluginHintWhenBuildExists(t *testing.T) {
+	srv, _ := stageEndpoints404Server(t, true)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plugin required")
+}

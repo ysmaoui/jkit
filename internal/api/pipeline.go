@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
 )
@@ -19,6 +19,16 @@ import (
 // start offset: PGV's stages/log and Blue Ocean's nodes/<id>/log/ both write
 // every step from byte 0, so reading past the cap means downloading the head.
 const defaultStageLogCap = 10 << 20 // 10 MB
+
+// ErrStageLogUnavailable means no stage log endpoint answered for the build:
+// neither plugin is installed, or the build itself does not exist.
+var ErrStageLogUnavailable = errors.New("blue ocean plugin required for stage logs")
+
+// ErrStageLogPerStep means the server serves the stage log only step by step.
+// The concatenation is not append-only: the newline added after a step whose
+// log does not end in one moves once that step writes more, so a byte offset
+// into it does not stay put between reads and the log cannot be followed.
+var ErrStageLogPerStep = errors.New("stage log is only available per step on this server")
 
 // pgvNoLogs is the whole body PGV's stages/log sends for a node with no step
 // logs yet. It is not log text, so it must not advance a follow offset.
@@ -122,6 +132,9 @@ func (c *Client) CopyStageLogFrom(jobPath string, number int, nodeID string, sta
 		return 0, false, err
 	}
 	defer func() { _ = body.Close() }()
+	if _, ok := body.(*stepLogReader); ok {
+		return 0, false, ErrStageLogPerStep
+	}
 
 	limit := int64(c.stageLogCap)
 	lr := &io.LimitedReader{R: body, N: limit + 1}
@@ -207,8 +220,8 @@ func (c *Client) GetStageLogTail(jobPath string, number int, nodeID string) (tex
 
 // openStageLog opens a pipeline node's log. It prefers the PGV endpoint
 // (`/stages/log?nodeId=...`, which also serves step IDs) and falls back to
-// Blue Ocean on 404. The legacy step-aggregation fallback remains for Blue
-// Ocean parallel containers that return 500 on node log.
+// Blue Ocean on 404. Blue Ocean parallel containers that return 500 on node
+// log are read step by step instead.
 func (c *Client) openStageLog(jobPath string, number int, nodeID string) (io.ReadCloser, error) {
 	if c.pipelineSource != PipelineSourceBlueOcean {
 		path := fmt.Sprintf("%s/%d/stages/log", NormalizeJobPath(jobPath), number)
@@ -232,85 +245,170 @@ func (c *Client) openStageLog(jobPath string, number int, nodeID string) (io.Rea
 	if err != nil {
 		var nfe *jenkins.NotFoundError
 		if errors.As(err, &nfe) {
-			return nil, fmt.Errorf("blue ocean plugin required for stage logs")
+			return nil, ErrStageLogUnavailable
 		}
 		var se *jenkins.ServerError
 		if errors.As(err, &se) {
-			// Fallback: aggregate step-level logs when node log returns 500
-			text, err := c.getStageLogViaSteps(segments, number, nodeID)
+			steps, err := c.openStageLogViaSteps(segments, number, nodeID)
 			if err != nil {
 				return nil, err
 			}
-			return io.NopCloser(strings.NewReader(text)), nil
+			return steps, nil
 		}
 		return nil, fmt.Errorf("getting stage log: %w", err)
 	}
 	return resp.Body, nil
 }
 
-// getStageLogViaSteps fetches logs by aggregating individual step logs.
-// Used as fallback when Blue Ocean's node-level /log/ returns 500.
-func (c *Client) getStageLogViaSteps(blueSegments string, number int, nodeID string) (string, error) {
-	stepsPath := fmt.Sprintf("/blue/rest/organizations/jenkins/pipelines/%s/runs/%d/nodes/%s/steps/?limit=1000", blueSegments, number, nodeID)
-	resp, err := c.Get(stepsPath, nil)
+// stepsPageSize is how many steps one listing request asks for. Blue Ocean's
+// @PagedResponse defaults to 100 and honors start= and limit=.
+var stepsPageSize = 10000
+
+// openStageLogViaSteps lists a stage's steps and returns a reader over their
+// logs in order. Used when Blue Ocean's node-level /log/ returns 500.
+func (c *Client) openStageLogViaSteps(blueSegments string, number int, nodeID string) (*stepLogReader, error) {
+	prefix := fmt.Sprintf("/blue/rest/organizations/jenkins/pipelines/%s/runs/%d/nodes/%s/steps/", blueSegments, number, nodeID)
+	r := &stepLogReader{c: c, prefix: prefix}
+	seen := map[string]bool{}
+	for {
+		page, err := c.listStepIDs(prefix, len(r.ids))
+		if err != nil {
+			return nil, err
+		}
+		// A short page is not the end: a server may clamp limit. One that
+		// ignores start= repeats the first page instead of running dry.
+		if len(page) == 0 || seen[page[0]] {
+			break
+		}
+		for _, id := range page {
+			seen[id] = true
+		}
+		r.ids = append(r.ids, page...)
+	}
+	if len(r.ids) == 0 {
+		return nil, fmt.Errorf("no steps found for stage")
+	}
+	return r, nil
+}
+
+func (c *Client) listStepIDs(prefix string, start int) ([]string, error) {
+	resp, err := c.Get(prefix, url.Values{"start": {strconv.Itoa(start)}, "limit": {strconv.Itoa(stepsPageSize)}})
 	if err != nil {
-		return "", fmt.Errorf("getting stage steps: %w", err)
+		return nil, fmt.Errorf("getting stage steps: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	var steps []struct {
-		ID   string `json:"id"`
-		Name string `json:"displayName"`
+		ID string `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&steps); err != nil {
-		return "", fmt.Errorf("decoding stage steps: %w", err)
+		return nil, fmt.Errorf("decoding stage steps: %w", err)
 	}
-	if len(steps) == 0 {
-		return "", fmt.Errorf("no steps found for stage")
+	ids := make([]string, len(steps))
+	for i, s := range steps {
+		ids[i] = s.ID
 	}
+	return ids, nil
+}
 
-	// Cap steps to avoid excessive requests for large stages.
-	const maxSteps = 30
-	if len(steps) > maxSteps {
-		steps = steps[len(steps)-maxSteps:]
-	}
+// stepLogReader concatenates step logs, opening each only once the previous
+// one is drained. Callers read through their own cap, so a capped read fetches
+// only the steps it needs and memory stays within the caller's window.
+//
+// Each step log is requested with start=0: without it Blue Ocean's LogResource
+// sends only the last 150 KB (DEFAULT_LOG_THRESHOLD) of the step.
+type stepLogReader struct {
+	c       *Client
+	prefix  string
+	ids     []string
+	cur     io.ReadCloser
+	curID   string
+	pending []byte
+	last    byte
+	any     bool
+}
 
-	// Fetch step logs concurrently.
-	logs := make([][]byte, len(steps))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 5)
-	for i, step := range steps {
-		wg.Add(1)
-		go func(i int, stepID string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			logPath := fmt.Sprintf("/blue/rest/organizations/jenkins/pipelines/%s/runs/%d/nodes/%s/steps/%s/log/", blueSegments, number, nodeID, stepID)
-			logResp, err := c.Get(logPath, nil)
-			if err != nil {
-				return
+func (r *stepLogReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	for {
+		if len(r.pending) > 0 {
+			n := copy(p, r.pending)
+			r.pending = r.pending[n:]
+			r.last = p[n-1]
+			r.any = true
+			return n, nil
+		}
+		if r.cur == nil {
+			if len(r.ids) == 0 {
+				if !r.any {
+					return 0, fmt.Errorf("no log content from stage steps")
+				}
+				return 0, io.EOF
 			}
-			const maxStep = 5 << 20 // 5 MB per step
-			data, _ := io.ReadAll(io.LimitReader(logResp.Body, maxStep))
-			_ = logResp.Body.Close()
-			logs[i] = data
-		}(i, step.ID)
-	}
-	wg.Wait()
-
-	var buf strings.Builder
-	for _, data := range logs {
-		if len(data) > 0 {
-			buf.Write(data)
-			if data[len(data)-1] != '\n' {
-				buf.WriteByte('\n')
+			id := r.ids[0]
+			r.ids = r.ids[1:]
+			resp, err := r.c.Get(r.prefix+url.PathEscape(id)+"/log/", url.Values{"start": {"0"}})
+			if err != nil {
+				// A step that never wrote output has no log.
+				var nfe *jenkins.NotFoundError
+				if errors.As(err, &nfe) {
+					continue
+				}
+				// Every other step would fail the same way, and an unreachable
+				// server has already used up its retries on this one.
+				var ae *jenkins.AuthError
+				var pe *jenkins.PermissionError
+				var ue *jenkins.UnreachableError
+				if errors.As(err, &ae) || errors.As(err, &pe) || errors.As(err, &ue) {
+					return 0, err
+				}
+				// Say what is missing in place rather than lose the other steps.
+				r.pending = fmt.Appendf(r.pending, "[jkit: step %s log unavailable: %s]\n", id, shortErr(err))
+				continue
+			}
+			r.cur = resp.Body
+			r.curID = id
+		}
+		n, err := r.cur.Read(p)
+		if n > 0 {
+			r.any = true
+			r.last = p[n-1]
+		}
+		if err != nil {
+			_ = r.cur.Close()
+			r.cur = nil
+			if r.any && r.last != '\n' {
+				r.pending = append(r.pending, '\n')
+			}
+			// A step cut off mid-body (truncated response, read timeout) is
+			// marked like one that failed to open, so later steps still arrive.
+			if !errors.Is(err, io.EOF) {
+				r.pending = fmt.Appendf(r.pending, "[jkit: step %s log incomplete: %s]\n", r.curID, shortErr(err))
 			}
 		}
+		if n > 0 {
+			return n, nil
+		}
 	}
-	if buf.Len() == 0 {
-		return "", fmt.Errorf("no log content from stage steps")
+}
+
+func (r *stepLogReader) Close() error {
+	if r.cur == nil {
+		return nil
 	}
-	return buf.String(), nil
+	return r.cur.Close()
+}
+
+// shortErr is err in one line, for a marker inside log text.
+func shortErr(err error) string {
+	var se *jenkins.ServerError
+	if errors.As(err, &se) {
+		return fmt.Sprintf("HTTP %d", se.StatusCode)
+	}
+	msg, _, _ := strings.Cut(err.Error(), "\n")
+	return msg
 }
 
 // normalizeBluePath converts "team/svc" to "team/pipelines/svc" with URL-encoded segments.

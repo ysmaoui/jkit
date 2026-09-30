@@ -163,10 +163,14 @@ GET /job/{path}/{number}/stages/log?nodeId={id}
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/log/
 # Blue Ocean answers node log with 500 on some parallel containers. The steps
-# below are the fallback: list the stage's steps, then read each step's log and
-# concatenate. Capped at the last 30 steps, fetched 5 at a time.
-GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/?limit=1000
-GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/{stepId}/log/
+# below are the fallback: list the stage's steps, then read each step's log in
+# order, one at a time, through the same stage log cap. A step log without
+# start= is only its last 150 KB (LogResource.DEFAULT_LOG_THRESHOLD), so start=0
+# is always sent. The concatenation is not append-only, so it cannot be followed.
+# The listing pages with start= and limit= (@PagedResponse, default limit 100),
+# read until a page comes back empty since a short page may be a clamped limit.
+GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/?start={n}&limit=10000
+GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/{stepId}/log/?start=0
 
 # Abort a running build (requires crumb)
 POST /job/{path}/{number}/stop

@@ -162,6 +162,9 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 	copyNew := func() (capped bool, err error) {
 		n, capped, err := client.CopyStageLogFrom(jobPath, buildNum, nodeID, printed, lw)
 		printed += n
+		if errors.Is(err, api.ErrStageLogPerStep) {
+			return true, printPerStepStageLog(client, jobPath, buildNum, nodeID, printed, lw, errW, err)
+		}
 		if capped {
 			lw.Flush()
 			_, _ = fmt.Fprintf(errW, "warning: stage %s log passed %s; stopped following. "+
@@ -213,6 +216,27 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 		case <-time.After(stagePollInterval):
 		}
 	}
+}
+
+// printPerStepStageLog handles -f on a stage whose log the server serves only
+// step by step, which cannot be followed by offset. A finished stage is printed
+// once, as without -f; a running one is refused.
+func printPerStepStageLog(client *api.Client, jobPath string, buildNum int, nodeID string, printed int64, lw *sanitizingLineWriter, errW io.Writer, perStep error) error {
+	running, _, err := stageRunning(client, jobPath, buildNum, nodeID)
+	if err != nil {
+		return err
+	}
+	if running || printed > 0 {
+		return fmt.Errorf("%w; following is not supported, use --tail after the stage finishes", perStep)
+	}
+	text, truncated, err := client.GetStageLog(jobPath, buildNum, nodeID)
+	if err != nil {
+		return withTimeoutHint(err)
+	}
+	_, _ = io.WriteString(lw, text)
+	lw.Flush()
+	warnStageLogTruncated(errW, nodeID, client.StageLogCap(), truncated, 0, 0, false, len(splitLogLines(text)))
+	return nil
 }
 
 // maxPendingLine bounds how much of an unterminated line sanitizingLineWriter
@@ -268,6 +292,17 @@ func warnStageLogTruncated(w io.Writer, nodeID string, window int, truncated boo
 	default:
 		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; showing the first %s, use --tail N to read the end\n", nodeID, size, size)
 	}
+}
+
+// stageLogErr reports a missing build as such: both stage log endpoints 404
+// for one, which alone reads as a missing plugin.
+func stageLogErr(client *api.Client, jobPath string, buildNum int, err error) error {
+	if errors.Is(err, api.ErrStageLogUnavailable) {
+		if berr := requireBuild(client, jobPath, buildNum); berr != nil {
+			return berr
+		}
+	}
+	return err
 }
 
 // withTimeoutHint points at --timeout when a stage log read timed out. Stage
@@ -347,7 +382,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 				if err := requireBuild(client, jobPath, buildNum); err != nil {
 					return err
 				}
-				return fmt.Errorf("blue ocean plugin required for stage logs")
+				return api.ErrStageLogUnavailable
 			}
 			nodeID, err = jenkins.ResolveStageID(stages, stageName)
 			if err != nil {
@@ -361,7 +396,8 @@ func runLog(cmd *cobra.Command, args []string) error {
 		if follow {
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer cancel()
-			return streamStageLog(ctx, client, jobPath, buildNum, nodeID, os.Stdout, os.Stderr)
+			err := streamStageLog(ctx, client, jobPath, buildNum, nodeID, os.Stdout, os.Stderr)
+			return stageLogErr(client, jobPath, buildNum, err)
 		}
 
 		getLog := client.GetStageLog
@@ -372,7 +408,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 		// A partial tail ends where the read failed, not where the log does,
 		// so printing it as the last N lines would mislead.
 		if err != nil {
-			return withTimeoutHint(err)
+			return stageLogErr(client, jobPath, buildNum, withTimeoutHint(err))
 		}
 		text := applyTailHead(filterLines(output.SanitizeLog(log), grepPattern, grepI), tail, head)
 		fmt.Print(text)
