@@ -40,6 +40,8 @@ type stageInfo struct {
 	Status         string `json:"status"`
 	DurationMillis int64  `json:"durationMillis"`
 	Agent          string `json:"agent,omitempty"`
+	// elapsed backs the text DURATION column; JSON keeps the raw DurationMillis.
+	elapsed time.Duration
 }
 
 func runStages(cmd *cobra.Command, args []string) error {
@@ -83,6 +85,7 @@ func runStages(cmd *cobra.Command, args []string) error {
 			Type:           s.Type,
 			Status:         s.Status,
 			DurationMillis: s.DurationMillis,
+			elapsed:        s.Elapsed(clock()),
 			Agent:          s.Agent,
 		}
 	}
@@ -119,7 +122,7 @@ func runStages(cmd *cobra.Command, args []string) error {
 			return output.ColorStatus(s)
 		}},
 		{Header: "DURATION", Field: func(v any) string {
-			return formatDuration(time.Duration(v.(stageInfo).DurationMillis) * time.Millisecond)
+			return formatDuration(v.(stageInfo).elapsed)
 		}},
 		{Header: "AGENT", Field: func(v any) string {
 			if a := v.(stageInfo).Agent; a != "" {

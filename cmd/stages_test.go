@@ -2,9 +2,15 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWarnIfNoAgentsStaysQuietWhenAnyStageReportsOne(t *testing.T) {
@@ -19,4 +25,91 @@ func TestWarnIfNoAgentsNamesBothCauses(t *testing.T) {
 	out := buf.String()
 	assert.Contains(t, out, "no node")
 	assert.Contains(t, out, "Blue Ocean")
+}
+
+const elapsedNowMillis = 1_700_000_000_000
+
+func fixClock(t *testing.T) {
+	t.Helper()
+	orig := clock
+	clock = func() time.Time { return time.UnixMilli(elapsedNowMillis) }
+	t.Cleanup(func() { clock = orig })
+}
+
+// runningBuildServer serves build 5 as running for 1h2m with a finished
+// "Build" stage and a "Test" stage running for 2m5s.
+func runningBuildServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data": map[string]any{"complete": false, "stages": []map[string]any{
+					{"id": "1", "name": "Build", "type": "STAGE", "state": "success", "totalDurationMillis": 5000, "startTimeMillis": elapsedNowMillis - 300_000},
+					{"id": "2", "name": "Test", "type": "STAGE", "state": "running", "totalDurationMillis": 0, "startTimeMillis": elapsedNowMillis - 125_000},
+				}},
+			})
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"number": 5, "building": true, "duration": 0,
+				"timestamp": elapsedNowMillis - 3_725_000, "url": "http://jenkins/job/my-app/5/",
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestStagesShowsElapsedForRunningStage(t *testing.T) {
+	fixClock(t)
+	srv := runningBuildServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "2m5s")
+	assert.NotContains(t, out, "< 1s")
+}
+
+func TestStagesJSONKeepsRawDuration(t *testing.T) {
+	fixClock(t)
+	srv := runningBuildServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5", "--json")
+	require.NoError(t, err)
+	assert.Contains(t, out, `"durationMillis": 0`)
+}
+
+func TestStatusDetailShowsElapsedForRunningBuildAndStage(t *testing.T) {
+	fixClock(t)
+	srv := runningBuildServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "status", "my-app", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Duration: 1h2m")
+	assert.Contains(t, out, "2m5s")
+	assert.NotContains(t, out, "< 1s")
+}
+
+func TestStatusListShowsElapsedForRunningBuild(t *testing.T) {
+	fixClock(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"builds": []map[string]any{
+				{"number": 5, "building": true, "duration": 0, "timestamp": elapsedNowMillis - 90_000},
+			},
+		})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "status", "my-app")
+	require.NoError(t, err)
+	assert.Contains(t, out, "1m30s")
 }

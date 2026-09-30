@@ -3,6 +3,7 @@ package jenkins
 import (
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 type Job struct {
@@ -156,6 +157,17 @@ type Build struct {
 	ChangeSets []ChangeSet   `json:"changeSets,omitempty"`
 }
 
+// Elapsed returns the build duration. Jenkins reports duration=0 while a build
+// runs, so a running build with a start timestamp yields now minus that start.
+func (b Build) Elapsed(now time.Time) time.Duration {
+	if b.Building && b.Timestamp > 0 {
+		if ms := now.UnixMilli() - b.Timestamp; ms > 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return time.Duration(b.Duration) * time.Millisecond
+}
+
 // Parameters returns build parameters from the actions list.
 func (b Build) Parameters() []BuildParam {
 	for _, a := range b.Actions {
@@ -217,6 +229,20 @@ type Stage struct {
 	// Ocean's /nodes/ has no equivalent field, so an empty value means either
 	// "no node block" or "the fallback source cannot say".
 	Agent string `json:"agent,omitempty"`
+	// StartTimeMillis is only set from the PGV tree (Blue Ocean's startTime is
+	// an ISO string, not decoded). Excluded from JSON to keep output stable.
+	StartTimeMillis int64 `json:"-"`
+}
+
+// Elapsed returns the stage duration. Jenkins reports 0 for a running stage,
+// so an IN_PROGRESS stage with a known start yields now minus that start.
+func (s Stage) Elapsed(now time.Time) time.Duration {
+	if s.Status == "IN_PROGRESS" && s.StartTimeMillis > 0 {
+		if ms := now.UnixMilli() - s.StartTimeMillis; ms > 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return time.Duration(s.DurationMillis) * time.Millisecond
 }
 
 // PGVResponse is the envelope returned by Pipeline Graph View endpoints.

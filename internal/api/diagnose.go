@@ -42,14 +42,7 @@ func (c *Client) Diagnose(jobPath string, number int) (*DiagnoseResult, error) {
 		return nil, err
 	}
 
-	d := time.Duration(build.Duration) * time.Millisecond
-	if build.Building {
-		// Jenkins reports duration=0 while a build is in progress; compute the
-		// elapsed time from the start timestamp instead so it isn't shown as "< 1s".
-		if elapsed := time.Now().UnixMilli() - build.Timestamp; build.Timestamp > 0 && elapsed > 0 {
-			d = time.Duration(elapsed) * time.Millisecond
-		}
-	}
+	d := build.Elapsed(time.Now())
 	res := &DiagnoseResult{
 		Build:    build.Number,
 		Result:   build.Result,

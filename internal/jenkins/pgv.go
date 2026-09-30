@@ -25,13 +25,14 @@ func walkPGV(stages []PGVStage, parentID, parentType string, out *[]Stage) {
 			fp = prevSiblingID
 		}
 		*out = append(*out, Stage{
-			ID:             s.ID,
-			Name:           s.Name,
-			Status:         MapPGVState(s.State),
-			DurationMillis: s.TotalDurationMillis,
-			FirstParent:    fp,
-			Type:           s.Type,
-			Agent:          s.Agent,
+			ID:              s.ID,
+			Name:            s.Name,
+			Status:          MapPGVState(s.State),
+			DurationMillis:  s.TotalDurationMillis,
+			StartTimeMillis: s.StartTimeMillis,
+			FirstParent:     fp,
+			Type:            s.Type,
+			Agent:           s.Agent,
 		})
 		if len(s.Children) > 0 {
 			walkPGV(s.Children, s.ID, s.Type, out)

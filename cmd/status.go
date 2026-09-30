@@ -29,6 +29,9 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 }
 
+// clock is swapped in tests to make elapsed times deterministic.
+var clock = time.Now
+
 func runStatus(cmd *cobra.Command, args []string) error {
 	client, jobPath, buildNum, err := resolveJobArgs(cmd, args, false)
 	if err != nil {
@@ -83,8 +86,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			return output.ColorStatus(b.Result)
 		}},
 		{Header: "DURATION", Field: func(v any) string {
-			d := time.Duration(v.(jenkins.Build).Duration) * time.Millisecond
-			return formatDuration(d)
+			return formatDuration(v.(jenkins.Build).Elapsed(clock()))
 		}},
 		{Header: "STARTED", Field: func(v any) string {
 			ts := v.(jenkins.Build).Timestamp
@@ -112,7 +114,7 @@ func showBuildDetail(client *api.Client, f *output.Formatter, jobPath string, nu
 	if build.Building {
 		result = "BUILDING"
 	}
-	d := time.Duration(build.Duration) * time.Millisecond
+	d := build.Elapsed(clock())
 	started := time.UnixMilli(build.Timestamp).Format("Jan 02 15:04:05")
 
 	_, _ = fmt.Fprintf(os.Stdout, "Build:    #%d\n", build.Number)
@@ -158,7 +160,7 @@ func showBuildDetail(client *api.Client, f *output.Formatter, jobPath string, nu
 		for _, s := range tree {
 			indent := strings.Repeat("  ", s.Depth)
 			padded := indent + s.Name
-			sd := time.Duration(s.DurationMillis) * time.Millisecond
+			sd := s.Elapsed(clock())
 			_, _ = fmt.Fprintf(os.Stdout, "  %-*s  %-*s  %s\n", maxName, padded, maxStatus, output.ColorStatus(s.Status), formatDuration(sd))
 		}
 	}
