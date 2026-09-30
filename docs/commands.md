@@ -180,7 +180,7 @@ Stages:
 
 Stages displayed for pipeline jobs via Blue Ocean REST API.
 
-Jenkins reports duration 0 for running work. A building build shows time since it started, and an `IN_PROGRESS` stage shows time since its start when the source reports one (Pipeline Graph View only). `--json` keeps the raw values.
+Jenkins reports duration 0 for a running build, and Pipeline Graph View does the same for a running, paused or queued stage. A building build shows time since it started, and such a stage shows time since its start. Blue Ocean reports a running stage's time so far itself. `--json` keeps the raw values.
 
 ```bash
 jkit status my-app            # last 10 builds
@@ -764,7 +764,7 @@ jkit stages [job] [build#]
 - When no stage in the build reports an agent at all, a note on stderr says so
   and names both causes, since an all-`-` column otherwise reads as "no agents"
 - Feed a path to `jkit log --stage` or an ID to `jkit log --stage-id`
-- `DURATION` of an `IN_PROGRESS` stage is elapsed time since it started (Pipeline Graph View only; Blue Ocean shows `< 1s`). `--json` keeps the raw `durationMillis`
+- `DURATION` of a running, paused or queued stage is the time since it started (a queued stage that has a start time is waiting for an executor). Pipeline Graph View reports no duration for such a stage, so jkit computes it from the start time and `--json` keeps the raw `durationMillis` (0). Blue Ocean reports the time so far itself
 - Honors `--json` / `--format` for scripting (the JSON includes `id` and `path`)
 
 ```bash

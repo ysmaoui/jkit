@@ -73,6 +73,53 @@ func TestStagesShowsElapsedForRunningStage(t *testing.T) {
 	assert.NotContains(t, out, "< 1s")
 }
 
+func TestStagesShowsElapsedForPausedStage(t *testing.T) {
+	fixClock(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/stages/tree") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "ok",
+			"data": map[string]any{"complete": false, "stages": []map[string]any{
+				{"id": "2", "name": "Approve", "type": "STAGE", "state": "paused", "startTimeMillis": elapsedNowMillis - 125_000},
+			}},
+		})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "PAUSED_PENDING_INPUT")
+	assert.Contains(t, out, "2m5s")
+	assert.NotContains(t, out, "< 1s")
+}
+
+// Blue Ocean measures a running node's durationInMillis up to the request, so
+// the fallback source needs no start time to show elapsed time.
+func TestStagesShowsElapsedForBlueOceanRunningStage(t *testing.T) {
+	fixClock(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/runs/5/nodes/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"id": "7", "displayName": "Test", "type": "STAGE", "state": "RUNNING", "result": "UNKNOWN",
+				"durationInMillis": 125_000, "startTime": "2023-11-14T22:11:15.000+0000"},
+		})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "2m5s")
+	assert.NotContains(t, out, "< 1s")
+}
+
 func TestStagesJSONKeepsRawDuration(t *testing.T) {
 	fixClock(t)
 	srv := runningBuildServer(t)

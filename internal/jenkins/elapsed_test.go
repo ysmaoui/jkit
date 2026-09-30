@@ -35,6 +35,10 @@ func TestStageElapsed(t *testing.T) {
 	}{
 		{"in progress uses start", Stage{Status: "IN_PROGRESS", StartTimeMillis: now.UnixMilli() - 125_000}, 125 * time.Second},
 		{"in progress without start", Stage{Status: "IN_PROGRESS"}, 0},
+		{"paused uses start", Stage{Status: "PAUSED_PENDING_INPUT", StartTimeMillis: now.UnixMilli() - 60_000}, 60 * time.Second},
+		{"paused without start", Stage{Status: "PAUSED_PENDING_INPUT"}, 0},
+		{"queued uses start", Stage{Status: "QUEUED", StartTimeMillis: now.UnixMilli() - 1_200_000}, 20 * time.Minute},
+		{"queued without start", Stage{Status: "QUEUED"}, 0},
 		{"finished keeps duration", Stage{Status: "SUCCESS", DurationMillis: 5000, StartTimeMillis: now.UnixMilli() - 999_000}, 5 * time.Second},
 	}
 	for _, c := range cases {

@@ -243,16 +243,19 @@ type Stage struct {
 	// Ocean's /nodes/ has no equivalent field, so an empty value means either
 	// "no node block" or "the fallback source cannot say".
 	Agent string `json:"agent,omitempty"`
-	// StartTimeMillis is only set from the PGV tree (Blue Ocean's startTime is
-	// an ISO string, not decoded). Excluded from JSON to keep output stable.
+	// StartTimeMillis is only set from the PGV tree. Blue Ocean's startTime is
+	// left undecoded: its durationInMillis for a running node already runs up
+	// to the request. Excluded from JSON to keep output stable.
 	StartTimeMillis int64 `json:"-"`
 }
 
-// Elapsed returns the stage duration. Jenkins reports 0 for a running stage,
-// so an IN_PROGRESS stage with a known start yields now minus that start.
+// Elapsed returns the stage duration. PGV reports no duration for a running,
+// paused or queued stage, so one with a known start yields now minus that
+// start. A started stage waiting for an executor is QUEUED with a real start.
 func (s Stage) Elapsed(now time.Time) time.Duration {
-	if s.Status == "IN_PROGRESS" && s.StartTimeMillis > 0 {
-		if ms := now.UnixMilli() - s.StartTimeMillis; ms > 0 {
+	switch s.Status {
+	case "IN_PROGRESS", "PAUSED_PENDING_INPUT", "QUEUED":
+		if ms := now.UnixMilli() - s.StartTimeMillis; s.StartTimeMillis > 0 && ms > 0 {
 			return time.Duration(ms) * time.Millisecond
 		}
 	}
