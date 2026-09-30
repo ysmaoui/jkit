@@ -156,6 +156,10 @@ func (c *Client) CopyStageLogFrom(jobPath string, number int, nodeID string, sta
 // StageLogCap bytes. The endpoints cannot seek, so the whole log is downloaded
 // through a ring buffer of one window. truncated reports that the head was
 // dropped; the partial first line is then dropped too.
+//
+// If the download fails after the log opened, err is set and text still holds
+// the end of what arrived before the failure, so a caller that can use part of
+// the log need not download it again. text is empty only when nothing arrived.
 func (c *Client) GetStageLogTail(jobPath string, number int, nodeID string) (text string, truncated bool, err error) {
 	body, err := c.openStageLog(jobPath, number, nodeID)
 	if err != nil {
@@ -165,11 +169,12 @@ func (c *Client) GetStageLogTail(jobPath string, number int, nodeID string) (tex
 
 	ring, err := io.ReadAll(io.LimitReader(body, int64(c.stageLogCap)))
 	if err != nil {
-		return "", false, fmt.Errorf("reading stage log: %w", err)
+		return string(ring), false, fmt.Errorf("reading stage log: %w", err)
 	}
 	if len(ring) < c.stageLogCap {
 		return string(ring), false, nil
 	}
+	var readErr error
 	pos := 0
 	for {
 		n, err := body.Read(ring[pos:])
@@ -181,20 +186,23 @@ func (c *Client) GetStageLogTail(jobPath string, number int, nodeID string) (tex
 			break
 		}
 		if err != nil {
-			return "", false, fmt.Errorf("reading stage log: %w", err)
+			readErr = fmt.Errorf("reading stage log: %w", err)
+			break
 		}
 	}
 	if !truncated {
-		return string(ring), false, nil
+		return string(ring), false, readErr
 	}
 	// Rotate in place so the oldest byte comes first, without a second window.
 	slices.Reverse(ring[:pos])
 	slices.Reverse(ring[pos:])
 	slices.Reverse(ring)
-	if i := bytes.IndexByte(ring, '\n'); i >= 0 {
+	// Kept whole when its only newline is the last byte: dropping would leave
+	// nothing, and callers read empty text as "nothing arrived".
+	if i := bytes.IndexByte(ring, '\n'); i >= 0 && i < len(ring)-1 {
 		ring = ring[i+1:]
 	}
-	return string(ring), true, nil
+	return string(ring), true, readErr
 }
 
 // openStageLog opens a pipeline node's log. It prefers the PGV endpoint

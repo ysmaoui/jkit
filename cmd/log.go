@@ -25,6 +25,12 @@ import (
 // Overridable in tests.
 var stagePollInterval = time.Second
 
+// stuckStageCheckPolls is how many polls streamStageLog trusts an active stage
+// status before it checks that the build still runs. PGV can report a stage
+// of a hard-killed build, or one lost on a controller restart, as running
+// forever. Overridable in tests.
+var stuckStageCheckPolls = 30
+
 var logCmd = &cobra.Command{
 	Use:   "log [job] [build#]",
 	Short: "View build log",
@@ -128,13 +134,19 @@ func stageRunning(client *api.Client, jobPath string, buildNum int, nodeID strin
 	}
 	status := stages[i].Status
 	switch {
-	case status == "IN_PROGRESS", status == "PAUSED_PENDING_INPUT", status == "QUEUED":
+	case stageActive(status):
 		return true, status, nil
 	case waiter.HasResult(status):
 		return false, status, nil
 	}
 	building, err := client.IsBuilding(jobPath, buildNum)
 	return building, status, err
+}
+
+// stageActive reports a status that says the stage itself is running, which
+// stageRunning trusts without asking whether the build is.
+func stageActive(status string) bool {
+	return status == "IN_PROGRESS" || status == "PAUSED_PENDING_INPUT" || status == "QUEUED"
 }
 
 // streamStageLog tails a single stage's log until the stage finishes or the
@@ -146,6 +158,7 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 	defer lw.Flush()
 	var printed int64
 	var notedNotBuilt bool
+	var polls int
 	copyNew := func() (capped bool, err error) {
 		n, capped, err := client.CopyStageLogFrom(jobPath, buildNum, nodeID, printed, lw)
 		printed += n
@@ -166,9 +179,23 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 		if capped, err := copyNew(); capped || err != nil {
 			return err
 		}
+		polls++
 		running, status, err := stageRunning(client, jobPath, buildNum, nodeID)
 		if err != nil {
 			return err
+		}
+		if running && stageActive(status) && polls%stuckStageCheckPolls == 0 {
+			building, err := client.IsBuilding(jobPath, buildNum)
+			if err != nil {
+				return err
+			}
+			if !building {
+				if capped, err := copyNew(); capped || err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintf(errW, "note: build #%d has finished but stage %s still reports %s; stopped following\n", buildNum, nodeID, status)
+				return nil
+			}
 		}
 		if running && status == "NOT_BUILT" && !notedNotBuilt {
 			notedNotBuilt = true
@@ -342,6 +369,8 @@ func runLog(cmd *cobra.Command, args []string) error {
 			getLog = client.GetStageLogTail
 		}
 		log, truncated, err := getLog(jobPath, buildNum, nodeID)
+		// A partial tail ends where the read failed, not where the log does,
+		// so printing it as the last N lines would mislead.
 		if err != nil {
 			return withTimeoutHint(err)
 		}

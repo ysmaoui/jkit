@@ -3,11 +3,13 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -298,6 +300,37 @@ func TestGetStageLogTailReturnsEnd(t *testing.T) {
 	assert.LessOrEqual(t, len(log), 64)
 	assert.True(t, strings.HasPrefix(log, "line "), "partial first line dropped: %q", log)
 	assert.True(t, strings.HasSuffix(log, "line 99999\nline 100000\n"))
+}
+
+func TestGetStageLogTailKeepsWindowEndingInOnlyNewline(t *testing.T) {
+	srv := stageLogBodyServer(t, strings.Repeat("x", 200)+"\n")
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "secret", WithStageLogCap(64))
+	log, truncated, err := client.GetStageLogTail("svc", 42, "10")
+	require.NoError(t, err)
+	assert.True(t, truncated)
+	assert.Equal(t, strings.Repeat("x", 63)+"\n", log)
+}
+
+func TestGetStageLogTailKeepsPartialOnReadError(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, numberedLines(50))
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	client := NewClient(srv.URL, "admin", "secret", WithTimeout(200*time.Millisecond), WithStageLogCap(64))
+	log, truncated, err := client.GetStageLogTail("svc", 42, "10")
+	var ne net.Error
+	require.ErrorAs(t, err, &ne)
+	assert.True(t, ne.Timeout())
+	assert.True(t, truncated)
+	assert.True(t, strings.HasPrefix(log, "line "), "partial first line dropped: %q", log)
+	assert.True(t, strings.HasSuffix(log, "line 49\nline 50\n"), log)
 }
 
 func TestCopyStageLogFromOffset(t *testing.T) {

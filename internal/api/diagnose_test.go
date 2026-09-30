@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -314,29 +315,36 @@ func TestFormatAPIDuration(t *testing.T) {
 	assert.Equal(t, "1h1m", formatAPIDuration(3661e9))
 }
 
-// stallingStageLogServer serves failed build 42 of job test whose stage 20 log
-// sends a first chunk, then stalls until release is closed.
-func stallingStageLogServer(t *testing.T, release chan struct{}) *httptest.Server {
+// failedStageLogServer serves failed build 42 of job test through PGV, with
+// one failed stage 20 whose log the n-th log request gets from stageLog.
+// logCalls counts those requests.
+func failedStageLogServer(t *testing.T, logCalls *atomic.Int32, stageLog func(n int32, w http.ResponseWriter)) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/job/test/42/api/json":
 			_ = json.NewEncoder(w).Encode(map[string]any{"number": 42, "result": "FAILURE"})
-		case "/blue/rest/organizations/jenkins/pipelines/test/runs/42/nodes/":
-			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "20", "displayName": "Test", "result": "FAILURE"}})
-		case "/blue/rest/organizations/jenkins/pipelines/test/runs/42/nodes/20/log/":
-			_, _ = fmt.Fprint(w, "ERROR: early failure\n"+strings.Repeat("progress\n", 20))
-			w.(http.Flusher).Flush()
-			<-release
+		case "/job/test/42/stages/tree":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data":   map[string]any{"stages": []map[string]any{{"id": "20", "name": "Test", "type": "STAGE", "state": "failure"}}},
+			})
+		case "/job/test/42/stages/log":
+			stageLog(logCalls.Add(1), w)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 }
 
-func TestDiagnoseFallsBackToHeadWhenTailTimesOut(t *testing.T) {
+func TestDiagnoseUsesPartialTailWhenReadTimesOut(t *testing.T) {
 	release := make(chan struct{})
-	srv := stallingStageLogServer(t, release)
+	var logCalls atomic.Int32
+	srv := failedStageLogServer(t, &logCalls, func(_ int32, w http.ResponseWriter) {
+		_, _ = fmt.Fprint(w, strings.Repeat("progress\n", 20)+"ERROR: late failure\n")
+		w.(http.Flusher).Flush()
+		<-release
+	})
 	defer srv.Close()
 	defer close(release)
 
@@ -346,9 +354,75 @@ func TestDiagnoseFallsBackToHeadWhenTailTimesOut(t *testing.T) {
 
 	require.Len(t, result.FailedStages, 1)
 	fs := result.FailedStages[0]
-	assert.Contains(t, fs.Errors, "ERROR: early failure")
-	assert.Contains(t, fs.Warning, "could not read the end of the stage log")
+	assert.Equal(t, []string{"ERROR: late failure"}, fs.Errors)
+	assert.Contains(t, fs.Warning, "errors come from the part received before the read failed")
+	assert.Equal(t, int32(1), logCalls.Load(), "no second download after a partial tail")
 	var ne net.Error
 	require.ErrorAs(t, fs.ReadErr, &ne)
 	assert.True(t, ne.Timeout())
+}
+
+func TestDiagnoseHeadRetryReadsWholeLog(t *testing.T) {
+	var logCalls atomic.Int32
+	srv := failedStageLogServer(t, &logCalls, func(n int32, w http.ResponseWriter) {
+		if n == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = fmt.Fprint(w, "ERROR: boom\n")
+	})
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "token", WithStageLogCap(64))
+	result, err := client.Diagnose("test", 42)
+	require.NoError(t, err)
+
+	require.Len(t, result.FailedStages, 1)
+	fs := result.FailedStages[0]
+	assert.Equal(t, []string{"ERROR: boom"}, fs.Errors)
+	assert.Empty(t, fs.Warning, "the retry read the whole log")
+	assert.NoError(t, fs.ReadErr)
+	assert.Equal(t, int32(2), logCalls.Load())
+}
+
+func TestDiagnoseHeadRetryPastCapWarns(t *testing.T) {
+	var logCalls atomic.Int32
+	srv := failedStageLogServer(t, &logCalls, func(n int32, w http.ResponseWriter) {
+		if n == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = fmt.Fprint(w, "ERROR: early failure\n"+strings.Repeat("progress\n", 20))
+	})
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "token", WithStageLogCap(64))
+	result, err := client.Diagnose("test", 42)
+	require.NoError(t, err)
+
+	require.Len(t, result.FailedStages, 1)
+	fs := result.FailedStages[0]
+	assert.Equal(t, []string{"ERROR: early failure"}, fs.Errors)
+	assert.Contains(t, fs.Warning, "could not read the end of the stage log")
+	assert.Contains(t, fs.Warning, "errors come from its first")
+	assert.Error(t, fs.ReadErr)
+}
+
+func TestDiagnoseBothReadsFail(t *testing.T) {
+	var logCalls atomic.Int32
+	srv := failedStageLogServer(t, &logCalls, func(_ int32, w http.ResponseWriter) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "admin", "token", WithStageLogCap(64))
+	result, err := client.Diagnose("test", 42)
+	require.NoError(t, err)
+
+	require.Len(t, result.FailedStages, 1)
+	fs := result.FailedStages[0]
+	assert.Empty(t, fs.Errors)
+	assert.True(t, strings.HasPrefix(fs.Warning, "could not read the stage log: "), fs.Warning)
+	assert.Error(t, fs.ReadErr)
+	assert.Equal(t, int32(2), logCalls.Load())
 }

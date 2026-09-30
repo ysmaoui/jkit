@@ -912,9 +912,9 @@ func TestLogStageFollowBlueOceanUnknownKeepsFollowing(t *testing.T) {
 }
 
 // stageStateServer serves stage 4 of build 5 through PGV with a one-line log.
-// states[n] is the PGV state for tree request n+1, the last one repeating. The
-// build is always building; buildCalls counts the build lookups.
-func stageStateServer(t *testing.T, states []string, buildCalls *int) *httptest.Server {
+// states[n] is the PGV state for tree request n+1, the last one repeating.
+// building is the build's flag throughout; buildCalls counts the build lookups.
+func stageStateServer(t *testing.T, states []string, building bool, buildCalls *int) *httptest.Server {
 	t.Helper()
 	var treeCalls int
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -932,11 +932,30 @@ func stageStateServer(t *testing.T, states []string, buildCalls *int) *httptest.
 			_, _ = fmt.Fprint(w, "deploy log\n")
 		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
 			*buildCalls++
-			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": building})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
+}
+
+func TestLogStageFollowStopsWhenBuildEndsUnderRunningStage(t *testing.T) {
+	oldInterval, oldCheck := stagePollInterval, stuckStageCheckPolls
+	stagePollInterval, stuckStageCheckPolls = time.Millisecond, 3
+	defer func() { stagePollInterval, stuckStageCheckPolls = oldInterval, oldCheck }()
+
+	var buildCalls int
+	srv := stageStateServer(t, []string{"running"}, false, &buildCalls)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, "deploy log\n", out)
+	assert.Contains(t, stderr, "build #5 has finished but stage 4 still reports IN_PROGRESS; stopped following")
+	assert.Equal(t, 1, buildCalls, "only the third poll checks the build")
 }
 
 func TestLogStageFollowRunningSkipsBuildLookup(t *testing.T) {
@@ -945,7 +964,7 @@ func TestLogStageFollowRunningSkipsBuildLookup(t *testing.T) {
 	defer func() { stagePollInterval = old }()
 
 	var buildCalls int
-	srv := stageStateServer(t, []string{"running", "paused", "queued", "success"}, &buildCalls)
+	srv := stageStateServer(t, []string{"running", "paused", "queued", "success"}, true, &buildCalls)
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)
 
@@ -961,7 +980,7 @@ func TestLogStageFollowNotBuiltNotesOnce(t *testing.T) {
 	defer func() { stagePollInterval = old }()
 
 	var buildCalls int
-	srv := stageStateServer(t, []string{"skipped", "skipped", "success"}, &buildCalls)
+	srv := stageStateServer(t, []string{"skipped", "skipped", "success"}, true, &buildCalls)
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)
 
@@ -972,26 +991,33 @@ func TestLogStageFollowNotBuiltNotesOnce(t *testing.T) {
 	assert.Equal(t, 2, buildCalls)
 }
 
-func TestDiagnoseHintsAtTimeoutWhenStageLogStalls(t *testing.T) {
-	shrinkStageLogCap(t)
-	release := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// stallingDiagnoseServer serves failed build 5 with one failed stage 4 whose
+// log sends firstChunk, then stalls until release is closed.
+func stallingDiagnoseServer(t *testing.T, release chan struct{}, firstChunk string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "result": "FAILURE"})
 		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "ok",
-				"data":   map[string]any{"stages": []map[string]any{{"id": "4", "name": "Build", "type": "STAGE", "state": "failure"}}},
+				"data":   map[string]any{"stages": []map[string]any{{"id": "4", "name": "Compile", "type": "STAGE", "state": "failure"}}},
 			})
 		case strings.Contains(r.URL.Path, "/stages/log"):
-			_, _ = fmt.Fprint(w, "ERROR: early failure\n"+strings.Repeat("progress\n", 20))
+			_, _ = fmt.Fprint(w, firstChunk)
 			w.(http.Flusher).Flush()
 			<-release
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
+}
+
+func TestDiagnoseHintsAtTimeoutWhenStageLogStalls(t *testing.T) {
+	shrinkStageLogCap(t)
+	release := make(chan struct{})
+	srv := stallingDiagnoseServer(t, release, strings.Repeat("progress\n", 20)+"ERROR: late failure\n")
 	defer srv.Close()
 	defer close(release)
 	setupTestConfig(t, srv.URL)
@@ -1000,8 +1026,25 @@ func TestDiagnoseHintsAtTimeoutWhenStageLogStalls(t *testing.T) {
 	var err error
 	stderr := captureStderr(t, func() { out, err = executeCmd(t, "diagnose", "my-app", "5", "--timeout", "200ms") })
 	require.NoError(t, err)
-	assert.Contains(t, out, "ERROR: early failure")
-	assert.Contains(t, stderr, "warning: stage Build: could not read the end of the stage log")
+	assert.Contains(t, out, "ERROR: late failure")
+	assert.Contains(t, stderr, "warning: stage Compile: could not read the whole stage log")
+	assert.Contains(t, stderr, "errors come from the part received before the read failed")
+	assert.Contains(t, stderr, "--timeout")
+}
+
+func TestDiagnoseHintsAtTimeoutWhenBothStageLogReadsStall(t *testing.T) {
+	release := make(chan struct{})
+	srv := stallingDiagnoseServer(t, release, "")
+	defer srv.Close()
+	defer close(release)
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "diagnose", "my-app", "5", "--timeout", "200ms") })
+	require.NoError(t, err)
+	assert.Contains(t, out, "Compile")
+	assert.Contains(t, stderr, "warning: stage Compile: could not read the stage log: ")
 	assert.Contains(t, stderr, "--timeout")
 }
 

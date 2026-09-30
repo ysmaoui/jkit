@@ -130,18 +130,28 @@ func (c *Client) Diagnose(jobPath string, number int) (*DiagnoseResult, error) {
 
 // diagnoseStage extracts errors from a failed stage's log. It reads the tail,
 // where the failure summary is, which downloads the whole stage log and can
-// time out on a large one; the capped head read is the fallback.
+// time out on a large one. Errors then come from the part that arrived. The
+// capped head read runs only when nothing did, so a stalled server costs one
+// timeout per stage, not two.
 func (c *Client) diagnoseStage(jobPath string, number int, s jenkins.Stage) FailedStage {
 	fs := FailedStage{Name: s.Name}
 	log, _, err := c.GetStageLogTail(jobPath, number, s.ID)
-	if err != nil {
+	switch {
+	case err != nil && log != "":
 		fs.ReadErr = err
-		head, _, headErr := c.GetStageLog(jobPath, number, s.ID)
+		fs.Warning = fmt.Sprintf("could not read the whole stage log (%v); errors come from the part received before the read failed", err)
+	case err != nil:
+		head, truncated, headErr := c.GetStageLog(jobPath, number, s.ID)
 		if headErr != nil {
+			fs.ReadErr = err
 			fs.Warning = fmt.Sprintf("could not read the stage log: %v", err)
 			return fs
 		}
-		fs.Warning = fmt.Sprintf("could not read the end of the stage log (%v); errors come from its first %.1f MB only", err, float64(c.stageLogCap)/(1<<20))
+		// A retry that read the whole log leaves Errors complete.
+		if truncated {
+			fs.ReadErr = err
+			fs.Warning = fmt.Sprintf("could not read the end of the stage log (%v); errors come from its first %.1f MB only", err, float64(c.stageLogCap)/(1<<20))
+		}
 		log = head
 	}
 	fs.Errors = extractErrors(output.SanitizeLog(log))

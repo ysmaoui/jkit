@@ -671,6 +671,10 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 - `--stage -f` follows a stage without a result until it gets one or the build
   ends. For a stage that has not run (NOT_BUILT, e.g. skipped by `when{}`), a
   note on stderr says so, since the wait can last until the build ends
+- A running stage is trusted for 30 polls at a time; then `--stage -f` checks
+  that the build still runs. A killed build or a controller restart can leave a
+  stage reporting running forever, so once the build has ended it stops
+  following with a note on stderr
 - `--tail` and `--head` are incompatible with `--follow`
 
 ### `--timestamps` / `--elapsed`: when each line was logged
@@ -1191,7 +1195,7 @@ jkit diagnose [job] [build#]
 
 Fetches build metadata, identifies failed stages, extracts error lines, and shows commits and parameters. Defaults to the latest build. Accepts full Jenkins URLs.
 
-Error lines come from the end of each failed stage's log, which means downloading the whole stage log. If that read fails (e.g. it hits the HTTP timeout), errors come from the first 10 MB instead, and a warning on stderr names the stage. A timeout also suggests raising `--timeout`. In `--json` output the stage carries a `warning` field.
+Error lines come from the end of each failed stage's log, which means downloading the whole stage log. If that download fails partway (e.g. it hits the HTTP timeout), errors come from the last 10 MB received before it failed, with no second download. If it fails before any of the log arrives, jkit reads the stage log again from the start; errors then come from its first 10 MB, or from all of it when it fits. A warning on stderr names each stage whose errors come from part of its log, or whose log could not be read at all, and a timeout also suggests raising `--timeout`. In `--json` output the stage carries a `warning` field.
 
 ```bash
 jkit diagnose my-app 42
