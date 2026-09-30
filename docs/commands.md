@@ -626,7 +626,7 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 | Flag | Description |
 |------|-------------|
 | `-f, --follow` | Follow live output |
-| `--stage` | Show log for a stage by name or qualified path (e.g. `"Branch/Stage"`) |
+| `--stage` | Show log for a stage by name, qualified path (e.g. `"Branch/Stage"`) or ID (see `jkit stages`) |
 | `--stage-id` | Show log for a stage by exact node ID (see `jkit stages`) |
 | `--grep` | Filter log lines matching pattern |
 | `-i, --ignore-case` | Case-insensitive `--grep` matching |
@@ -649,6 +649,8 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
   parallel branches), the command errors and lists each candidate's qualified
   path and ID. Pass a qualified path (`--stage "RemoteExec/Run Bazel Build"`) or
   `--stage-id` to disambiguate.
+- `--stage` falls back to an exact node ID only when no path or name matches,
+  so a stage named like a number wins over another stage's ID.
 - `--stage`/`--stage-id` combine with `-f` to tail a single stage of a running
   build; `--stage` and `--stage-id` are mutually exclusive
 - `--tail` and `--head` are incompatible with `--follow`

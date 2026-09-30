@@ -42,7 +42,7 @@ func init() {
 // than anything naming the cause.
 func registerLogFlags(c *cobra.Command) {
 	c.Flags().BoolP("follow", "f", false, "Follow log output")
-	c.Flags().String("stage", "", "Show log for a specific pipeline stage (name or qualified path, e.g. \"Branch/Stage\")")
+	c.Flags().String("stage", "", "Show log for a pipeline stage (name, qualified path like \"Branch/Stage\", or ID from 'jkit stages')")
 	c.Flags().String("stage-id", "", "Show log for a stage by exact node ID (from 'jkit stages')")
 	c.Flags().String("grep", "", "Filter log lines matching pattern")
 	c.Flags().BoolP("ignore-case", "i", false, "Case-insensitive --grep matching")
@@ -93,9 +93,10 @@ func applyTailHead(text string, tail, head int) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// resolveStageID maps a user-supplied stage name or qualified path to a unique
-// node ID. It matches qualified paths first (e.g. "RemoteExec/Run Bazel Build"),
-// then bare stage names. An ambiguous bare name returns an error listing every
+// resolveStageID maps a user-supplied stage name, qualified path or node ID to
+// a unique node ID. It matches qualified paths first (e.g. "RemoteExec/Run
+// Bazel Build"), then bare stage names, then exact IDs, so a stage literally
+// named "3366" wins over the stage with ID 3366. An ambiguous bare name returns an error listing every
 // candidate's qualified path and ID so the caller can pick one.
 func resolveStageID(stages []jenkins.Stage, input string) (string, error) {
 	paths := jenkins.QualifiedStagePaths(stages)
@@ -117,6 +118,14 @@ func resolveStageID(stages []jenkins.Stage, input string) (string, error) {
 		return nameMatches[0].ID, nil
 	}
 
+	if len(pathMatches) == 0 && len(nameMatches) == 0 {
+		for _, s := range stages {
+			if s.ID == input {
+				return s.ID, nil
+			}
+		}
+	}
+
 	// Determine candidate set for messaging.
 	candidates := pathMatches
 	if len(candidates) == 0 {
@@ -125,9 +134,10 @@ func resolveStageID(stages []jenkins.Stage, input string) (string, error) {
 	if len(candidates) == 0 {
 		available := make([]string, 0, len(stages))
 		for _, s := range stages {
-			available = append(available, paths[s.ID])
+			available = append(available, fmt.Sprintf("%s (%s)", paths[s.ID], s.ID))
 		}
-		return "", fmt.Errorf("stage %q not found — available stages: %s", input, strings.Join(available, ", "))
+		return "", fmt.Errorf("stage %q not found — available stages: %s\nuse --stage-id <id> for an exact node ID",
+			input, strings.Join(available, ", "))
 	}
 
 	var b strings.Builder
