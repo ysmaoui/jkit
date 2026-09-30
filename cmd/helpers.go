@@ -118,10 +118,12 @@ func withBranch(cmd *cobra.Command, jobPath string, applyBranch bool) string {
 	if !applyBranch || branch == "" {
 		return jobPath
 	}
-	// A multibranch branch like "feature/foo" is one job whose name contains
-	// slashes. Encoding them as %2F lets NormalizeJobPath keep the branch as a
-	// single segment instead of splitting it into nested jobs.
-	seg := strings.ReplaceAll(strings.Trim(branch, "/"), "/", "%2F")
+	// jkit prints branch jobs by their encoded job name, so a value copied from
+	// its output is already the job name and must not be encoded again.
+	seg := strings.Trim(branch, "/")
+	if !jenkins.IsBranchJobName(seg) || !strings.Contains(seg, "%") {
+		seg = jenkins.BranchJobName(seg)
+	}
 	trimmed := strings.TrimRight(jobPath, "/")
 	if strings.HasSuffix(trimmed, "/"+seg) || trimmed == seg {
 		return trimmed

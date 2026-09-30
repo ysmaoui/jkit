@@ -7,7 +7,7 @@ All commands support these flags:
 | Flag | Description |
 |------|-------------|
 | `--host HOST` | Override Jenkins host URL |
-| `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x`); slashes are encoded for you |
+| `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x#4`). jkit encodes `# % / ? [ ] \` the way branch-api names the job (`feature%2Fx%234`); that job name is accepted as well |
 
 `--branch` composes with a URL target: a URL naming the multibranch job plus
 `--branch feature/x` is the same request as the job-path form. A URL that already

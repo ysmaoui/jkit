@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 // ParsedURL holds the components extracted from a Jenkins URL.
@@ -48,18 +50,22 @@ func ParseJenkinsURL(raw string) (*ParsedURL, error) {
 	return nil, fmt.Errorf("not a Jenkins URL (no /job/ or /blue/ path)")
 }
 
-// unescapeJobSegment decodes percent-encoding in a job/branch name segment
-// while preserving %2F. A segment from EscapedPath split by "/" never contains
-// a literal "/", so any "/" after PathUnescape came from %2F and represents a
-// slash within a branch/job name (e.g. "feature/foo"). We re-encode those to
-// %2F so NormalizeJobPath can later distinguish name-internal slashes from
-// path separators.
+// unescapeJobSegment turns one EscapedPath segment of a classic URL into a job
+// name. Jenkins links a branch job such as "feature%2Fx%234" (branch
+// "feature/x#4") double-encoded, so one decode already yields the job name.
+// Hand-written URLs often encode it once, and one decode then yields the raw
+// branch name, which still needs branch-api's encoding. A segment from
+// EscapedPath never holds a literal "/", so a decoded "/" can only be such a
+// branch name.
 func unescapeJobSegment(s string) string {
 	decoded, err := url.PathUnescape(s)
 	if err != nil {
 		return s
 	}
-	return strings.ReplaceAll(decoded, "/", "%2F")
+	if jenkins.IsBranchJobName(decoded) {
+		return decoded
+	}
+	return jenkins.BranchJobName(decoded)
 }
 
 func parseClassic(host, path string) (*ParsedURL, error) {
@@ -124,9 +130,13 @@ func parseBlueOcean(host, path string) (*ParsedURL, error) {
 			// For multibranch pipelines: detail/{branchName}/{buildNum}
 			// Blue Ocean uses the full encoded path for simple pipelines
 			// but only the last component for deeply nested ones.
-			// Branch names with %2F (e.g. feature%2Fbranch) must preserve
-			// the encoding so NormalizeJobPath doesn't split on them.
+			// Blue Ocean puts the raw branch name here, encoded once, so
+			// "feature%2Fx%234" is branch "feature/x#4".
 			detailSeg := segments[i+1]
+			detailName, err := url.PathUnescape(detailSeg)
+			if err != nil {
+				return nil, fmt.Errorf("decoding Blue Ocean detail segment: %w", err)
+			}
 			isSamePipeline := detailSeg == encodedJobPath
 			if !isSamePipeline {
 				// Check if detail segment matches last component of decoded path
@@ -135,11 +145,10 @@ func parseBlueOcean(host, path string) (*ParsedURL, error) {
 				if idx := strings.LastIndex(decoded, "/"); idx >= 0 {
 					lastComponent = decoded[idx+1:]
 				}
-				isSamePipeline = unescapeJobSegment(detailSeg) == lastComponent
+				isSamePipeline = detailName == lastComponent
 			}
 			if !isSamePipeline {
-				branchName := unescapeJobSegment(detailSeg)
-				jobPath = decoded + "/" + branchName
+				jobPath = decoded + "/" + jenkins.BranchJobName(detailName)
 			}
 			if i+2 < len(segments) {
 				if n, err := strconv.Atoi(segments[i+2]); err == nil {

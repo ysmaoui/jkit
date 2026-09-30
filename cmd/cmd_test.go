@@ -880,6 +880,14 @@ func TestBranchAppliesToAURLTarget(t *testing.T) {
 			"/job/team/job/svc/", "main",
 			"/job/team/job/svc/job/main/api/json",
 		},
+		"branch given as its job name": {
+			"/job/team/job/svc/", "feature%2Fx",
+			"/job/team/job/svc/job/feature%2Fx/api/json",
+		},
+		"branch with hash given as its job name": {
+			"/job/team/job/svc/", "feature%2Fx%234",
+			"/job/team/job/svc/job/feature%2Fx%234/api/json",
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -898,6 +906,49 @@ func TestBranchAppliesToAURLTarget(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, paths, tt.wantPath)
 		})
+	}
+}
+
+// Every way of naming a multibranch branch must reach the job branch-api
+// created for it. Its name escapes # % / ? [ ] \ once, and the wire escapes it
+// again, so the double-encoded classic URL spells the exact request path.
+func TestBranchTargetsReachTheEncodedBranchJob(t *testing.T) {
+	const project = "/job/INT/job/bsw-MPCI-BladeMain-stub"
+	branches := map[string]struct{ raw, once, twice string }{
+		"hash": {
+			"feature/OVAPI_for_TIF_PI26.2BF#4",
+			"feature%2FOVAPI_for_TIF_PI26.2BF%234",
+			"feature%252FOVAPI_for_TIF_PI26.2BF%25234",
+		},
+		"question mark and percent": {"fix/50%?", "fix%2F50%25%3F", "fix%252F50%2525%253F"},
+		"brackets and backslash":    {`a[1]\b`, "a%5B1%5D%5Cb", "a%255B1%255D%255Cb"},
+		"space":                     {"my branch", "my%20branch", "my%20branch"},
+	}
+	for name, br := range branches {
+		targets := map[string][]string{
+			"blue ocean":             {"/blue/organizations/jenkins/INT%2Fbsw-MPCI-BladeMain-stub/detail/" + br.once + "/20/pipeline/"},
+			"classic single-encoded": {project + "/job/" + br.once + "/20/"},
+			"classic double-encoded": {project + "/job/" + br.twice + "/20/"},
+			"branch flag":            {"INT/bsw-MPCI-BladeMain-stub", "20", "--branch", br.raw},
+		}
+		for form, args := range targets {
+			t.Run(name+"/"+form, func(t *testing.T) {
+				var paths []string
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					paths = append(paths, r.URL.EscapedPath())
+					_ = json.NewEncoder(w).Encode(map[string]any{"number": 20, "result": "SUCCESS"})
+				}))
+				defer srv.Close()
+				setupTestConfig(t, srv.URL)
+
+				if strings.HasPrefix(args[0], "/") {
+					args = []string{srv.URL + args[0]}
+				}
+				_, err := executeCmd(t, append([]string{"status"}, args...)...)
+				require.NoError(t, err)
+				assert.Contains(t, paths, project+"/job/"+br.twice+"/20/api/json")
+			})
+		}
 	}
 }
 

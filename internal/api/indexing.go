@@ -98,8 +98,7 @@ func (c *Client) multibranchParent(jobPath string) (parent, branch string, ok bo
 	if err != nil || !job.IsMultibranch() {
 		return "", "", false
 	}
-	// A branch name with a slash is one job segment, written %2F in the path.
-	return parent, strings.ReplaceAll(branch, "%2F", "/"), true
+	return parent, jenkins.DecodeBranchJobName(branch), true
 }
 
 // GetScanLog fetches a chunk of the indexing log from byte offset start. Offset

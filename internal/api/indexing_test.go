@@ -121,18 +121,26 @@ func TestScanTargetEmptyFolderSaysSo(t *testing.T) {
 
 // A branch child is created by indexing and never runs it. The error resolves
 // the parent and hands back the command that does work.
+// The suggested --branch is the raw branch name, as the scan log prints it.
 func TestScanTargetBranchChildPointsAtParent(t *testing.T) {
-	srv := jobServer(t, map[string]string{
-		"/job/team/job/svc/job/feature%2Fx/api/json": classJSON(pipelineClass),
-		"/job/team/job/svc/api/json":                 classJSON(multibranchClass),
-	}, nil)
-	defer srv.Close()
-	client := NewClient(srv.URL, "admin", "secret")
+	for jobName, branch := range map[string]string{
+		"feature%2Fx":     "feature/x",
+		"feature%2Fx%234": "feature/x#4",
+	} {
+		t.Run(jobName, func(t *testing.T) {
+			srv := jobServer(t, map[string]string{
+				"/job/team/job/svc/job/" + jobName + "/api/json": classJSON(pipelineClass),
+				"/job/team/job/svc/api/json":                     classJSON(multibranchClass),
+			}, nil)
+			defer srv.Close()
+			client := NewClient(srv.URL, "admin", "secret")
 
-	_, err := client.ScanTarget("team/svc/feature%2Fx")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "is a branch of team/svc")
-	assert.Contains(t, err.Error(), "jkit scan team/svc --branch feature/x")
+			_, err := client.ScanTarget("team/svc/" + jobName)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is a branch of team/svc")
+			assert.Contains(t, err.Error(), "jkit scan team/svc --branch "+branch)
+		})
+	}
 }
 
 func TestScanTargetPlainJobSaysThereIsNoScan(t *testing.T) {
