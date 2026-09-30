@@ -150,16 +150,31 @@ func stageActive(status string) bool {
 }
 
 // streamStageLog tails a single stage's log until the stage finishes or the
-// context is cancelled. Every poll re-downloads the log from byte 0, so it
-// stops once the output reaches the client's stage log cap rather than pull an
-// ever larger prefix each second.
+// context is cancelled. It reads the stage step by step, each step from the
+// offset the last poll reached. A server that cannot serve step logs gets the
+// whole-stage log instead, which has no offset: every poll re-downloads it from
+// byte 0, so that path stops once the output reaches the client's stage log
+// cap rather than pull an ever larger prefix each second.
 func streamStageLog(ctx context.Context, client *api.Client, jobPath string, buildNum int, nodeID string, w, errW io.Writer) error {
 	lw := &sanitizingLineWriter{w: w}
 	defer lw.Flush()
+	steps := client.NewStageStepFollower(jobPath, buildNum, nodeID)
+	perStep := true
 	var printed int64
 	var notedNotBuilt bool
 	var polls int
-	copyNew := func() (capped bool, err error) {
+	// final means the stage has ended and this read should reach its end.
+	copyNew := func(final bool) (stop bool, err error) {
+		if perStep {
+			err := steps.Poll(ctx, lw, final)
+			if !errors.Is(err, api.ErrStepLogsUnavailable) {
+				if ctx.Err() != nil {
+					return true, nil
+				}
+				return err != nil, withTimeoutHint(err)
+			}
+			perStep = false
+		}
 		n, capped, err := client.CopyStageLogFrom(jobPath, buildNum, nodeID, printed, lw)
 		printed += n
 		if errors.Is(err, api.ErrStageLogPerStep) {
@@ -179,7 +194,7 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 		default:
 		}
 
-		if capped, err := copyNew(); capped || err != nil {
+		if stop, err := copyNew(false); stop || err != nil {
 			return err
 		}
 		polls++
@@ -193,7 +208,7 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 				return err
 			}
 			if !building {
-				if capped, err := copyNew(); capped || err != nil {
+				if stop, err := copyNew(true); stop || err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintf(errW, "note: build #%d has finished but stage %s still reports %s; stopped following\n", buildNum, nodeID, status)
@@ -206,7 +221,7 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 		}
 		if !running {
 			// Output written between the read above and the stage finishing.
-			_, err := copyNew()
+			_, err := copyNew(true)
 			return err
 		}
 
@@ -218,9 +233,10 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 	}
 }
 
-// printPerStepStageLog handles -f on a stage whose log the server serves only
-// step by step, which cannot be followed by offset. A finished stage is printed
-// once, as without -f; a running one is refused.
+// printPerStepStageLog handles -f, when step logs cannot be followed, on a
+// stage whose whole log the server serves only step by step: that
+// concatenation cannot be followed by offset. A finished stage is printed once,
+// as without -f; a running one is refused.
 func printPerStepStageLog(client *api.Client, jobPath string, buildNum int, nodeID string, printed int64, lw *sanitizingLineWriter, errW io.Writer, perStep error) error {
 	running, _, err := stageRunning(client, jobPath, buildNum, nodeID)
 	if err != nil {

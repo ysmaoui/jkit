@@ -658,16 +658,14 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
   so a stage named like a number wins over another stage's ID.
 - `--stage`/`--stage-id` combine with `-f` to tail a single stage of a running
   build; `--stage` and `--stage-id` are mutually exclusive
-- The stage log endpoints take no start offset, so every stage log read starts
-  at byte 0. Only the console `--tail` reads by offset.
+- The stage log endpoints take no start offset, so every non-follow stage log
+  read starts at byte 0.
   - Without `--tail`, a stage log over 10 MB shows its first 10 MB and a
     warning on stderr
   - `--stage --tail N` downloads the whole stage log and keeps the last 10 MB.
     It warns when fewer than N lines fit, or when `--grep` found fewer than N
     matches in that window. A slow download can hit the HTTP timeout; raise it
     with `--timeout`
-  - `--stage -f` stops following with a warning once the stage log passes
-    10 MB. Re-run with `--tail N` after the stage finishes
   - When Blue Ocean fails on a stage's log (500, seen on some parallel
     containers), the log is read step by step under the same limits. Step logs
     are fetched one at a time, so this can be slow on a stage with many steps.
@@ -675,9 +673,27 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
     `[jkit: step <id> log unavailable: ...]` line, and one cut off mid-download
     as `[jkit: step <id> log incomplete: ...]`. An authentication or permission
     error, or a server that cannot be reached, fails the command instead
-  - That step-by-step log cannot be followed. `--stage -f` on a finished stage
-    prints it once, as without `-f`; on a running stage it errors. Use
-    `--tail N` after the stage finishes
+- `--stage -f` has no size limit. Each poll lists the stage's steps and reads
+  each step's log from where the last poll stopped, so a poll downloads only
+  new output. Joining late, the first poll downloads each step's output so far
+  in one response, which has to arrive within `--timeout`
+  - Steps print in order, each once it has started and every earlier step has
+    finished, so the output matches the whole stage log. A stage's own steps
+    run one after another; steps of parallel branches belong to the branches
+  - Live output of a running step needs Jenkins 2.534 or later (streaming
+    progressive text) or 2.508 or earlier. Jenkins 2.509 to 2.533 cannot say
+    where a running step's text stops: there `-f` follows the whole stage log,
+    or, once earlier steps are printed, shows a running step when it finishes
+  - With Pipeline Graph View, a failed step's error text follows its log, as
+    in the stage log. When Blue Ocean lists the steps it is left out
+  - Read step by step on Jenkins before 2.534, a step's own CRLF line endings
+    print as LF; the whole-stage fallback prints them as stored
+  - A server that serves no step logs (neither plugin lists the steps, or
+    Jenkins' `execution/node` route is missing) falls back to re-reading the
+    whole stage log each poll. That fallback stops following with a warning
+    once the stage log passes 10 MB; re-run with `--tail N` after the stage
+    finishes. If Blue Ocean also serves that stage only step by step, a
+    finished stage prints once, as without `-f`, and a running one errors
 - `--stage`/`--stage-id` on a build that does not exist reports the missing
   build, not a missing plugin
 - `--stage -f` follows a stage without a result until it gets one or the build

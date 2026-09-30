@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -154,6 +155,16 @@ func (c *Client) Get(path string, query url.Values) (*http.Response, error) {
 	return c.doWithRetry("GET", u, nil, "", nil)
 }
 
+// getContext is Get bound to ctx, with extra request headers. Cancelling ctx
+// aborts the request, a retry wait, or reading the body.
+func (c *Client) getContext(ctx context.Context, path string, query url.Values, header http.Header) (*http.Response, error) {
+	u := c.host + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	return c.do(ctx, "GET", u, nil, header)
+}
+
 // CloseBody is a convenience helper to discard and close a response body.
 func CloseBody(resp *http.Response) {
 	if resp != nil && resp.Body != nil {
@@ -204,6 +215,17 @@ func (c *Client) Post(path string, body io.Reader, contentType string) (*http.Re
 }
 
 func (c *Client) doWithRetry(method, rawURL string, bodyFn func() io.Reader, contentType string, crumb *crumbInfo) (*http.Response, error) {
+	header := http.Header{}
+	if contentType != "" {
+		header.Set("Content-Type", contentType)
+	}
+	if crumb != nil {
+		header.Set(crumb.CrumbRequestField, crumb.Crumb)
+	}
+	return c.do(context.Background(), method, rawURL, bodyFn, header)
+}
+
+func (c *Client) do(ctx context.Context, method, rawURL string, bodyFn func() io.Reader, header http.Header) (*http.Response, error) {
 	// Only retry idempotent methods (GET, HEAD, OPTIONS)
 	maxRetries := 3
 	if method != "GET" && method != "HEAD" && method != "OPTIONS" {
@@ -214,21 +236,23 @@ func (c *Client) doWithRetry(method, rawURL string, bodyFn func() io.Reader, con
 		if bodyFn != nil {
 			body = bodyFn()
 		}
-		req, err := http.NewRequest(method, rawURL, body)
+		req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 		if err != nil {
 			return nil, fmt.Errorf("creating request: %w", err)
 		}
-		if contentType != "" {
-			req.Header.Set("Content-Type", contentType)
-		}
-		if crumb != nil {
-			req.Header.Set(crumb.CrumbRequestField, crumb.Crumb)
+		for k, v := range header {
+			req.Header[k] = v
 		}
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			if attempt < maxRetries {
-				time.Sleep(backoff(attempt))
+				if err := sleepCtx(ctx, backoff(attempt)); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			return nil, &jenkins.UnreachableError{Host: c.host, Cause: err}
@@ -236,7 +260,9 @@ func (c *Client) doWithRetry(method, rawURL string, bodyFn func() io.Reader, con
 
 		if resp.StatusCode == http.StatusServiceUnavailable && attempt < maxRetries {
 			CloseBody(resp)
-			time.Sleep(backoff(attempt))
+			if err := sleepCtx(ctx, backoff(attempt)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 
@@ -246,6 +272,17 @@ func (c *Client) doWithRetry(method, rawURL string, bodyFn func() io.Reader, con
 		return resp, nil
 	}
 	return nil, fmt.Errorf("max retries exceeded for %s", rawURL)
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 func backoff(attempt int) time.Duration {

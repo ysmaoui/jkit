@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,9 +16,10 @@ import (
 )
 
 // defaultStageLogCap bounds how many bytes of a stage log one read keeps in
-// memory or, when following, reads at all. Neither stage log endpoint takes a
-// start offset: PGV's stages/log and Blue Ocean's nodes/<id>/log/ both write
-// every step from byte 0, so reading past the cap means downloading the head.
+// memory or, when following without step logs, reads at all. Neither stage log
+// endpoint takes a start offset: PGV's stages/log and Blue Ocean's
+// nodes/<id>/log/ both write every step from byte 0, so reading past the cap
+// means downloading the head.
 const defaultStageLogCap = 10 << 20 // 10 MB
 
 // ErrStageLogUnavailable means no stage log endpoint answered for the build:
@@ -267,48 +269,63 @@ var stepsPageSize = 10000
 // openStageLogViaSteps lists a stage's steps and returns a reader over their
 // logs in order. Used when Blue Ocean's node-level /log/ returns 500.
 func (c *Client) openStageLogViaSteps(blueSegments string, number int, nodeID string) (*stepLogReader, error) {
-	prefix := fmt.Sprintf("/blue/rest/organizations/jenkins/pipelines/%s/runs/%d/nodes/%s/steps/", blueSegments, number, nodeID)
+	prefix := blueStepsPrefix(blueSegments, number, nodeID)
+	steps, err := c.listBlueSteps(context.Background(), prefix)
+	if err != nil {
+		return nil, err
+	}
+	if len(steps) == 0 {
+		return nil, fmt.Errorf("no steps found for stage")
+	}
 	r := &stepLogReader{c: c, prefix: prefix}
+	for _, s := range steps {
+		r.ids = append(r.ids, s.ID)
+	}
+	return r, nil
+}
+
+func blueStepsPrefix(blueSegments string, number int, nodeID string) string {
+	return fmt.Sprintf("/blue/rest/organizations/jenkins/pipelines/%s/runs/%d/nodes/%s/steps/", blueSegments, number, nodeID)
+}
+
+// blueStep is one entry of Blue Ocean's step listing.
+type blueStep struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
+func (c *Client) listBlueSteps(ctx context.Context, prefix string) ([]blueStep, error) {
+	var steps []blueStep
 	seen := map[string]bool{}
 	for {
-		page, err := c.listStepIDs(prefix, len(r.ids))
+		page, err := c.listBlueStepsPage(ctx, prefix, len(steps))
 		if err != nil {
 			return nil, err
 		}
 		// A short page is not the end: a server may clamp limit. One that
 		// ignores start= repeats the first page instead of running dry.
-		if len(page) == 0 || seen[page[0]] {
-			break
+		if len(page) == 0 || seen[page[0].ID] {
+			return steps, nil
 		}
-		for _, id := range page {
-			seen[id] = true
+		for _, s := range page {
+			seen[s.ID] = true
 		}
-		r.ids = append(r.ids, page...)
+		steps = append(steps, page...)
 	}
-	if len(r.ids) == 0 {
-		return nil, fmt.Errorf("no steps found for stage")
-	}
-	return r, nil
 }
 
-func (c *Client) listStepIDs(prefix string, start int) ([]string, error) {
-	resp, err := c.Get(prefix, url.Values{"start": {strconv.Itoa(start)}, "limit": {strconv.Itoa(stepsPageSize)}})
+func (c *Client) listBlueStepsPage(ctx context.Context, prefix string, start int) ([]blueStep, error) {
+	resp, err := c.getContext(ctx, prefix, url.Values{"start": {strconv.Itoa(start)}, "limit": {strconv.Itoa(stepsPageSize)}}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("getting stage steps: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	var steps []struct {
-		ID string `json:"id"`
-	}
+	var steps []blueStep
 	if err := json.NewDecoder(resp.Body).Decode(&steps); err != nil {
 		return nil, fmt.Errorf("decoding stage steps: %w", err)
 	}
-	ids := make([]string, len(steps))
-	for i, s := range steps {
-		ids[i] = s.ID
-	}
-	return ids, nil
+	return steps, nil
 }
 
 // stepLogReader concatenates step logs, opening each only once the previous

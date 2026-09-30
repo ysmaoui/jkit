@@ -155,9 +155,49 @@ GET /job/{path}/{number}/timestamps/?elapsed=SSSSS          # times only, no log
 
 # Pipeline stage / step log (single endpoint, accepts stage IDs and step IDs)
 # Takes no start offset and sends no X-Text-Size; always the whole log from
-# byte 0. Blue Ocean's nodes/{id}/log/ is the same. Tails and follows read past
-# the head client-side.
+# byte 0. Blue Ocean's nodes/{id}/log/ is the same. Tails read past the head
+# client-side, and so does a follow that cannot use the step routes below.
 GET /job/{path}/{number}/stages/log?nodeId={id}
+# stages/log writes, for each step of a stage in this listing's order, the
+# step's log and then its exception text. `log --stage -f` rebuilds that from
+# the two routes below plus the core step log route, reading only new bytes.
+GET /job/{path}/{number}/stages/steps?nodeId={id}
+# Returns: { status, data: { runIsComplete, steps: [ {id, name, state, type,
+#           title, stageId, pauseDurationMillis, startTimeMillis,
+#           totalDurationMillis} ] } }, sorted by ID. state as in stages/tree.
+GET /job/{path}/{number}/stages/exceptionText?nodeId={stepId}
+# Plain text; empty for a step without an error. Only fetched for a step in
+# state failure or aborted, which is where an ErrorAction lives.
+
+# One step's log (core + workflow-support, no plugin). progressiveText from a
+# start= offset. A step that has written nothing has no LogAction yet and 404s.
+# While the step runs, the server sends text only up to the last complete line,
+# so where the next start comes from depends on the Stapler version:
+#   Accept: multipart/form-data (Stapler 2050+, Jenkins 2.534+) answers a
+#     "text" part, with console notes stripped and stopping at the last
+#     complete line, and a "meta" part {completed, start, end}; next start =
+#     end, still running = !completed.
+#   A plain answer (older Stapler, or the header dropped on the way) has
+#     X-Text-Size and X-More-Data (set while the step runs). Its body turns lone
+#     LF into CRLF (LineEndNormalizingWriter), so bytes received never give the
+#     offset, and the client drops CR before LF.
+#     - Step complete (no X-More-Data): next start = X-Text-Size, every version.
+#     - Step running, X-Jenkins up to 2.508 (Stapler before 1979): X-Text-Size
+#       counts what was sent, at most 10000 lines; next start = X-Text-Size.
+#     - Step running, any later or unknown X-Jenkins: X-Text-Size is the stored
+#       length. Stapler 2029+ (#703) stops the body at the last complete line
+#       and after 10000 lines, so trusting it skips text; 1979-2028 could send
+#       more than X-Text-Size. The body is not read: before any output, -f
+#       falls back to stages/log; after, it waits for the step to complete.
+# A log shorter than start= is resent from 0; step logs only grow, so this is
+# not expected. A plain answer shows it as X-Text-Size < start= and fails
+# before its body is read. A streaming one shows it as meta.start != start=
+# after the text, which is then already printed, and the read fails. Any other
+# step-by-step failure before output also falls back to stages/log.
+GET /job/{path}/{number}/execution/node/{stepId}/log/logText/progressiveText?start={byte-offset}
+# The flow node page. Probed once, on the first step log 404, to tell a step
+# without a log from a server where this route is missing or blocked.
+GET /job/{path}/{number}/execution/node/{id}/
 
 # Pipeline stages — Blue Ocean (fallback for instances without PGV ≥ 803)
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/
@@ -166,7 +206,8 @@ GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeI
 # below are the fallback: list the stage's steps, then read each step's log in
 # order, one at a time, through the same stage log cap. A step log without
 # start= is only its last 150 KB (LogResource.DEFAULT_LOG_THRESHOLD), so start=0
-# is always sent. The concatenation is not append-only, so it cannot be followed.
+# is always sent. The concatenation is not append-only, so it cannot be followed;
+# -f lists these steps and reads each through the core step log route instead.
 # The listing pages with start= and limit= (@PagedResponse, default limit 100),
 # read until a page comes back empty since a short page may be a clamped limit.
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/?start={n}&limit=10000
