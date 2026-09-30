@@ -183,5 +183,8 @@ echo "[stages]"
 assert_contains "status test-pipeline 1 shows Build stage" "Build" \
     "$JK" status test-pipeline 1
 
+assert_success "wait on finished test-pipeline Build stage" \
+    "$JK" wait test-pipeline 1 --stage Build --max-wait 1m
+
 echo ""
 echo "Done."

@@ -28,6 +28,9 @@ func warnIfStageLogTruncated(n int, nodeID string) {
 // Pipeline Graph View plugin (`/stages/tree`, v803+) and falls back to Blue
 // Ocean (`/blue/rest/.../nodes/`) on 404 or when the client is pinned to
 // Blue Ocean via JKIT_PIPELINE_SOURCE / WithPipelineSource.
+//
+// nil, nil means the build has no stage data (not a pipeline, or neither
+// plugin answers). A pipeline with no stages yet gets an empty non-nil slice.
 func (c *Client) GetPipelineStages(jobPath string, number int) ([]jenkins.Stage, error) {
 	if c.pipelineSource != PipelineSourceBlueOcean {
 		stages, err := c.getPipelineStagesPGV(jobPath, number)
@@ -61,7 +64,13 @@ func (c *Client) getPipelineStagesPGV(jobPath string, number int) ([]jenkins.Sta
 	if pgv.Status != "ok" {
 		return nil, fmt.Errorf("PGV status %q", pgv.Status)
 	}
-	return jenkins.FlattenPGVTree(pgv.Data.Stages), nil
+	// Non-nil even when empty: nil from GetPipelineStages means "no stage
+	// data", and a pipeline that has not entered its first stage is not that.
+	stages := jenkins.FlattenPGVTree(pgv.Data.Stages)
+	if stages == nil {
+		stages = []jenkins.Stage{}
+	}
+	return stages, nil
 }
 
 func (c *Client) getPipelineStagesBlueOcean(jobPath string, number int) ([]jenkins.Stage, error) {

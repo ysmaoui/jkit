@@ -4,9 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 func TestSplitLogLines(t *testing.T) {
@@ -54,26 +51,4 @@ func TestStampedWindowMapsTailAndHead(t *testing.T) {
 			assert.Equal(t, tc.wantEnd, end)
 		})
 	}
-}
-
-func TestResolveStageIDByNumericID(t *testing.T) {
-	stages := []jenkins.Stage{{ID: "3", Name: "Build"}, {ID: "3366", Name: "Test"}}
-	id, err := resolveStageID(stages, "3366")
-	require.NoError(t, err)
-	assert.Equal(t, "3366", id)
-}
-
-func TestResolveStageIDNameBeatsID(t *testing.T) {
-	stages := []jenkins.Stage{{ID: "3366", Name: "Build"}, {ID: "7", Name: "3366"}}
-	id, err := resolveStageID(stages, "3366")
-	require.NoError(t, err)
-	assert.Equal(t, "7", id)
-}
-
-func TestResolveStageIDNotFoundListsIDs(t *testing.T) {
-	stages := []jenkins.Stage{{ID: "3", Name: "Build"}}
-	_, err := resolveStageID(stages, "99")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Build (3)")
-	assert.Contains(t, err.Error(), "--stage-id")
 }

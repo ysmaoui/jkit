@@ -43,6 +43,7 @@ cmd/
   diagnose.go               # jkit diagnose
   diff.go                   # jkit diff
   queue.go                  # jkit queue / jkit queue cancel
+  wait.go                   # jkit wait
   config.go                 # jkit config list/set-default/remove/set-alias
   completion.go             # jkit completion
   factory.go                # clientFromCmd — creates API client from cobra flags
@@ -71,6 +72,8 @@ internal/
     formatter.go            # Table, JSON, Go template output
     color.go                # ANSI color for build statuses
     log_streamer.go         # Progressive log streaming with polling
+  waiter/
+    waiter.go               # Poll a build or stage until it has a result
 integration/
   docker-compose.yml        # Jenkins container config
   run.sh                    # Bash test runner

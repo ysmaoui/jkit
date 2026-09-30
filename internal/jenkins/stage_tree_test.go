@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNonContainerStages_Flat(t *testing.T) {
@@ -265,4 +266,28 @@ func TestBuildStageTree_BranchSubStagesGrouped(t *testing.T) {
 	assert.Equal(t, 2, got[3].Depth) // sub-2 (continuation)
 	assert.Equal(t, 2, got[4].Depth) // sub-3 (continuation)
 	assert.Equal(t, 1, got[5].Depth) // branch-b (branch header)
+}
+
+func TestResolveStageIDByNumericID(t *testing.T) {
+	stages := []Stage{{ID: "3", Name: "Build"}, {ID: "3366", Name: "Test"}}
+	id, err := ResolveStageID(stages, "3366")
+	require.NoError(t, err)
+	assert.Equal(t, "3366", id)
+}
+
+func TestResolveStageIDNameBeatsID(t *testing.T) {
+	stages := []Stage{{ID: "3366", Name: "Build"}, {ID: "7", Name: "3366"}}
+	id, err := ResolveStageID(stages, "3366")
+	require.NoError(t, err)
+	assert.Equal(t, "7", id)
+}
+
+func TestResolveStageIDNotFoundListsIDs(t *testing.T) {
+	stages := []Stage{{ID: "3", Name: "Build"}}
+	_, err := ResolveStageID(stages, "99")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Build (3)")
+	var nf *StageNotFoundError
+	assert.ErrorAs(t, err, &nf)
+	assert.NotContains(t, err.Error(), "--stage-id", "the jenkins layer names no CLI flags")
 }

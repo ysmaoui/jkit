@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -93,63 +94,18 @@ func applyTailHead(text string, tail, head int) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// resolveStageID maps a user-supplied stage name, qualified path or node ID to
-// a unique node ID. It matches qualified paths first (e.g. "RemoteExec/Run
-// Bazel Build"), then bare stage names, then exact IDs, so a stage literally
-// named "3366" wins over the stage with ID 3366. An ambiguous bare name returns an error listing every
-// candidate's qualified path and ID so the caller can pick one.
-func resolveStageID(stages []jenkins.Stage, input string) (string, error) {
-	paths := jenkins.QualifiedStagePaths(stages)
-
-	var pathMatches, nameMatches []jenkins.Stage
-	for _, s := range stages {
-		if strings.EqualFold(paths[s.ID], input) {
-			pathMatches = append(pathMatches, s)
-		}
-		if strings.EqualFold(s.Name, input) {
-			nameMatches = append(nameMatches, s)
-		}
+// withStageHint appends how this command addresses a stage exactly, which
+// ResolveStageID leaves out because it knows no CLI flags.
+func withStageHint(err error, byID string) error {
+	var nf *jenkins.StageNotFoundError
+	var amb *jenkins.StageAmbiguousError
+	switch {
+	case errors.As(err, &nf):
+		return fmt.Errorf("%w\nuse %s for an exact node ID", err, byID)
+	case errors.As(err, &amb):
+		return fmt.Errorf("%w\npass a qualified path (e.g. %q) or %s", err, amb.Example, byID)
 	}
-
-	if len(pathMatches) == 1 {
-		return pathMatches[0].ID, nil
-	}
-	if len(pathMatches) == 0 && len(nameMatches) == 1 {
-		return nameMatches[0].ID, nil
-	}
-
-	if len(pathMatches) == 0 && len(nameMatches) == 0 {
-		for _, s := range stages {
-			if s.ID == input {
-				return s.ID, nil
-			}
-		}
-	}
-
-	// Determine candidate set for messaging.
-	candidates := pathMatches
-	if len(candidates) == 0 {
-		candidates = nameMatches
-	}
-	if len(candidates) == 0 {
-		available := make([]string, 0, len(stages))
-		for _, s := range stages {
-			available = append(available, fmt.Sprintf("%s (%s)", paths[s.ID], s.ID))
-		}
-		return "", fmt.Errorf("stage %q not found — available stages: %s\nuse --stage-id <id> for an exact node ID",
-			input, strings.Join(available, ", "))
-	}
-
-	var b strings.Builder
-	for _, s := range candidates {
-		status := s.Status
-		if status == "" {
-			status = "?"
-		}
-		fmt.Fprintf(&b, "\n  %s  (id=%s, %s)", paths[s.ID], s.ID, status)
-	}
-	return "", fmt.Errorf("stage %q is ambiguous — matches multiple stages:%s\npass a qualified path (e.g. %q) or --stage-id <id>",
-		input, b.String(), paths[candidates[0].ID])
+	return err
 }
 
 // stageRunning reports whether the stage with the given ID is still in a
@@ -264,9 +220,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 			if stages == nil {
 				return fmt.Errorf("blue ocean plugin required for stage logs")
 			}
-			nodeID, err = resolveStageID(stages, stageName)
+			nodeID, err = jenkins.ResolveStageID(stages, stageName)
 			if err != nil {
-				return err
+				return withStageHint(err, "--stage-id <id>")
 			}
 		}
 

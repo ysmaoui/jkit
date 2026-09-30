@@ -33,6 +33,19 @@ func pgvTreeHandler(t *testing.T) http.HandlerFunc {
 	}
 }
 
+// A pipeline before its first stage must not read as "no stage data" (nil).
+func TestGetPipelineStagesPGVNoStagesYetIsNotNil(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{}}})
+	}))
+	defer srv.Close()
+
+	stages, err := NewClient(srv.URL, "u", "t").GetPipelineStages("team/svc", 42)
+	require.NoError(t, err)
+	assert.NotNil(t, stages)
+	assert.Empty(t, stages)
+}
+
 func TestGetPipelineStagesPrefersPGV(t *testing.T) {
 	var pgvCalls, blueCalls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

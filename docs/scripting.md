@@ -54,6 +54,19 @@ jkit status my-app 42 --format '{{if .Building}}BUILDING{{else}}{{.Result}} in {
 
 Same exit codes as `jkit run --wait`.
 
+### `jkit wait`
+
+Same codes as `jkit run --wait`, for the build or for the `--stage`, plus one:
+
+| Code | Meaning |
+|------|---------|
+| 0 | SUCCESS |
+| 1 | FAILURE |
+| 2 | UNSTABLE |
+| 3 | ABORTED |
+| 4 | Unknown result, or the stage never ran |
+| 5 | `--max-wait` expired |
+
 ### Other commands
 
 | Command | Exit 0 | Exit 1 |

@@ -75,6 +75,7 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	registerScanFlags(scanCmd)
 	registerInputFlags(inputCmd)
 	registerSourcesFlags(sourcesCmd)
+	registerWaitFlags(waitCmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()
@@ -610,6 +611,7 @@ func TestLogStageAmbiguousName(t *testing.T) {
 	assert.Contains(t, err.Error(), "RemoteCache/Run Bazel Build")
 	assert.Contains(t, err.Error(), "id=4")
 	assert.Contains(t, err.Error(), "id=5")
+	assert.Contains(t, err.Error(), `pass a qualified path (e.g. "RemoteExec/Run Bazel Build") or --stage-id <id>`)
 }
 
 func TestLogStageQualifiedPath(t *testing.T) {
@@ -653,6 +655,7 @@ func TestLogStageNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 	assert.Contains(t, err.Error(), "RemoteExec/Run Bazel Build")
+	assert.Contains(t, err.Error(), "use --stage-id <id> for an exact node ID")
 }
 
 func TestLogStageFollow(t *testing.T) {

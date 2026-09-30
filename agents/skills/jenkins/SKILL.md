@@ -109,6 +109,10 @@ jkit enable my-job                  # on a branch job, the next scan may undo it
 # Abort running build
 jkit abort my-job 42 --wait
 
+# Block until a build or stage finishes; exit 0/1/2/3/4 = SUCCESS/FAILURE/UNSTABLE/ABORTED/other, 5 = --max-wait expired
+jkit wait URL                       # instead of polling `jkit status`
+jkit wait URL --stage Deploy --max-wait 30m
+
 # Pending input steps ("Promote to prod?")
 jkit input my-job 42                          # list what the build is waiting on
 jkit input my-job 42 --approve                # approve (no parameters declared)

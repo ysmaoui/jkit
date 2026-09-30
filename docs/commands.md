@@ -852,6 +852,63 @@ jkit abort my-app 42 --wait    # abort and wait for it to stop
 
 ---
 
+## `jkit wait`
+
+Block until a build, or one stage of it, has a result. The exit code is the result.
+
+```
+jkit wait [job] [build#] [--stage X] [--max-wait DUR]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--stage X` | Wait for one pipeline stage instead of the whole build. Takes a name, qualified path (`Branch/Stage`) or node ID, as `jkit log --stage` does |
+| `--max-wait DUR` | Give up after `DUR` (e.g. `30m`) and exit 5. `0` (default) waits indefinitely. The global `--timeout` still sets the HTTP timeout per request |
+
+Defaults to the latest build. A build that has already finished returns at once.
+The target is polled every 5 seconds. A line on stderr says when waiting
+starts, and each pending `input` step is announced once with the command that
+answers it, as with `run --wait`. Ctrl+C interrupts.
+
+The result goes to stdout as `my-app #42: SUCCESS (3m2s)`, or with `--stage`
+as `my-app #42 stage "Deploy": FAILURE (41s)`. `--json` prints
+`{"job", "build", "stage", "result", "durationMillis"}`, with `stage` omitted
+for a build target.
+
+A stage returns as soon as it has a result, even while the rest of the build
+runs. A stage that has not started yet is waited for. If the build finishes and
+the stage never ran, or ended with no result (skipped by `when`, `NOT_BUILT`),
+the command exits 4 and says why on stderr. A job with no stage data at all (not
+a pipeline, or neither plugin installed) fails at once instead.
+
+Pipeline Graph View sometimes reports a stage skipped by `when` as `success`,
+and jkit cannot tell the two apart, so on that source `wait` exits 0 for such a
+stage.
+
+A bare stage name is pinned to the first matching stage seen. A parallel branch
+with the same name that appears later does not change the target; pass a
+qualified path or the stage ID to pick a branch.
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| 0 | SUCCESS |
+| 1 | FAILURE |
+| 2 | UNSTABLE |
+| 3 | ABORTED |
+| 4 | Unknown result, or the stage never ran |
+| 5 | `--max-wait` expired |
+
+```bash
+jkit wait my-app 42                        # wait for the build
+jkit wait my-app 42 --stage Deploy         # wait for one stage
+jkit wait my-app --max-wait 30m            # latest build, give up after 30 minutes
+jkit wait my-app 42 --json | jq -r .result
+```
+
+---
+
 ## `jkit input`
 
 List, approve or deny the `input` steps a build is paused on.
