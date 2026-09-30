@@ -141,6 +141,9 @@ assert_success "run test-job --wait" \
 assert_contains "run param-job with params" "queued" \
     "$JK" run param-job -p BRANCH=feature -p ENV=staging
 
+assert_contains "run param-job without params" "queued" \
+    "$JK" run param-job
+
 assert_success "run test-pipeline --wait" \
     "$JK" run test-pipeline --wait
 

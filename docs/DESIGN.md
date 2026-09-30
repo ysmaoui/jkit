@@ -132,8 +132,8 @@ GET /job/{path}/api/json?tree=name,url,color,lastBuild[number,result,timestamp]
 GET /job/{path}/{number}/api/json?tree=number,result,timestamp,duration,building
 
 # Trigger build (requires crumb)
-POST /job/{path}/build                          # no params
-POST /job/{path}/buildWithParameters             # with params
+POST /job/{path}/build                          # job defines no parameters
+POST /job/{path}/buildWithParameters             # job defines parameters; omitted ones take defaults
 
 # Console log (supports progressive fetching)
 GET /job/{path}/{number}/logText/progressiveText?start={byte-offset}

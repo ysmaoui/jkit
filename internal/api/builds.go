@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -190,12 +191,26 @@ func (c *Client) pipelineEnv(jobPath string, number int) (map[string]string, err
 	return nil, nil
 }
 
+// TriggerBuild queues a build. On a parameterized job Jenkins answers a bare
+// POST /build with 400 "Nothing is submitted" (it expects the UI's json form),
+// while /buildWithParameters fills every omitted parameter with its default and
+// rejects unparameterized jobs, so the route follows the job's live definitions.
+// A multibranch branch job has none until its first run executes properties().
 func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, error) {
+	parameterized := len(params) > 0
+	if !parameterized {
+		defs, err := c.GetJobParameters(jobPath)
+		if err != nil {
+			return 0, fmt.Errorf("triggering build: %w", err)
+		}
+		parameterized = len(defs) > 0
+	}
+
 	path := NormalizeJobPath(jobPath)
 	var body io.Reader
 	contentType := ""
 
-	if len(params) > 0 {
+	if parameterized {
 		path += "/buildWithParameters"
 		form := url.Values{}
 		for k, v := range params {
@@ -209,6 +224,10 @@ func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, er
 
 	resp, err := c.Post(path, body, contentType)
 	if err != nil {
+		var srvErr *jenkins.ServerError
+		if errors.As(err, &srvErr) && srvErr.StatusCode == http.StatusBadRequest {
+			return 0, c.explainRejectedTrigger(jobPath, params, err)
+		}
 		return 0, fmt.Errorf("triggering build: %w", err)
 	}
 	defer CloseBody(resp)
@@ -227,6 +246,18 @@ func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, er
 		return 0, fmt.Errorf("could not parse queue item ID from Location %q: %w", loc, err)
 	}
 	return id, nil
+}
+
+// explainRejectedTrigger turns a 400 from a trigger into advice. The common
+// case is params sent to a job that has since dropped its definitions (e.g. a
+// rebuild), which Jenkins rejects as "not parameterized".
+func (c *Client) explainRejectedTrigger(jobPath string, params map[string]string, err error) error {
+	if len(params) > 0 {
+		if defs, lookupErr := c.GetJobParameters(jobPath); lookupErr == nil && len(defs) == 0 {
+			return fmt.Errorf("build request rejected — %s takes no parameters; trigger it without them: %w", jobPath, err)
+		}
+	}
+	return fmt.Errorf("build request rejected — check parameter names with 'jkit params %s': %w", jobPath, err)
 }
 
 func (c *Client) StopBuild(jobPath string, number int) error {

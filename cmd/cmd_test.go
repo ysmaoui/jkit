@@ -266,6 +266,10 @@ func TestRunCommandTrigger(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound) // CSRF disabled
 			return
 		}
+		if r.URL.Path == "/job/my-app/api/json" {
+			_, _ = w.Write([]byte(`{"property":[]}`))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/build") && r.Method == "POST" {
 			w.Header().Set("Location", srvURL+"/queue/item/42/")
 			w.WriteHeader(http.StatusCreated)
@@ -289,6 +293,10 @@ func TestRunCommandWait(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/crumbIssuer/api/json" {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Path == "/job/my-app/api/json" {
+			_, _ = w.Write([]byte(`{"property":[]}`))
 			return
 		}
 		if strings.HasSuffix(r.URL.Path, "/build") && r.Method == "POST" {
