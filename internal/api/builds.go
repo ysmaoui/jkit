@@ -323,71 +323,42 @@ func (c *Client) StopBuild(jobPath string, number int) error {
 	return nil
 }
 
-// maxLogChunk bounds how many bytes GetBuildLog reads per request. Jenkins'
-// progressiveText streams the entire log from `start` in one response, so
-// without this cap a multi-hundred-MB console would be buffered whole. Callers
-// page by feeding the returned Offset back in as start.
-const maxLogChunk = 10 << 20 // 10 MB per request
-
-// GetBuildLog fetches a chunk of the console log starting at byte offset `start`.
-// It reads at most maxLogChunk bytes and reports Offset as the byte position
-// actually reached (start + bytes read) — NOT the server's total size. HasMore
-// is true while the build is still producing output (X-More-Data) OR unread
-// bytes remain (Offset < X-Text-Size), so paging on Offset walks the entire log
-// even when it exceeds the per-request cap. (Previously Offset was set to
-// X-Text-Size and HasMore to X-More-Data alone, so a completed build larger
-// than the cap was silently truncated to its first chunk.)
-func (c *Client) GetBuildLog(jobPath string, number int, start int64) (*jenkins.LogChunk, error) {
-	path := fmt.Sprintf("%s/%d/logText/progressiveText", NormalizeJobPath(jobPath), number)
-	chunk, err := c.progressiveChunk(path, start)
-	if err != nil {
-		if e := c.enrichNotFound(jobPath, err); e != err {
-			return nil, e
-		}
-		return nil, fmt.Errorf("getting build log: %w", err)
-	}
-	return chunk, nil
+func consolePath(jobPath string, number int) string {
+	return fmt.Sprintf("%s/%d/logText/progressiveText", NormalizeJobPath(jobPath), number)
 }
 
-// progressiveChunk reads one bounded chunk from any Jenkins progressiveText
-// endpoint. A build's console and a multibranch project's indexing log are both
-// served by it with the same headers, so both page through this.
-func (c *Client) progressiveChunk(path string, start int64) (*jenkins.LogChunk, error) {
-	resp, err := c.Get(path, url.Values{"start": {strconv.FormatInt(start, 10)}})
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	text, err := io.ReadAll(io.LimitReader(resp.Body, maxLogChunk))
-	if err != nil {
-		return nil, fmt.Errorf("reading log: %w", err)
-	}
-
-	offset := start + int64(len(text))
-
-	hasMore := resp.Header.Get("X-More-Data") == "true"
-	if sz := resp.Header.Get("X-Text-Size"); sz != "" {
-		if total, err := strconv.ParseInt(sz, 10, 64); err == nil && total > offset {
-			// Unread bytes remain — e.g. a completed build whose log exceeds the
-			// per-request cap, where X-More-Data is absent.
-			hasMore = true
-		}
-	}
-
-	return &jenkins.LogChunk{
-		Text:    string(text),
-		Offset:  offset,
-		HasMore: hasMore,
-	}, nil
+// ConsoleLog follows a build's console from its first byte. See ProgressiveLog
+// for how each poll finds where the last one stopped.
+func (c *Client) ConsoleLog(jobPath string, number int) *ProgressiveLog {
+	l := c.NewProgressiveLog(consolePath(jobPath, number), 0)
+	l.explain = func(err error) error { return c.consoleErr(jobPath, err) }
+	return l
 }
 
-// GetBuildLogSize returns the current total byte size of the console log via the
-// X-Text-Size header, without downloading the body. Used to locate the tail of
-// large logs cheaply.
+func (c *Client) consoleErr(jobPath string, err error) error {
+	if e := c.enrichNotFound(jobPath, err); e != err {
+		return e
+	}
+	return fmt.Errorf("getting build log: %w", err)
+}
+
+// OpenConsoleText streams a build's whole console as it stands, console notes
+// stripped and line ends as the build wrote them. A running build's text ends
+// wherever the build is, possibly mid-line. The caller closes it.
+func (c *Client) OpenConsoleText(jobPath string, number int) (io.ReadCloser, error) {
+	resp, err := c.Get(fmt.Sprintf("%s/%d/consoleText", NormalizeJobPath(jobPath), number), nil)
+	if err != nil {
+		return nil, c.consoleErr(jobPath, err)
+	}
+	return resp.Body, nil
+}
+
+// GetBuildLogSize returns the X-Text-Size of the console log without
+// downloading the body. For a complete log that is its stored size. For a
+// running one it is the stored size on Jenkins 2.509 and later, and on earlier
+// versions only the end of the first 10000 lines, so it is a lower bound.
 func (c *Client) GetBuildLogSize(jobPath string, number int) (int64, error) {
-	path := fmt.Sprintf("%s/%d/logText/progressiveText", NormalizeJobPath(jobPath), number)
-	return c.progressiveSize(path)
+	return c.progressiveSize(consolePath(jobPath, number))
 }
 
 // progressiveSize reads only the X-Text-Size header of a progressiveText
@@ -410,44 +381,4 @@ func (c *Client) progressiveSize(path string) (int64, error) {
 		return 0, fmt.Errorf("parsing X-Text-Size %q: %w", sz, err)
 	}
 	return n, nil
-}
-
-// GetBuildLogTail returns up to the last maxBytes of the console log, trimming a
-// partial leading line when the window starts mid-stream. It probes the size,
-// then pages from the window start to the end so a window larger than the
-// per-request cap is still fully read.
-func (c *Client) GetBuildLogTail(jobPath string, number int, maxBytes int64) (string, error) {
-	size, err := c.GetBuildLogSize(jobPath, number)
-	if err != nil {
-		return "", err
-	}
-
-	start := int64(0)
-	if maxBytes > 0 && size > maxBytes {
-		start = size - maxBytes
-	}
-
-	var buf strings.Builder
-	for off := start; off < size; {
-		chunk, err := c.GetBuildLog(jobPath, number, off)
-		if err != nil {
-			return "", err
-		}
-		buf.WriteString(chunk.Text)
-		if chunk.Offset <= off {
-			break // no forward progress; avoid looping forever
-		}
-		off = chunk.Offset
-		if !chunk.HasMore {
-			break
-		}
-	}
-
-	text := buf.String()
-	if start > 0 {
-		if i := strings.IndexByte(text, '\n'); i >= 0 {
-			text = text[i+1:]
-		}
-	}
-	return text, nil
 }

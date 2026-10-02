@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -24,6 +25,10 @@ import (
 // stagePollInterval is how often streamStageLog polls for new output.
 // Overridable in tests.
 var stagePollInterval = time.Second
+
+// consolePollInterval is how often a console or scan log follow polls.
+// Overridable in tests.
+var consolePollInterval = time.Second
 
 // stuckStageCheckPolls is how many polls streamStageLog trusts an active stage
 // status before it checks that the build still runs. PGV can report a stage
@@ -333,6 +338,18 @@ func withTimeoutHint(err error) error {
 
 const stageLogTimeoutHint = "the whole stage log has to download within the HTTP timeout; raise it with --timeout (e.g. --timeout 5m)"
 
+// withConsoleTimeoutHint points at --timeout when a console read timed out.
+// A console read is one response, and http.Client's timeout covers reading
+// its body.
+func withConsoleTimeoutHint(err error) error {
+	if isTimeout(err) {
+		return fmt.Errorf("%w\n%s", err, consoleTimeoutHint)
+	}
+	return err
+}
+
+const consoleTimeoutHint = "the console has to download within the HTTP timeout; raise it with --timeout (e.g. --timeout 5m)"
+
 func isTimeout(err error) bool {
 	var ne net.Error
 	return errors.As(err, &ne) && ne.Timeout()
@@ -461,21 +478,20 @@ func runLog(cmd *cobra.Command, args []string) error {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()
 
-		streamer := output.NewLogStreamer(newFetchLog(client), jobPath, buildNum, os.Stdout)
-		return streamer.Stream(ctx)
+		return streamLog(ctx, client.ConsoleLog(jobPath, buildNum), os.Stdout, os.Stderr)
 	}
 
 	// Completed build (or one-shot with filters): stream the log rather than
 	// buffering it whole, so a multi-hundred-MB console neither blows up memory
-	// nor gets silently truncated.
+	// nor gets silently truncated. A running build is read as it stands.
 	switch {
 	case grepPattern != "":
 		return runConsoleGrep(client, jobPath, buildNum, grepPattern, grepI, tail, head, os.Stdout)
 
 	case tail > 0:
-		lines, err := consoleTailLines(client, jobPath, buildNum, tail)
+		lines, err := client.ConsoleTailLines(jobPath, buildNum, tail)
 		if err != nil {
-			return err
+			return withConsoleTimeoutHint(err)
 		}
 		if head > 0 && head < len(lines) {
 			lines = lines[:head]
@@ -523,61 +539,44 @@ func matcher(pattern string, ignoreCase bool) func(string) bool {
 }
 
 // forEachLogLine streams the console log line by line with bounded memory,
-// carrying partial lines across chunk boundaries and sanitizing each complete
-// line. fn returns false to stop early. It stops at end-of-log or once the
-// server reports no forward progress (caught up to a still-running build).
+// sanitizing each line. fn returns false to stop early. A running build is
+// read as it stands, its last line possibly unfinished.
 func forEachLogLine(client *api.Client, jobPath string, buildNum int, fn func(line string) bool) error {
-	var offset int64
-	var carry strings.Builder
+	body, err := client.OpenConsoleText(jobPath, buildNum)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = body.Close() }()
+	// bufio.Reader rather than bufio.Scanner: a Scanner token is capped and a
+	// build log line can be longer.
+	r := bufio.NewReaderSize(body, 64<<10)
 	for {
-		chunk, err := client.GetBuildLog(jobPath, buildNum, offset)
-		if err != nil {
-			return err
-		}
-		carry.WriteString(chunk.Text)
-		data := carry.String()
-		idx := 0
-		for {
-			nl := strings.IndexByte(data[idx:], '\n')
-			if nl < 0 {
-				break
-			}
-			if !fn(output.SanitizeLog(data[idx : idx+nl])) {
-				return nil
-			}
-			idx += nl + 1
-		}
-		carry.Reset()
-		carry.WriteString(data[idx:])
-
-		advanced := chunk.Offset > offset
-		offset = chunk.Offset
-		if !chunk.HasMore || !advanced {
-			if carry.Len() > 0 {
-				fn(output.SanitizeLog(carry.String()))
-			}
+		line, err := r.ReadString('\n')
+		if line != "" && !fn(output.SanitizeLog(strings.TrimSuffix(line, "\n"))) {
 			return nil
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return withConsoleTimeoutHint(fmt.Errorf("reading build log: %w", err))
 		}
 	}
 }
 
-// streamConsoleChunks writes the full console log to w in bounded-memory chunks.
+// streamConsoleChunks writes the full console log to w with bounded memory.
 func streamConsoleChunks(client *api.Client, jobPath string, buildNum int, w io.Writer) error {
-	var offset int64
-	for {
-		chunk, err := client.GetBuildLog(jobPath, buildNum, offset)
-		if err != nil {
-			return err
-		}
-		if chunk.Text != "" {
-			_, _ = fmt.Fprint(w, output.SanitizeLog(chunk.Text))
-		}
-		advanced := chunk.Offset > offset
-		offset = chunk.Offset
-		if !chunk.HasMore || !advanced {
-			return nil
-		}
+	body, err := client.OpenConsoleText(jobPath, buildNum)
+	if err != nil {
+		return err
 	}
+	defer func() { _ = body.Close() }()
+	lw := &sanitizingLineWriter{w: w}
+	if _, err := io.Copy(lw, body); err != nil {
+		return withConsoleTimeoutHint(fmt.Errorf("reading build log: %w", err))
+	}
+	lw.Flush()
+	return nil
 }
 
 // runConsoleGrep streams the log and prints matching lines. With tail>0 it keeps
@@ -620,32 +619,6 @@ func runConsoleGrep(client *api.Client, jobPath string, buildNum int, pattern st
 		}
 		return true
 	})
-}
-
-// consoleTailLines returns the last n lines of the console, fetching only a
-// tail window (not the whole log) and growing it when the window holds fewer
-// than n lines (e.g. very long lines).
-func consoleTailLines(client *api.Client, jobPath string, buildNum, n int) ([]string, error) {
-	size, err := client.GetBuildLogSize(jobPath, buildNum)
-	if err != nil {
-		return nil, err
-	}
-	const maxWindow = 64 << 20 // 64 MB
-	window := int64(2 << 20)   // 2 MB
-	for {
-		text, err := client.GetBuildLogTail(jobPath, buildNum, window)
-		if err != nil {
-			return nil, err
-		}
-		lines := splitLogLines(output.SanitizeLog(text))
-		if len(lines) >= n || window >= size || window >= maxWindow {
-			if n < len(lines) {
-				lines = lines[len(lines)-n:]
-			}
-			return lines, nil
-		}
-		window *= 2
-	}
 }
 
 // splitLogLines splits text into lines, dropping a single trailing newline so a

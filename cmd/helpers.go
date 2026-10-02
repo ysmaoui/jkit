@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -17,15 +18,22 @@ import (
 	"github.com/ysmaoui/jkit/internal/output"
 )
 
-// newFetchLog creates a FetchLogFunc from an API client.
-func newFetchLog(client *api.Client) output.FetchLogFunc {
-	return func(jp string, num int, start int64) (string, int64, bool, error) {
-		chunk, err := client.GetBuildLog(jp, num, start)
-		if err != nil {
-			return "", 0, false, err
+// streamLog follows a progressiveText log to w until it completes or ctx ends,
+// telling errW once when the server leaves it unable to show more until then.
+func streamLog(ctx context.Context, l *api.ProgressiveLog, w, errW io.Writer) error {
+	lw := &sanitizingLineWriter{w: w}
+	defer lw.Flush()
+	noted := false
+	fetch := func(ctx context.Context, w io.Writer) (bool, error) {
+		more, err := l.Read(ctx, w)
+		if err == nil && more && l.Stalled() && !noted {
+			noted = true
+			_, _ = fmt.Fprintln(errW, "note: this Jenkins sends a running log 10000 lines at a time without saying where they end; "+
+				"the rest is shown when the log completes")
 		}
-		return output.SanitizeLog(chunk.Text), chunk.Offset, chunk.HasMore, nil
+		return more, err
 	}
+	return withConsoleTimeoutHint(output.NewLogStreamer(fetch, lw, consolePollInterval).Stream(ctx))
 }
 
 // requireBuild returns the typed not-found (or container) error when the build

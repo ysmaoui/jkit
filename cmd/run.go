@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-
-	"github.com/ysmaoui/jkit/internal/output"
 )
 
 var runCmd = &cobra.Command{
@@ -110,8 +108,7 @@ pollQueue:
 
 	// Stream log if requested
 	if showLog {
-		streamer := output.NewLogStreamer(newFetchLog(client), jobPath, buildNum, os.Stdout)
-		if err := streamer.Stream(ctx); err != nil && ctx.Err() == nil {
+		if err := streamLog(ctx, client.ConsoleLog(jobPath, buildNum), os.Stdout, os.Stderr); err != nil && ctx.Err() == nil {
 			return err
 		}
 	}

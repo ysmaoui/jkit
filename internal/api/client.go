@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
@@ -47,6 +49,13 @@ type Client struct {
 	verbose        bool
 	pipelineSource PipelineSource
 	stageLogCap    int
+
+	versionMu    sync.Mutex
+	version      string
+	versionKnown bool
+	// plainProgressive is set once the server has answered progressiveText
+	// without multipart.
+	plainProgressive atomic.Bool
 }
 
 type authTransport struct {
@@ -258,6 +267,10 @@ func (c *Client) do(ctx context.Context, method, rawURL string, bodyFn func() io
 			return nil, &jenkins.UnreachableError{Host: c.host, Cause: err}
 		}
 
+		if v := resp.Header.Get("X-Jenkins"); v != "" {
+			c.setVersion(v)
+		}
+
 		if resp.StatusCode == http.StatusServiceUnavailable && attempt < maxRetries {
 			CloseBody(resp)
 			if err := sleepCtx(ctx, backoff(attempt)); err != nil {
@@ -272,6 +285,40 @@ func (c *Client) do(ctx context.Context, method, rawURL string, bodyFn func() io
 		return resp, nil
 	}
 	return nil, fmt.Errorf("max retries exceeded for %s", rawURL)
+}
+
+func (c *Client) setVersion(v string) {
+	c.versionMu.Lock()
+	defer c.versionMu.Unlock()
+	c.version, c.versionKnown = v, true
+}
+
+// serverVersion returns the Jenkins version from X-Jenkins, "" when the server
+// does not say. Jenkins sets the header on api/json and pages but not on every
+// route, progressiveText included, so when no answer has carried it yet the
+// root api/json is asked once.
+func (c *Client) serverVersion(ctx context.Context) string {
+	c.versionMu.Lock()
+	v, known := c.version, c.versionKnown
+	c.versionMu.Unlock()
+	if known {
+		return v
+	}
+	resp, err := c.getContext(ctx, "/api/json", url.Values{"tree": {"_class"}}, nil)
+	if err == nil {
+		CloseBody(resp)
+	}
+	// Only an answer settles the version: a network failure or a server
+	// error is asked again next time.
+	var unreachable *jenkins.UnreachableError
+	var se *jenkins.ServerError
+	if ctx.Err() != nil || errors.As(err, &unreachable) || errors.As(err, &se) && se.StatusCode >= 500 {
+		return ""
+	}
+	c.versionMu.Lock()
+	defer c.versionMu.Unlock()
+	c.versionKnown = true
+	return c.version
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

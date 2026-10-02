@@ -14,47 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
+	"github.com/ysmaoui/jkit/internal/staplertest"
 )
-
-func TestLFWriterUndoesCRLFRewrite(t *testing.T) {
-	tests := map[string]struct {
-		writes []string
-		want   string
-	}{
-		"rewritten LF":        {[]string{"a\r\nb\r\n"}, "a\nb\n"},
-		"CR split from LF":    {[]string{"a\r", "\nb"}, "a\nb"},
-		"lone CR kept":        {[]string{"50%\r60%\r\n"}, "50%\r60%\n"},
-		"lone CR at boundary": {[]string{"50%\r", "60%"}, "50%\r60%"},
-		"trailing CR flushed": {[]string{"a\r"}, "a\r"},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			var out strings.Builder
-			w := &lfWriter{w: &out}
-			for _, s := range tt.writes {
-				n, err := w.Write([]byte(s))
-				require.NoError(t, err)
-				assert.Equal(t, len(s), n)
-			}
-			require.NoError(t, w.Flush())
-			assert.Equal(t, tt.want, out.String())
-		})
-	}
-}
-
-func TestCopyStepLogFromRequiresTextSize(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprint(w, "not a progressiveText answer")
-	}))
-	defer srv.Close()
-
-	var out strings.Builder
-	next, _, err := NewClient(srv.URL, "u", "t").CopyStepLogFrom(context.Background(), "svc", 5, "7", 12, &out)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "X-Text-Size")
-	assert.Equal(t, int64(12), next)
-	assert.Empty(t, out.String())
-}
 
 func TestListStageStepsFallsBackToBlueOcean(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,29 +80,6 @@ func TestListStageStepsUnavailable(t *testing.T) {
 	assert.ErrorIs(t, err, ErrStepLogsUnavailable)
 }
 
-func TestCountsTextSize(t *testing.T) {
-	for version, want := range map[string]bool{
-		"2.479.3": true, "2.504.3": true, "2.508": true,
-		"2.509": false, "2.516.3": false, "2.568.3": false,
-		"": false, "garbage": false,
-	} {
-		assert.Equal(t, want, countsTextSize(version), version)
-	}
-}
-
-func TestCopyStepLogFromStreamingWithoutMeta(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "multipart/form-data;boundary=b")
-		_, _ = fmt.Fprint(w, "--b\r\nContent-Disposition: form-data;name=text\r\n\r\ncut off")
-	}))
-	defer srv.Close()
-
-	var out strings.Builder
-	next, _, err := NewClient(srv.URL, "u", "t").CopyStepLogFrom(context.Background(), "svc", 5, "7", 12, &out)
-	require.Error(t, err)
-	assert.Equal(t, int64(12), next)
-}
-
 // TestStageStepFollowerKeepsCauseAfterOutput checks that once output is
 // printed, a lost step listing reports its cause rather than asking for the
 // whole-stage fallback, which would print it again.
@@ -178,40 +116,6 @@ func TestStageStepFollowerKeepsCauseAfterOutput(t *testing.T) {
 	assert.ErrorAs(t, err, &nfe)
 }
 
-// TestCopyStepLogFromRestartedLog covers Stapler answering from offset 0 when
-// the stored log is shorter than start. A plain answer is caught before its
-// body is written; a streaming one only after its text, which is already out.
-func TestCopyStepLogFromRestartedLog(t *testing.T) {
-	cases := map[string]struct {
-		answer  func(w http.ResponseWriter)
-		written string
-	}{
-		"streaming": {func(w http.ResponseWriter) {
-			w.Header().Set("Content-Type", "multipart/form-data;boundary=b")
-			_, _ = fmt.Fprint(w, "--b\r\nContent-Disposition: form-data;name=text\r\n\r\nfrom the top\n"+
-				"\r\n--b\r\nContent-Disposition: form-data;name=meta\r\n\r\n{\"completed\":false,\"start\":0,\"end\":13}\r\n--b--")
-		}, "from the top\n"},
-		"plain": {func(w http.ResponseWriter) {
-			w.Header().Set("X-Text-Size", "13")
-			w.Header().Set("X-Jenkins", "2.479.3")
-			w.Header().Set("X-More-Data", "true")
-			_, _ = fmt.Fprint(w, "from the top\r\n")
-		}, ""},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { tc.answer(w) }))
-			defer srv.Close()
-
-			var out strings.Builder
-			next, _, err := NewClient(srv.URL, "u", "t").CopyStepLogFrom(context.Background(), "svc", 5, "7", 40, &out)
-			assert.ErrorIs(t, err, errStepLogRestarted)
-			assert.Equal(t, int64(40), next)
-			assert.Equal(t, tc.written, out.String())
-		})
-	}
-}
-
 // stepListingServer lists one running step 7 whose streaming log is "line\n",
 // failing the listing with 500 on the calls fail marks.
 func stepListingServer(t *testing.T, fail func(call int) bool) *httptest.Server {
@@ -228,14 +132,7 @@ func stepListingServer(t *testing.T, fail func(call int) bool) *httptest.Server 
 				"steps": []map[string]any{{"id": "7", "state": "running"}},
 			}})
 		case strings.HasSuffix(r.URL.Path, "/log/logText/progressiveText"):
-			w.Header().Set("Content-Type", "multipart/form-data;boundary=b")
-			if r.URL.Query().Get("start") != "0" {
-				_, _ = fmt.Fprint(w, "--b\r\nContent-Disposition: form-data;name=text\r\n\r\n"+
-					"\r\n--b\r\nContent-Disposition: form-data;name=meta\r\n\r\n{\"completed\":false,\"start\":5,\"end\":5}\r\n--b--")
-				return
-			}
-			_, _ = fmt.Fprint(w, "--b\r\nContent-Disposition: form-data;name=text\r\n\r\nline\n"+
-				"\r\n--b\r\nContent-Disposition: form-data;name=meta\r\n\r\n{\"completed\":false,\"start\":0,\"end\":5}\r\n--b--")
+			staplertest.WriteProgressive(w, r, staplertest.Streaming, "line\n", true)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

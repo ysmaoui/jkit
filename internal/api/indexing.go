@@ -101,15 +101,12 @@ func (c *Client) multibranchParent(jobPath string) (parent, branch string, ok bo
 	return parent, jenkins.DecodeBranchJobName(branch), true
 }
 
-// GetScanLog fetches a chunk of the indexing log from byte offset start. Offset
-// and HasMore behave as they do for a build console, so the same streamer drives
-// a scan that is still running.
-func (c *Client) GetScanLog(t *ScanTarget, start int64) (*jenkins.LogChunk, error) {
-	chunk, err := c.progressiveChunk(t.logBase+"/logText/progressiveText", start)
-	if err != nil {
-		return nil, c.scanLogError(t, err)
-	}
-	return chunk, nil
+// ScanLog reads the indexing log from its first byte. It is served like a
+// build console, so the same streamer drives a scan that is still running.
+func (c *Client) ScanLog(t *ScanTarget) *ProgressiveLog {
+	l := c.NewProgressiveLog(t.logBase+"/logText/progressiveText", 0)
+	l.explain = func(err error) error { return c.scanLogError(t, err) }
+	return l
 }
 
 // GetScanLogSize returns the byte size of the indexing log without downloading

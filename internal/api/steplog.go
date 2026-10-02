@@ -6,19 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
-	"mime/multipart"
-	"net/http"
 	"net/url"
-	"strconv"
-	"strings"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 // ErrStepLogsUnavailable means a stage cannot be read step by step: no source
-// lists its steps, the server lacks core's per-node log route, or it cannot
-// say where a running step's log stops.
+// lists its steps, or the server lacks core's per-node log route.
 var ErrStepLogsUnavailable = errors.New("per-step stage logs unavailable")
 
 // stepLogsUnavailable is ErrStepLogsUnavailable with the error behind it.
@@ -29,15 +23,6 @@ func (e *stepLogsUnavailable) Error() string {
 }
 func (e *stepLogsUnavailable) Is(target error) bool { return target == ErrStepLogsUnavailable }
 func (e *stepLogsUnavailable) Unwrap() error        { return e.cause }
-
-// errStepOffsetUnknown means a plain progressiveText answer for a running step
-// came from a server whose X-Text-Size may run past the body it sends.
-var errStepOffsetUnknown = errors.New("server does not report where a running step's log text stops")
-
-// errStepLogRestarted means the server answered from an earlier offset than
-// asked, which Stapler does when the stored log is shorter than the offset:
-// it resends the log from 0.
-var errStepLogRestarted = errors.New("server restarted the step log from an earlier offset")
 
 // maxExceptionText bounds one exception text read. It is a message or a stack
 // trace, never log output.
@@ -125,180 +110,19 @@ func (c *Client) listStageStepsPGV(ctx context.Context, jobPath string, number i
 	return steps, nil
 }
 
-// CopyStepLogFrom copies a pipeline step's log from byte offset start to w
-// through core's progressiveText and returns the offset to ask for next. more
-// reports that the step may still write. A step that has written nothing has
-// no log action, so its route 404s. Cancelling ctx aborts the request at any
-// point.
-//
-// Where the next offset comes from depends on the Stapler version behind the
-// server, so the request asks for the multipart streaming answer (Stapler
-// 2050, Jenkins 2.534) and reads a plain one by what the server's version
-// makes of X-Text-Size:
-//
-//   - multipart: the text part runs up to the last complete line, with console
-//     notes stripped, and the meta part's "end" is the stored offset where it
-//     stops.
-//   - plain, step complete: every Stapler sends the rest of the log and sets
-//     X-Text-Size to its end.
-//   - plain, step running, Jenkins up to 2.508 (Stapler before 1979):
-//     X-Text-Size is counted from what was sent, up to the last complete line.
-//   - plain, step running, any later Jenkins: X-Text-Size is the stored length.
-//     Stapler 2029 (#703) and later stop the body at the last complete line and
-//     after 10000 lines, so the gap would be lost; 1979 to 2028 could send a
-//     body running past X-Text-Size. errStepOffsetUnknown comes back before the
-//     body is read.
-//
-// A server answering from an earlier offset than start, as Stapler does once
-// the stored log is shorter than start, gives errStepLogRestarted. A plain
-// answer is caught before its body is read. A streaming one shows it only in
-// the meta part after the text, so the resent text may already be written.
-// Step logs only grow, so neither is expected.
-//
-// Plain bodies go through Stapler's LineEndNormalizingWriter, which turns a
-// lone LF into CRLF; lfWriter turns them back.
-func (c *Client) CopyStepLogFrom(ctx context.Context, jobPath string, number int, stepID string, start int64, w io.Writer) (next int64, more bool, err error) {
+// stepLog reads a pipeline step's log through core's progressiveText. A step
+// that has written nothing has no log action, so its route 404s.
+func (c *Client) stepLog(jobPath string, number int, stepID string) *ProgressiveLog {
 	path := fmt.Sprintf("%s/%d/execution/node/%s/log/logText/progressiveText", NormalizeJobPath(jobPath), number, url.PathEscape(stepID))
-	resp, err := c.getContext(ctx, path, url.Values{"start": {strconv.FormatInt(start, 10)}},
-		http.Header{"Accept": {"multipart/form-data"}})
-	if err != nil {
-		return start, false, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	mediaType, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if mediaType == "multipart/form-data" {
-		next, more, err = copyStreamingStepLog(resp.Body, params["boundary"], start, w)
-	} else {
-		next, more, err = copyPlainStepLog(resp, start, w)
-	}
-	if err != nil {
-		if ctx.Err() != nil {
-			return start, false, ctx.Err()
+	l := c.NewProgressiveLog(path, 0)
+	l.explain = func(err error) error {
+		var nfe *jenkins.NotFoundError
+		if errors.As(err, &nfe) {
+			return err
 		}
-		if errors.Is(err, errStepOffsetUnknown) {
-			return start, more, err
-		}
-		return start, false, fmt.Errorf("reading step %s log: %w", stepID, err)
+		return fmt.Errorf("reading step %s log: %w", stepID, err)
 	}
-	return next, more, nil
-}
-
-func copyStreamingStepLog(body io.Reader, boundary string, start int64, w io.Writer) (next int64, more bool, err error) {
-	mr := multipart.NewReader(body, boundary)
-	text, err := mr.NextPart()
-	if err != nil {
-		return 0, false, err
-	}
-	if text.FormName() != "text" {
-		return 0, false, fmt.Errorf("streaming answer starts with part %q, not text", text.FormName())
-	}
-	if _, err := io.Copy(w, text); err != nil {
-		return 0, false, err
-	}
-	meta, err := mr.NextPart()
-	if err != nil {
-		return 0, false, fmt.Errorf("streaming answer has no meta part: %w", err)
-	}
-	var m struct {
-		Completed bool   `json:"completed"`
-		Start     *int64 `json:"start"`
-		End       *int64 `json:"end"`
-	}
-	if err := json.NewDecoder(meta).Decode(&m); err != nil {
-		return 0, false, fmt.Errorf("decoding streaming meta: %w", err)
-	}
-	if m.End == nil {
-		return 0, false, errors.New("streaming meta has no end offset")
-	}
-	if m.Start != nil && *m.Start != start {
-		return 0, false, fmt.Errorf("%w: asked for %d, got %d", errStepLogRestarted, start, *m.Start)
-	}
-	return *m.End, !m.Completed, nil
-}
-
-func copyPlainStepLog(resp *http.Response, start int64, w io.Writer) (next int64, more bool, err error) {
-	size, err := strconv.ParseInt(resp.Header.Get("X-Text-Size"), 10, 64)
-	if err != nil {
-		return 0, false, fmt.Errorf("no usable X-Text-Size: %w", err)
-	}
-	if size < start {
-		return 0, false, fmt.Errorf("%w: asked for %d, log ends at %d", errStepLogRestarted, start, size)
-	}
-	more = resp.Header.Get("X-More-Data") == "true"
-	if more && size > start && !countsTextSize(resp.Header.Get("X-Jenkins")) {
-		return 0, true, errStepOffsetUnknown
-	}
-	lf := &lfWriter{w: w}
-	if _, err := io.Copy(lf, resp.Body); err != nil {
-		return 0, false, err
-	}
-	if err := lf.Flush(); err != nil {
-		return 0, false, err
-	}
-	return size, more, nil
-}
-
-// countsTextSize reports whether a Jenkins version answers a plain
-// progressiveText request for an unfinished log with the offset it read up to.
-// Stapler 1979 (#657), first in Jenkins 2.509, sends the stored length instead.
-// An unknown version is not trusted.
-func countsTextSize(version string) bool {
-	major, rest, ok := strings.Cut(version, ".")
-	minor, _, _ := strings.Cut(rest, ".")
-	maj, err1 := strconv.Atoi(major)
-	mnr, err2 := strconv.Atoi(minor)
-	if !ok || err1 != nil || err2 != nil {
-		return false
-	}
-	return maj < 2 || maj == 2 && mnr < 509
-}
-
-// lfWriter undoes Stapler's LF-to-CRLF rewrite of plain progressiveText, so
-// step output matches the whole-stage log, which is sent as stored. It drops
-// every CR before an LF, so a CRLF the step itself wrote comes out as LF. A CR
-// ending one write is held until the next shows what follows.
-type lfWriter struct {
-	w         io.Writer
-	pendingCR bool
-}
-
-func (l *lfWriter) Write(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	buf := make([]byte, 0, len(p)+1)
-	if l.pendingCR && p[0] != '\n' {
-		buf = append(buf, '\r')
-	}
-	l.pendingCR = false
-	for i, b := range p {
-		if b == '\r' {
-			if i == len(p)-1 {
-				l.pendingCR = true
-				continue
-			}
-			if p[i+1] == '\n' {
-				continue
-			}
-		}
-		buf = append(buf, b)
-	}
-	if _, err := l.w.Write(buf); err != nil {
-		return 0, err
-	}
-	return len(p), nil
-}
-
-// Flush writes a held CR. The next response cannot pair it with an LF: the
-// server rewrites an LF there as CRLF, which is dropped back to LF.
-func (l *lfWriter) Flush() error {
-	if !l.pendingCR {
-		return nil
-	}
-	l.pendingCR = false
-	_, err := l.w.Write([]byte{'\r'})
-	return err
+	return l
 }
 
 // GetStepExceptionText returns the error text PGV's stage log appends after a
@@ -342,7 +166,8 @@ func (c *Client) flowNodeExists(ctx context.Context, jobPath string, number int,
 
 // StageStepFollower follows a stage's log step by step. Neither whole-stage
 // log endpoint takes an offset, but core serves each step's log from one, so
-// every poll downloads only what the steps wrote since the last.
+// every poll downloads only what the steps wrote since the last. See
+// ProgressiveLog for how it finds where the last poll stopped.
 //
 // Steps print in listing order, and a step prints only once every earlier step
 // has finished and been drained, which is the order the whole-stage log
@@ -353,7 +178,7 @@ type StageStepFollower struct {
 	jobPath string
 	number  int
 	nodeID  string
-	offsets map[string]int64
+	logs    map[string]*ProgressiveLog
 	done    map[string]bool
 	wrote   bool
 	// routeOK is set once the per-node route is known to answer, so a 404
@@ -365,8 +190,8 @@ type StageStepFollower struct {
 func (c *Client) NewStageStepFollower(jobPath string, number int, nodeID string) *StageStepFollower {
 	return &StageStepFollower{
 		c: c, jobPath: jobPath, number: number, nodeID: nodeID,
-		offsets: map[string]int64{},
-		done:    map[string]bool{},
+		logs: map[string]*ProgressiveLog{},
+		done: map[string]bool{},
 	}
 }
 
@@ -391,24 +216,21 @@ func (f *StageStepFollower) Poll(ctx context.Context, w io.Writer, final bool) e
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		start := f.offsets[s.ID]
-		next, more, err := f.c.CopyStepLogFrom(ctx, f.jobPath, f.number, s.ID, start, w)
+		log := f.logs[s.ID]
+		if log == nil {
+			log = f.c.stepLog(f.jobPath, f.number, s.ID)
+			f.logs[s.ID] = log
+		}
+		more, err := log.Read(ctx, w)
 		var nfe *jenkins.NotFoundError
 		switch {
 		case err == nil:
-			f.offsets[s.ID] = next
 			f.routeOK = true
-		case errors.Is(err, errStepOffsetUnknown):
-			if !f.wrote {
-				return &stepLogsUnavailable{err}
+			// A stalled step shows the rest once it completes, which every
+			// server reports correctly.
+			if final && log.Stalled() {
+				return fmt.Errorf("step %s of stage %s has not closed its log, and the server does not report where its running text stops", s.ID, f.nodeID)
 			}
-			// Earlier steps are printed, so the whole-stage log cannot take
-			// over. The step waits until it completes, which every server
-			// reports correctly.
-			if final {
-				return fmt.Errorf("step %s of stage %s has not closed its log, and %w", s.ID, f.nodeID, err)
-			}
-			return nil
 		case errors.As(err, &nfe):
 			if !f.routeOK {
 				ok, err := f.c.flowNodeExists(ctx, f.jobPath, f.number, s.ID)

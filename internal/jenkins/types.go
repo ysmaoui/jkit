@@ -318,12 +318,6 @@ type QueueItem struct {
 	} `json:"executable"`
 }
 
-type LogChunk struct {
-	Text    string
-	Offset  int64
-	HasMore bool
-}
-
 type TestReport struct {
 	Duration  float64     `json:"duration"`
 	FailCount int         `json:"failCount"`

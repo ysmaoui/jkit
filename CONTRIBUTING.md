@@ -47,7 +47,7 @@ cmd/
   config.go                 # jkit config list/set-default/remove/set-alias
   completion.go             # jkit completion
   factory.go                # clientFromCmd — creates API client from cobra flags
-  helpers.go                # shared helpers (formatDuration, newFetchLog, resolveJobArgs)
+  helpers.go                # shared helpers (formatDuration, streamLog, resolveJobArgs)
   auth/
     auth.go                 # auth subcommand group
     login.go                # jkit auth login
@@ -57,21 +57,25 @@ internal/
     client.go               # HTTP client, auth transport, cookie jar, retry, crumb handling
     crumb.go                # CSRF crumb fetch/cache/invalidate
     jobs.go                 # ListJobs, GetJob
-    builds.go               # TriggerBuild, GetBuild, GetBuilds, GetBuildLog, GetQueueItem, StopBuild
+    builds.go               # TriggerBuild, GetBuild, GetBuilds, ConsoleLog, OpenConsoleText, StopBuild
     pipeline.go             # GetPipelineStages, GetStageLog (Blue Ocean REST API)
+    progressive.go          # ProgressiveLog: progressiveText followed poll by poll
+    consoletail.go          # GetBuildLogTail, ConsoleTailLines: console tail per Stapler version
   config/
     config.go               # YAML config load/save, XDG path resolution
   context/
     resolver.go             # Job auto-detection: .jkit.yml → git remote → dirname
     url_parser.go           # Parse Jenkins URLs (classic + Blue Ocean)
   jenkins/
-    types.go                # Domain types: Job, Build, Stage, QueueItem, LogChunk, TestReport, etc.
+    types.go                # Domain types: Job, Build, Stage, QueueItem, TestReport, etc.
     errors.go               # Typed errors: AuthError, NotFoundError, PermissionError, etc.
     stage_tree.go           # BuildStageTree — flat stages to depth-annotated tree
   output/
     formatter.go            # Table, JSON, Go template output
     color.go                # ANSI color for build statuses
     log_streamer.go         # Progressive log streaming with polling
+  staplertest/
+    staplertest.go          # Test fake: progressiveText as each Stapler version answers
   waiter/
     waiter.go               # Poll a build or stage until it has a result
 integration/

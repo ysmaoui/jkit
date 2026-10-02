@@ -547,6 +547,10 @@ func TestLogCommand(t *testing.T) {
 			_, _ = fmt.Fprint(w, "hello world")
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/consoleText") {
+			_, _ = fmt.Fprint(w, "hello world")
+			return
+		}
 	}))
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)

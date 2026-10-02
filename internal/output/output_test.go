@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -165,22 +166,23 @@ func TestColorStatusValues(t *testing.T) {
 
 func TestLogStreamerComplete(t *testing.T) {
 	call := 0
-	fetch := func(jobPath string, number int, start int64) (string, int64, bool, error) {
+	fetch := func(_ context.Context, w io.Writer) (bool, error) {
 		call++
 		switch call {
 		case 1:
-			return "chunk1\n", 10, true, nil
+			_, _ = io.WriteString(w, "chunk1\n")
+			return true, nil
 		case 2:
-			return "chunk2\n", 20, false, nil
+			_, _ = io.WriteString(w, "chunk2\n")
+			return false, nil
 		default:
 			t.Fatal("unexpected extra call")
-			return "", 0, false, nil
+			return false, nil
 		}
 	}
 
 	var buf bytes.Buffer
-	s := NewLogStreamer(fetch, "/job/test", 1, &buf)
-	s.pollInterval = time.Millisecond
+	s := NewLogStreamer(fetch, &buf, time.Millisecond)
 
 	err := s.Stream(context.Background())
 	require.NoError(t, err)
@@ -189,13 +191,13 @@ func TestLogStreamerComplete(t *testing.T) {
 }
 
 func TestLogStreamerCancel(t *testing.T) {
-	fetch := func(jobPath string, number int, start int64) (string, int64, bool, error) {
-		return "text", 10, true, nil
+	fetch := func(_ context.Context, w io.Writer) (bool, error) {
+		_, _ = io.WriteString(w, "text")
+		return true, nil
 	}
 
 	var buf bytes.Buffer
-	s := NewLogStreamer(fetch, "/job/test", 1, &buf)
-	s.pollInterval = time.Millisecond
+	s := NewLogStreamer(fetch, &buf, time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
@@ -241,13 +243,12 @@ func TestSanitizeLogOnlyAnnotation(t *testing.T) {
 
 func TestLogStreamerError(t *testing.T) {
 	fetchErr := fmt.Errorf("connection refused")
-	fetch := func(jobPath string, number int, start int64) (string, int64, bool, error) {
-		return "", 0, false, fetchErr
+	fetch := func(context.Context, io.Writer) (bool, error) {
+		return false, fetchErr
 	}
 
 	var buf bytes.Buffer
-	s := NewLogStreamer(fetch, "/job/test", 1, &buf)
-	s.pollInterval = time.Millisecond
+	s := NewLogStreamer(fetch, &buf, time.Millisecond)
 
 	err := s.Stream(context.Background())
 	require.Error(t, err)

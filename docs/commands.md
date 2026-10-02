@@ -462,6 +462,9 @@ Run it on the container. A multibranch pipeline or an organization folder has an
 indexing log; a folder, a plain job and a branch child do not, and each is
 refused by name with the target to use instead.
 
+`--follow` reads the log the way `jkit log -f` reads a console, with the same
+limits on Jenkins 2.509 to 2.533.
+
 ```bash
 jkit scan team/svc                      # the log, verbatim
 jkit scan team/svc --branch feature/x   # only that head's block
@@ -645,10 +648,36 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 - Defaults to latest build if no build# given
 - Auto-follows if build is in progress (disabled when `--grep`, `--tail`, or `--head` active)
 - Large logs are handled without buffering the whole console in memory:
-  - `--tail N` fetches only a tail window from the server (cheap even on multi-GB logs)
+  - `--tail N` fetches only a tail window from the server, 2 MB and doubled
+    while it holds fewer than N lines. What that costs depends on the Jenkins
+    version:
+    - 2.534 and later: one request for the window
+    - up to 2.508, running build: pages from about the 10000th line to the end
+    - 2.509 to 2.533, running build: halves the window until one response holds
+      it; when that cannot hold N lines, downloads the whole console
+    - any version, finished build: one request for the window
   - `--head N` stops reading once N lines are seen
   - `--grep` streams the full log with bounded memory and exits early under `--head`
   - an unfiltered `jkit log` over `--max-bytes` is refused with guidance (use `--tail`/`--head`/`--grep`, redirect, or `--max-bytes 0`) rather than silently truncated
+  - The whole console comes in one response, which has to arrive within
+    `--timeout`; a timed-out read says so
+- `--grep`, `--head` and a plain dump of a running build read the console as it
+  stands, an unfinished last line included, and exit. `--tail` on a running
+  build ends at the last complete line
+- `-f` prints each byte of the console once, on every Jenkins version
+  - An unfinished line prints once it is complete
+  - On Jenkins 2.534 and later each poll downloads what is new, about twice
+    over when it finds the build mid-line. With console notes since the last
+    line end it found (pipeline step lines carry them), a poll can take
+    several requests and download what is new several times over
+  - On Jenkins 2.509 to 2.533, a running build that writes more than 5000 to
+    10000 lines between two polls stops printing at that point, with a note on
+    stderr, and the rest prints when the build finishes. Polls that keep
+    landing mid-line download again from the last line start one landed on.
+    On 2.509 to 2.526, and on LTS 2.516, a build that writes during every poll
+    is downloaded again from that line start each time, up to that limit
+  - Before Jenkins 2.534, a CRLF line ending the build wrote itself prints as
+    LF with `-f`
 - `--stage` requires the Pipeline Graph View or Blue Ocean plugin
 - When a bare `--stage` name matches multiple stages (e.g. the same stage in two
   parallel branches), the command errors and lists each candidate's qualified
@@ -680,10 +709,10 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
   - Steps print in order, each once it has started and every earlier step has
     finished, so the output matches the whole stage log. A stage's own steps
     run one after another; steps of parallel branches belong to the branches
-  - Live output of a running step needs Jenkins 2.534 or later (streaming
-    progressive text) or 2.508 or earlier. Jenkins 2.509 to 2.533 cannot say
-    where a running step's text stops: there `-f` follows the whole stage log,
-    or, once earlier steps are printed, shows a running step when it finishes
+  - Steps are read the same way `-f` reads the console. On Jenkins 2.509 to
+    2.533 a running step that writes more than 10000 lines between two polls
+    shows the rest when it finishes. If the stage ends first, the command
+    fails, saying which step never closed its log
   - With Pipeline Graph View, a failed step's error text follows its log, as
     in the stage log. When Blue Ocean lists the steps it is left out
   - Read step by step on Jenkins before 2.534, a step's own CRLF line endings

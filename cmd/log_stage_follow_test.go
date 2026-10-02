@@ -17,75 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/staplertest"
 )
-
-// staplerMode is how a Jenkins version answers progressiveText.
-type staplerMode int
-
-const (
-	// staplerStreaming (Stapler 2050+, Jenkins 2.534+) answers a request that
-	// accepts multipart/form-data with a text part and a meta part holding
-	// the counted end offset.
-	staplerStreaming staplerMode = iota
-	// staplerCounted (Stapler before 1979, Jenkins up to 2.508) answers plain
-	// text and counts X-Text-Size from what it sent.
-	staplerCounted
-	// staplerUncounted (Stapler 1979-2049, Jenkins 2.509-2.533) answers plain
-	// text with X-Text-Size set to the stored length, ahead of the body while
-	// the log is open.
-	staplerUncounted
-)
-
-var staplerJenkins = map[staplerMode]string{
-	staplerStreaming: "2.568.3", staplerCounted: "2.479.3", staplerUncounted: "2.516.3",
-}
-
-func (m staplerMode) String() string {
-	return map[staplerMode]string{staplerStreaming: "streaming", staplerCounted: "counted", staplerUncounted: "uncounted"}[m]
-}
-
-// writeProgressive answers a progressiveText request for a stored log the way
-// Stapler in mode does. An open log is sent only up to its last complete
-// line, and plain answers at most maxLines lines of it. Plain bodies turn LF
-// into CRLF.
-func writeProgressive(w http.ResponseWriter, r *http.Request, mode staplerMode, log string, open bool, maxLines int) {
-	w.Header().Set("X-Jenkins", staplerJenkins[mode])
-	start, _ := strconv.Atoi(r.URL.Query().Get("start"))
-	if start > len(log) {
-		start = 0
-	}
-	sent := log[start:]
-	if open {
-		sent = sent[:strings.LastIndexByte(sent, '\n')+1]
-	}
-	streaming := mode == staplerStreaming && strings.HasPrefix(r.Header.Get("Accept"), "multipart/form-data")
-	if open && !streaming {
-		lines := strings.SplitAfter(sent, "\n")
-		if len(lines) > maxLines {
-			sent = strings.Join(lines[:maxLines], "")
-		}
-	}
-	end := start + len(sent)
-
-	if streaming {
-		const b = "8e3512e1-ca67-4429-a54e-bf380e9743df"
-		w.Header().Set("Content-Type", "multipart/form-data;boundary="+b+";charset=utf-8")
-		meta, _ := json.Marshal(map[string]any{"completed": !open, "start": start, "end": end})
-		_, _ = fmt.Fprintf(w, "--%s\r\nContent-Disposition: form-data;name=text\r\nContent-Type: text/plain;charset=utf-8\r\n\r\n%s"+
-			"\r\n--%s\r\nContent-Disposition: form-data;name=meta\r\nContent-Type: application/json;charset=utf-8\r\n\r\n%s\r\n--%s--",
-			b, sent, b, meta, b)
-		return
-	}
-	size := len(log)
-	if mode == staplerCounted {
-		size = end
-	}
-	w.Header().Set("X-Text-Size", strconv.Itoa(size))
-	if open {
-		w.Header().Set("X-More-Data", "true")
-	}
-	_, _ = io.WriteString(w, strings.ReplaceAll(sent, "\n", "\r\n"))
-}
 
 // scriptedStep is one step of stage 4 as of poll tick: its log so far, whether
 // it still runs, and whether it failed. A step with log "" has no log action,
@@ -104,15 +37,14 @@ type scriptedStep struct {
 // does.
 type stepFollowServer struct {
 	*httptest.Server
-	mu       sync.Mutex
-	tick     int
-	maxLines int
-	starts   map[string][]int64
+	mu     sync.Mutex
+	tick   int
+	starts map[string][]int64
 }
 
-func newStepFollowServer(t *testing.T, mode staplerMode, steps func(tick int) []scriptedStep, stageRunning func(tick int) bool) *stepFollowServer {
+func newStepFollowServer(t *testing.T, mode staplertest.Mode, steps func(tick int) []scriptedStep, stageRunning func(tick int) bool) *stepFollowServer {
 	t.Helper()
-	s := &stepFollowServer{starts: map[string][]int64{}, maxLines: 10000}
+	s := &stepFollowServer{starts: map[string][]int64{}}
 	find := func(id string) (scriptedStep, bool) {
 		for _, st := range steps(s.tick) {
 			if st.id == id {
@@ -126,6 +58,8 @@ func newStepFollowServer(t *testing.T, mode staplerMode, steps func(tick int) []
 		defer s.mu.Unlock()
 		p := r.URL.Path
 		switch {
+		case p == "/api/json":
+			staplertest.WriteRoot(w, mode)
 		case strings.HasSuffix(p, "/5/stages/tree"):
 			s.tick++
 			state := "success"
@@ -168,7 +102,7 @@ func newStepFollowServer(t *testing.T, mode staplerMode, steps func(tick int) []
 			}
 			start, _ := strconv.ParseInt(r.URL.Query().Get("start"), 10, 64)
 			s.starts[id] = append(s.starts[id], start)
-			writeProgressive(w, r, mode, st.log, st.active, s.maxLines)
+			staplertest.WriteProgressive(w, r, mode, st.log, st.active)
 		case strings.HasPrefix(p, "/job/my-app/5/execution/node/"):
 			_, _ = fmt.Fprint(w, "<html>flow node</html>")
 		default:
@@ -192,11 +126,21 @@ func fastStagePolls(t *testing.T) {
 	t.Cleanup(func() { stagePollInterval = old })
 }
 
-// offsetModes are the Stapler answers that say where an open log stops.
-var offsetModes = []staplerMode{staplerStreaming, staplerCounted}
-
 func TestLogStageFollowReadsStepsByOffset(t *testing.T) {
-	for _, mode := range offsetModes {
+	// Only a counted answer says where an open log's text stops. A multipart
+	// server is asked for the last LF before the stored length it reported:
+	// at the byte before it, then for the unterminated "b2" where the text
+	// written puts it, offset 2, with none at 3. A plain one is asked from
+	// one byte before the stored length, and when that byte is not a
+	// newline, from the last known line start.
+	wantStarts := map[staplertest.Mode]map[string][]int64{
+		staplertest.Streaming: {"10": {0, 2, 5}, "11": {0, 4, 2, 3}},
+		staplertest.Counted:   {"10": {0, 3, 6}, "11": {0, 3}},
+		staplertest.Uncounted: {"10": {0, 2, 5}, "11": {0, 4, 0}},
+		// Overrun also checks after each answer that the log did not grow.
+		staplertest.Overrun: {"10": {0, 3, 2, 6, 5}, "11": {0, 5, 4, 0}},
+	}
+	for _, mode := range staplertest.Modes {
 		t.Run(mode.String(), func(t *testing.T) {
 			fastStagePolls(t)
 			srv := newStepFollowServer(t, mode, func(tick int) []scriptedStep {
@@ -232,8 +176,8 @@ func TestLogStageFollowReadsStepsByOffset(t *testing.T) {
 			// A step that is finished and drained is never fetched again, a
 			// later step waits until the one before it finishes, and the
 			// partial "b2" held back at offset 3 is read with the rest.
-			assert.Equal(t, []int64{0, 3, 6}, srv.startsFor("10"))
-			assert.Equal(t, []int64{0, 3}, srv.startsFor("11"))
+			assert.Equal(t, wantStarts[mode]["10"], srv.startsFor("10"))
+			assert.Equal(t, wantStarts[mode]["11"], srv.startsFor("11"))
 		})
 	}
 }
@@ -242,19 +186,19 @@ func TestLogStageFollowReadsStepsByOffset(t *testing.T) {
 // from an open log, a partial line or lines past its per-answer line cap, is
 // read on a later poll rather than skipped.
 func TestLogStageFollowKeepsHeldBackText(t *testing.T) {
+	head := numberedLines(staplertest.MaxLinesRead + 5)
 	logs := []string{
-		"1\n2\n3\n4\n5\npartial-head-",
-		"1\n2\n3\n4\n5\npartial-head-partial-tail\n6\n",
-		"1\n2\n3\n4\n5\npartial-head-partial-tail\n6\n7\n",
+		head + "partial-head-",
+		head + "partial-head-partial-tail\n6\n",
+		head + "partial-head-partial-tail\n6\n7\n",
 	}
-	for _, mode := range offsetModes {
+	for _, mode := range staplertest.Modes {
 		t.Run(mode.String(), func(t *testing.T) {
 			fastStagePolls(t)
 			srv := newStepFollowServer(t, mode, func(tick int) []scriptedStep {
 				i := min(tick, len(logs)-1)
 				return []scriptedStep{{id: "7", log: logs[i], active: tick < 4}}
 			}, func(tick int) bool { return tick < 5 })
-			srv.maxLines = 2
 			setupTestConfig(t, srv.URL)
 
 			out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
@@ -264,50 +208,34 @@ func TestLogStageFollowKeepsHeldBackText(t *testing.T) {
 	}
 }
 
-// TestLogStageFollowUncountedFallsBackToStageLog covers Jenkins 2.509-2.533,
-// whose X-Text-Size for an open step log runs past what it sends. With nothing
-// printed yet, the whole-stage log is followed instead.
-func TestLogStageFollowUncountedFallsBackToStageLog(t *testing.T) {
-	fastStagePolls(t)
-	logs := []string{"x\ny\npart", "x\ny\npartial li", "x\ny\npartial line\n"}
-	srv := newStepFollowServer(t, staplerUncounted, func(tick int) []scriptedStep {
-		i := min(tick, len(logs)-1)
-		return []scriptedStep{{id: "7", log: logs[i], active: i < len(logs)-1}}
-	}, func(tick int) bool { return tick < 2 })
-	srv.maxLines = 1
-	setupTestConfig(t, srv.URL)
-
-	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
-	require.NoError(t, err)
-	assert.Equal(t, logs[2], out)
-	assert.Equal(t, []int64{0}, srv.startsFor("7"), "no step log read after the first answer")
-}
-
-// TestLogStageFollowUncountedWaitsForStepEnd covers the same servers once
-// earlier steps are printed: the whole-stage log cannot take over, so an open
-// step is read only once its log is complete.
+// TestLogStageFollowUncountedWaitsForStepEnd covers Jenkins 2.509-2.533 once
+// a running step writes more lines than one plain answer holds: the answer
+// does not say where it stopped, so the rest shows once the step completes,
+// and meanwhile only the step's state is checked.
 func TestLogStageFollowUncountedWaitsForStepEnd(t *testing.T) {
 	fastStagePolls(t)
-	srv := newStepFollowServer(t, staplerUncounted, func(tick int) []scriptedStep {
+	burst := numberedLines(staplertest.MaxLinesRead + 3)
+	srv := newStepFollowServer(t, staplertest.Uncounted, func(tick int) []scriptedStep {
 		switch tick {
 		case 0:
 			return []scriptedStep{{id: "10", log: "a\n"}, {id: "11", log: "b1\n", active: true}}
-		case 1:
-			return []scriptedStep{{id: "10", log: "a\n"}, {id: "11", log: "b1\nb2\nb3", active: true}}
+		case 1, 2:
+			return []scriptedStep{{id: "10", log: "a\n"}, {id: "11", log: "b1\n" + burst, active: true}}
 		default:
-			return []scriptedStep{{id: "10", log: "a\n"}, {id: "11", log: "b1\nb2\nb3\nb4\n"}}
+			return []scriptedStep{{id: "10", log: "a\n"}, {id: "11", log: "b1\n" + burst + "b4\n"}}
 		}
-	}, func(tick int) bool { return tick < 3 })
-	srv.maxLines = 1
+	}, func(tick int) bool { return tick < 4 })
 	setupTestConfig(t, srv.URL)
 
 	var out string
 	var err error
 	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
 	require.NoError(t, err)
-	assert.Equal(t, "a\nb1\nb2\nb3\nb4\n", out)
+	assert.Equal(t, "a\nb1\n"+burst+"b4\n", out)
 	assert.Empty(t, stderr)
-	assert.Equal(t, []int64{0, 0, 0}, srv.startsFor("11"))
+	// From the line start after "b1", a capped answer, a state check, then
+	// the rest once complete.
+	assert.Equal(t, []int64{0, 2, 3, 3, 3}, srv.startsFor("11"))
 }
 
 func TestLogStageFollowHasNoSizeLimit(t *testing.T) {
@@ -315,7 +243,7 @@ func TestLogStageFollowHasNoSizeLimit(t *testing.T) {
 	shrinkStageLogCap(t)
 	cut := func(n int) string { return bigStageLogBody[:strings.LastIndexByte(bigStageLogBody[:n], '\n')+1] }
 	pieces := []string{cut(200), cut(450), bigStageLogBody}
-	srv := newStepFollowServer(t, staplerStreaming, func(tick int) []scriptedStep {
+	srv := newStepFollowServer(t, staplertest.Streaming, func(tick int) []scriptedStep {
 		i := min(tick, len(pieces)-1)
 		return []scriptedStep{{id: "7", log: pieces[i], active: i < len(pieces)-1}}
 	}, func(tick int) bool { return tick < len(pieces) })
@@ -327,13 +255,13 @@ func TestLogStageFollowHasNoSizeLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, bigStageLogBody, out)
 	assert.NotContains(t, stderr, "stopped following")
-	assert.Equal(t, []int64{0, int64(len(pieces[0])), int64(len(pieces[1]))}, srv.startsFor("7"))
+	assert.Equal(t, []int64{0, int64(len(pieces[0])) - 1, int64(len(pieces[1])) - 1}, srv.startsFor("7"))
 }
 
 func TestLogStageFollowDrainsStepsAfterStageEnds(t *testing.T) {
 	fastStagePolls(t)
 	// The listing still reports the step running when the stage has ended.
-	srv := newStepFollowServer(t, staplerStreaming, func(tick int) []scriptedStep {
+	srv := newStepFollowServer(t, staplertest.Streaming, func(tick int) []scriptedStep {
 		if tick == 0 {
 			return []scriptedStep{{id: "7", log: "building\n", active: true}}
 		}
@@ -344,7 +272,7 @@ func TestLogStageFollowDrainsStepsAfterStageEnds(t *testing.T) {
 	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
 	require.NoError(t, err)
 	assert.Equal(t, "building\nfinal line\n", out)
-	assert.Equal(t, []int64{0, 9}, srv.startsFor("7"))
+	assert.Equal(t, []int64{0, 8}, srv.startsFor("7"))
 }
 
 // TestLogStageFollowRetriesStepListing checks one failed step listing does
@@ -376,7 +304,7 @@ func TestLogStageFollowRetriesStepListing(t *testing.T) {
 				"steps": []map[string]any{{"id": "7", "state": "success"}},
 			}})
 		case strings.HasSuffix(p, "/log/logText/progressiveText"):
-			writeProgressive(w, r, staplerStreaming, "step log\n", false, 10000)
+			staplertest.WriteProgressive(w, r, staplertest.Streaming, "step log\n", false)
 		case strings.HasSuffix(p, "/stages/log"):
 			_, _ = fmt.Fprint(w, "whole stage log\n")
 		default:
@@ -501,7 +429,7 @@ func TestLogStageFollowBlueOceanStepListing(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "7", "state": state}})
 		case p == "/job/my-app/5/execution/node/7/log/logText/progressiveText":
-			writeProgressive(w, r, staplerStreaming, log, state == "RUNNING", 10000)
+			staplertest.WriteProgressive(w, r, staplertest.Streaming, log, state == "RUNNING")
 		case strings.HasSuffix(p, "/5/api/json"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": true})
 		default:
@@ -598,17 +526,28 @@ func TestLogStageFollowGivesUpOnStepListing(t *testing.T) {
 }
 
 // TestLogStageFollowUncountedFinalReadOfOpenStep covers a stage that ends
-// while a step's log stays open on Jenkins 2.509-2.533 after earlier output:
-// its end cannot be read safely, which is reported rather than guessed.
+// while a step's log stays open past the line cap on Jenkins 2.509-2.533
+// after earlier output: its end cannot be read safely, which is reported
+// rather than guessed.
 func TestLogStageFollowUncountedFinalReadOfOpenStep(t *testing.T) {
 	fastStagePolls(t)
-	srv := newStepFollowServer(t, staplerUncounted, func(int) []scriptedStep {
-		return []scriptedStep{{id: "10", log: "a\n"}, {id: "11", log: "b\n", active: true}}
+	burst := numberedLines(staplertest.MaxLinesRead + 1)
+	srv := newStepFollowServer(t, staplertest.Uncounted, func(int) []scriptedStep {
+		return []scriptedStep{{id: "10", log: "a\n"}, {id: "11", log: burst, active: true}}
 	}, func(tick int) bool { return tick < 2 })
 	setupTestConfig(t, srv.URL)
 
 	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step 11 of stage 4 has not closed its log")
-	assert.Equal(t, "a\n", out)
+	assert.Equal(t, "a\n"+numberedLines(staplertest.MaxLinesRead), out)
+}
+
+// numberedLines is n distinct lines.
+func numberedLines(n int) string {
+	var b strings.Builder
+	for i := range n {
+		fmt.Fprintf(&b, "line %05d\n", i)
+	}
+	return b.String()
 }
