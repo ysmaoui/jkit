@@ -1,21 +1,22 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jkit/internal/output"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 var runCmd = &cobra.Command{
 	Use:   "run [job]",
 	Short: "Trigger a build",
+	Long: `Trigger a build. A parameterized job takes the default of every parameter
+-p does not set. On a multibranch project or organization folder without
+--branch, this starts a branch scan instead of a build.`,
 	Example: `  jkit run my-app
   jkit run my-app -p BRANCH=main -p ENV=staging
   jkit run my-app --wait --log`,
@@ -27,6 +28,7 @@ func init() {
 	runCmd.Flags().StringArrayP("param", "p", nil, "Build parameter (KEY=VALUE)")
 	runCmd.Flags().Bool("wait", false, "Wait for build to complete")
 	runCmd.Flags().Bool("log", false, "Stream build log (implies --wait)")
+	withResultExit(runCmd)
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -54,23 +56,34 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Trigger
-	queueID, err := client.TriggerBuild(jobPath, params)
+	res, err := client.TriggerBuild(jobPath, params)
 	if err != nil {
 		return err
 	}
+	if res.Indexing {
+		if res.OrgFolder {
+			_, _ = fmt.Fprintf(os.Stderr, "Scan triggered for %s. Pick a repository and branch: jkit run %s/<repo> --branch <name>; see 'jkit scan %s' for the scan result.\n", jobPath, jobPath, jobPath)
+		} else {
+			_, _ = fmt.Fprintf(os.Stderr, "Scan triggered for %s. Pass --branch <name> to build a branch; see 'jkit scan %s' for the scan result.\n", jobPath, jobPath)
+		}
+		if wait {
+			_, _ = fmt.Fprintln(os.Stderr, "Note: --wait and --log do not apply to a scan.")
+		}
+		return nil
+	}
+	queueID := res.QueueID
 	_, _ = fmt.Fprintf(os.Stderr, "Build queued (queue item #%d)\n", queueID)
 
 	if !wait {
 		return nil
 	}
 
-	// Set up signal handling
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := interruptContext()
 	defer cancel()
 
 	// Poll queue for build number
 	var buildNum int
-	deadline := time.After(5 * time.Minute)
+	deadline := time.After(queueTimeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 pollQueue:
@@ -78,9 +91,9 @@ pollQueue:
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("interrupted")
+				return errInterrupted
 			case <-deadline:
-				return fmt.Errorf("queue timeout after 5m — check Jenkins")
+				return &jenkins.ExitError{Code: 5, Message: fmt.Sprintf("queue timeout after %s — check Jenkins", queueTimeout)}
 			case <-ticker.C:
 			}
 		}
@@ -98,8 +111,7 @@ pollQueue:
 
 	// Stream log if requested
 	if showLog {
-		streamer := output.NewLogStreamer(newFetchLog(client), jobPath, buildNum, os.Stdout)
-		if err := streamer.Stream(ctx); err != nil && ctx.Err() == nil {
+		if err := streamLog(ctx, client.ConsoleLog(jobPath, buildNum), os.Stdout, os.Stderr); err != nil && ctx.Err() == nil {
 			return err
 		}
 	}

@@ -12,6 +12,7 @@ jkit status my-app               # recent builds
 jkit log my-app -f               # tail live build log
 jkit log my-app --slowest 10     # where the build's time actually went
 jkit stages my-app               # list stages w/ IDs + paths, and the agent each ran on
+jkit wait my-app --stage Deploy  # block until it finishes; exit code is the result
 jkit diagnose my-app             # summarize the failure
 jkit params my-app               # what params does it accept?
 jkit inspect my-app              # which Jenkinsfile, which repo, which branches

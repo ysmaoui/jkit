@@ -39,7 +39,7 @@ func init() {
 // flag" rather than anything that named the cause.
 func registerRootFlags(c *cobra.Command) {
 	c.PersistentFlags().String("host", "", "Jenkins host URL")
-	c.PersistentFlags().String("branch", "", "Branch name for a multibranch pipeline job (e.g. feature/foo); slashes are encoded automatically")
+	c.PersistentFlags().String("branch", "", "Branch name for a multibranch pipeline job (e.g. feature/foo); / # % ? [ ] \\ are encoded the way Jenkins names the branch job")
 	c.PersistentFlags().Bool("json", false, "Output as JSON")
 	c.PersistentFlags().String("format", "", "Output format (Go template, use {{range .}}...{{end}} for lists)")
 	c.PersistentFlags().Bool("no-color", false, "Disable color output")

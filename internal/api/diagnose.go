@@ -26,6 +26,10 @@ type DiagnoseResult struct {
 type FailedStage struct {
 	Name   string   `json:"name"`
 	Errors []string `json:"errors"`
+	// Warning says the stage log could not be read in full, so Errors may
+	// miss lines. ReadErr is the read failure behind it.
+	Warning string `json:"warning,omitempty"`
+	ReadErr error  `json:"-"`
 }
 
 // CommitSummary is a compact commit representation.
@@ -42,14 +46,7 @@ func (c *Client) Diagnose(jobPath string, number int) (*DiagnoseResult, error) {
 		return nil, err
 	}
 
-	d := time.Duration(build.Duration) * time.Millisecond
-	if build.Building {
-		// Jenkins reports duration=0 while a build is in progress; compute the
-		// elapsed time from the start timestamp instead so it isn't shown as "< 1s".
-		if elapsed := time.Now().UnixMilli() - build.Timestamp; build.Timestamp > 0 && elapsed > 0 {
-			d = time.Duration(elapsed) * time.Millisecond
-		}
-	}
+	d := build.Elapsed(time.Now())
 	res := &DiagnoseResult{
 		Build:    build.Number,
 		Result:   build.Result,
@@ -122,12 +119,7 @@ func (c *Client) Diagnose(jobPath string, number int) (*DiagnoseResult, error) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = FailedStage{Name: s.Name}
-			log, logErr := c.GetStageLog(jobPath, number, s.ID)
-			if logErr == nil {
-				log = output.SanitizeLog(log)
-				results[i].Errors = extractErrors(log)
-			}
+			results[i] = c.diagnoseStage(jobPath, number, s)
 		}(i, s)
 	}
 	wg.Wait()
@@ -135,6 +127,40 @@ func (c *Client) Diagnose(jobPath string, number int) (*DiagnoseResult, error) {
 
 	return res, nil
 }
+
+// diagnoseStage extracts errors from a failed stage's log. It reads the tail,
+// where the failure summary is, which downloads the whole stage log and can
+// time out on a large one. Errors then come from the part that arrived. The
+// capped head read runs only when nothing did, so a stalled server costs one
+// timeout per stage, not two.
+func (c *Client) diagnoseStage(jobPath string, number int, s jenkins.Stage) FailedStage {
+	fs := FailedStage{Name: s.Name}
+	log, _, err := c.GetStageLogTail(jobPath, number, s.ID)
+	switch {
+	case err != nil && log != "":
+		fs.ReadErr = err
+		fs.Warning = fmt.Sprintf("could not read the whole stage log (%v); errors come from the part received before the read failed", err)
+	case err != nil:
+		head, truncated, headErr := c.GetStageLog(jobPath, number, s.ID)
+		if headErr != nil {
+			fs.ReadErr = err
+			fs.Warning = fmt.Sprintf("could not read the stage log: %v", err)
+			return fs
+		}
+		// A retry that read the whole log leaves Errors complete.
+		if truncated {
+			fs.ReadErr = err
+			fs.Warning = fmt.Sprintf("could not read the end of the stage log (%v); errors come from its first %.1f MB only", err, float64(c.stageLogCap)/(1<<20))
+		}
+		log = head
+	}
+	fs.Errors = extractErrors(output.SanitizeLog(log))
+	return fs
+}
+
+// ConsoleStageName names the FailedStage that holds errors from the console,
+// which is no stage --stage can read.
+const ConsoleStageName = "(console)"
 
 // diagnoseFallbackConsole extracts errors from the console log when stages
 // aren't available. It scans the tail, not the head — build failures surface at
@@ -150,7 +176,7 @@ func diagnoseFallbackConsole(c *Client, jobPath string, number int) []FailedStag
 	if len(errors) == 0 {
 		return nil
 	}
-	return []FailedStage{{Name: "(console)", Errors: errors}}
+	return []FailedStage{{Name: ConsoleStageName, Errors: errors}}
 }
 
 // extractErrors pulls error-relevant lines from a log string.

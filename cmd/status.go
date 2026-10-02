@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
+	"github.com/ysmaoui/jkit/internal/waiter"
 )
 
 var statusCmd = &cobra.Command{
@@ -27,6 +29,21 @@ var statusCmd = &cobra.Command{
 func init() {
 	statusCmd.Flags().Int("limit", 10, "Number of recent builds to show")
 	rootCmd.AddCommand(statusCmd)
+}
+
+// clock is swapped in tests to make elapsed times deterministic.
+var clock = time.Now
+
+// buildInfo is the JSON/template shape of a build: the raw Jenkins fields plus
+// the time so far of a running build. Absent once it finishes.
+type buildInfo struct {
+	jenkins.Build
+	ElapsedMillis int64 `json:"elapsedMillis,omitempty"`
+}
+
+func newBuildInfo(b jenkins.Build, now time.Time) buildInfo {
+	d, _ := b.RunningElapsed(now)
+	return buildInfo{Build: b, ElapsedMillis: d.Milliseconds()}
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -55,7 +72,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if isJSON || tmpl != "" {
-		return f.Output(builds, nil)
+		infos := make([]buildInfo, len(builds))
+		for i, b := range builds {
+			infos[i] = newBuildInfo(b, clock())
+		}
+		return f.Output(infos, nil)
 	}
 
 	if len(builds) == 0 {
@@ -83,8 +104,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			return output.ColorStatus(b.Result)
 		}},
 		{Header: "DURATION", Field: func(v any) string {
-			d := time.Duration(v.(jenkins.Build).Duration) * time.Millisecond
-			return formatDuration(d)
+			return formatDuration(v.(jenkins.Build).Elapsed(clock()))
 		}},
 		{Header: "STARTED", Field: func(v any) string {
 			ts := v.(jenkins.Build).Timestamp
@@ -99,20 +119,27 @@ func runStatus(cmd *cobra.Command, args []string) error {
 }
 
 func showBuildDetail(client *api.Client, f *output.Formatter, jobPath string, num int, isJSON bool, tmpl string) error {
-	build, err := client.GetBuild(jobPath, num)
+	build, pending, err := waiter.ReadBuild(context.Background(), client, jobPath, num, false)
 	if err != nil {
 		return err
 	}
+	if build == nil {
+		_, _ = fmt.Fprintf(os.Stderr, "build #%d is %s\n", num, pendingState(pending))
+		if isJSON || tmpl != "" {
+			return f.Output(buildInfo{Build: jenkins.Build{Number: num, Queued: true}}, nil)
+		}
+		return nil
+	}
 
 	if isJSON || tmpl != "" {
-		return f.Output(build, nil)
+		return f.Output(newBuildInfo(*build, clock()), nil)
 	}
 
 	result := build.Result
 	if build.Building {
 		result = "BUILDING"
 	}
-	d := time.Duration(build.Duration) * time.Millisecond
+	d := build.Elapsed(clock())
 	started := time.UnixMilli(build.Timestamp).Format("Jan 02 15:04:05")
 
 	_, _ = fmt.Fprintf(os.Stdout, "Build:    #%d\n", build.Number)
@@ -158,7 +185,7 @@ func showBuildDetail(client *api.Client, f *output.Formatter, jobPath string, nu
 		for _, s := range tree {
 			indent := strings.Repeat("  ", s.Depth)
 			padded := indent + s.Name
-			sd := time.Duration(s.DurationMillis) * time.Millisecond
+			sd := s.Elapsed(clock())
 			_, _ = fmt.Fprintf(os.Stdout, "  %-*s  %-*s  %s\n", maxName, padded, maxStatus, output.ColorStatus(s.Status), formatDuration(sd))
 		}
 	}

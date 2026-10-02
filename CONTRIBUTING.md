@@ -10,7 +10,7 @@
 ```bash
 go build -o jkit .          # build binary
 make test                  # unit tests
-make integration-test      # Docker Compose integration tests (starts Jenkins, runs 18 assertions, tears down)
+make integration-test      # Docker Compose integration tests (starts Jenkins, runs 20 assertions, tears down)
 ```
 
 Integration test targets:
@@ -33,6 +33,7 @@ cmd/
   status.go                 # jkit status
   run.go                    # jkit run
   log.go                    # jkit log
+  stages.go                 # jkit stages
   open.go                   # jkit open
   lint.go                   # jkit lint
   abort.go                  # jkit abort
@@ -43,10 +44,11 @@ cmd/
   diagnose.go               # jkit diagnose
   diff.go                   # jkit diff
   queue.go                  # jkit queue / jkit queue cancel
+  wait.go                   # jkit wait
   config.go                 # jkit config list/set-default/remove/set-alias
   completion.go             # jkit completion
   factory.go                # clientFromCmd — creates API client from cobra flags
-  helpers.go                # shared helpers (formatDuration, newFetchLog, resolveJobArgs)
+  helpers.go                # shared helpers (formatDuration, streamLog, resolveJobArgs)
   auth/
     auth.go                 # auth subcommand group
     login.go                # jkit auth login
@@ -56,21 +58,29 @@ internal/
     client.go               # HTTP client, auth transport, cookie jar, retry, crumb handling
     crumb.go                # CSRF crumb fetch/cache/invalidate
     jobs.go                 # ListJobs, GetJob
-    builds.go               # TriggerBuild, GetBuild, GetBuilds, GetBuildLog, GetQueueItem, StopBuild
-    pipeline.go             # GetPipelineStages, GetStageLog (Blue Ocean REST API)
+    builds.go               # TriggerBuild, GetBuild, GetBuilds, ConsoleLog, OpenConsoleText, StopBuild
+    pipeline.go             # GetPipelineStages, GetStageLog, GetStageLogTail (Pipeline Graph View or Blue Ocean)
+    steplog.go              # StageStepFollower: --stage -f, each step read from its last offset
+    progressive.go          # ProgressiveLog: progressiveText followed poll by poll
+    consoletail.go          # GetBuildLogTail, ConsoleTailLines: console tail per Stapler version
   config/
     config.go               # YAML config load/save, XDG path resolution
   context/
     resolver.go             # Job auto-detection: .jkit.yml → git remote → dirname
     url_parser.go           # Parse Jenkins URLs (classic + Blue Ocean)
   jenkins/
-    types.go                # Domain types: Job, Build, Stage, QueueItem, LogChunk, TestReport, etc.
+    types.go                # Domain types: Job, Build, Stage, QueueItem, TestReport, etc.
     errors.go               # Typed errors: AuthError, NotFoundError, PermissionError, etc.
     stage_tree.go           # BuildStageTree — flat stages to depth-annotated tree
+    branchname.go           # BranchJobName: branch name to the job name branch-api gives it
   output/
     formatter.go            # Table, JSON, Go template output
     color.go                # ANSI color for build statuses
     log_streamer.go         # Progressive log streaming with polling
+  staplertest/
+    staplertest.go          # Test fake: progressiveText as each Stapler version answers
+  waiter/
+    waiter.go               # Poll a build or stage until it has a result
 integration/
   docker-compose.yml        # Jenkins container config
   run.sh                    # Bash test runner

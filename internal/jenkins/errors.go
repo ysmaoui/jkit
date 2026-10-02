@@ -106,3 +106,38 @@ func (e *ServerError) Error() string {
 	}
 	return msg
 }
+
+// StageNotFoundError reports a stage reference that matches nothing in the
+// build's stage list. It is typed because a waiter must tell "not started yet"
+// apart from an ambiguous reference, which no later poll can fix.
+type StageNotFoundError struct {
+	Input     string
+	Available []string // "path (id)" for every stage in the list
+	// ByID means Input was taken as a node ID only, which may name a step.
+	ByID bool
+}
+
+func (e *StageNotFoundError) Error() string {
+	what := "stage"
+	if e.ByID {
+		what = "node"
+	}
+	msg := fmt.Sprintf("%s %q not found", what, e.Input)
+	if len(e.Available) > 0 {
+		msg += " — available stages: " + strings.Join(e.Available, ", ")
+	}
+	return msg
+}
+
+// StageAmbiguousError reports a bare stage name shared by several stages,
+// typically the same name in different parallel branches. Neither stage error
+// names a flag: each command has its own way to address a stage exactly.
+type StageAmbiguousError struct {
+	Input   string
+	Matches []string // "path  (id=N, STATUS)" per candidate
+	Example string   // qualified path of the first candidate
+}
+
+func (e *StageAmbiguousError) Error() string {
+	return fmt.Sprintf("stage %q is ambiguous — matches multiple stages:\n  %s", e.Input, strings.Join(e.Matches, "\n  "))
+}

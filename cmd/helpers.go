@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"time"
@@ -15,17 +18,39 @@ import (
 	appctx "github.com/ysmaoui/jkit/internal/context"
 	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
+	"github.com/ysmaoui/jkit/internal/waiter"
 )
 
-// newFetchLog creates a FetchLogFunc from an API client.
-func newFetchLog(client *api.Client) output.FetchLogFunc {
-	return func(jp string, num int, start int64) (string, int64, bool, error) {
-		chunk, err := client.GetBuildLog(jp, num, start)
-		if err != nil {
-			return "", 0, false, err
+// streamLog follows a progressiveText log to w until it completes or ctx ends,
+// telling errW once when the server leaves it unable to show more until then.
+func streamLog(ctx context.Context, l *api.ProgressiveLog, w, errW io.Writer) error {
+	lw := &sanitizingLineWriter{w: w}
+	defer lw.Flush()
+	noted := false
+	fetch := func(ctx context.Context, w io.Writer) (bool, error) {
+		more, err := l.Read(ctx, w)
+		if err == nil && more && l.Stalled() && !noted {
+			noted = true
+			_, _ = fmt.Fprintln(errW, "note: this Jenkins sends a running log 10000 lines at a time without saying where they end; "+
+				"the rest is shown when the log completes")
 		}
-		return output.SanitizeLog(chunk.Text), chunk.Offset, chunk.HasMore, nil
+		return more, err
 	}
+	return withConsoleTimeoutHint(output.NewLogStreamer(fetch, lw, consolePollInterval).Stream(ctx))
+}
+
+// reportPendingBuild tells why the stage endpoints 404, which a missing
+// plugin, a missing build and a build still in the queue all produce. A
+// queued or starting build is reported on errW as the console paths report it,
+// and pending is true. A missing build is the typed not-found (or container)
+// error.
+func reportPendingBuild(client *api.Client, jobPath string, buildNum int, errW io.Writer) (pending bool, err error) {
+	build, p, err := waiter.ReadBuild(context.Background(), client, jobPath, buildNum, false)
+	if err != nil || build != nil {
+		return false, err
+	}
+	_, _ = fmt.Fprintf(errW, "build #%d is %s\n", buildNum, pendingState(p))
+	return true, nil
 }
 
 // resolveJobArgs extracts client, job path, and optional build number from command arguments.
@@ -118,10 +143,12 @@ func withBranch(cmd *cobra.Command, jobPath string, applyBranch bool) string {
 	if !applyBranch || branch == "" {
 		return jobPath
 	}
-	// A multibranch branch like "feature/foo" is one job whose name contains
-	// slashes. Encoding them as %2F lets NormalizeJobPath keep the branch as a
-	// single segment instead of splitting it into nested jobs.
-	seg := strings.ReplaceAll(strings.Trim(branch, "/"), "/", "%2F")
+	// jkit prints branch jobs by their encoded job name, so a value copied from
+	// its output is already the job name and must not be encoded again.
+	seg := strings.Trim(branch, "/")
+	if !jenkins.IsBranchJobName(seg) || !strings.Contains(seg, "%") {
+		seg = jenkins.BranchJobName(seg)
+	}
 	trimmed := strings.TrimRight(jobPath, "/")
 	if strings.HasSuffix(trimmed, "/"+seg) || trimmed == seg {
 		return trimmed
@@ -146,6 +173,50 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh%dm", h, m)
 }
 
+// errInterrupted ends a wait that Ctrl-C cut short.
+var errInterrupted = errors.New("interrupted")
+
+// interruptContext is a variable so tests interrupt a wait without a signal.
+var interruptContext = func() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt)
+}
+
+// waitsForResult reports whether cmd's exit code carries a build result:
+// always for wait, for run and rebuild only under --wait or --log.
+func waitsForResult(cmd *cobra.Command) bool {
+	if cmd == waitCmd {
+		return true
+	}
+	wait, _ := cmd.Flags().GetBool("wait")
+	showLog, _ := cmd.Flags().GetBool("log")
+	return wait || showLog
+}
+
+// resultExit keeps a jkit error from reading as a build result when cmd's exit
+// code carries one. Result codes pass through, Ctrl-C exits 130 as in a shell,
+// and any other error exits 6.
+func resultExit(cmd *cobra.Command, err error) error {
+	var ee *jenkins.ExitError
+	switch {
+	case err == nil || !waitsForResult(cmd) || errors.As(err, &ee):
+		return err
+	case errors.Is(err, errInterrupted):
+		return &jenkins.ExitError{Code: 130, Message: err.Error()}
+	}
+	return &jenkins.ExitError{Code: 6, Message: err.Error()}
+}
+
+// withResultExit routes the errors of c's arguments check and run through
+// resultExit.
+func withResultExit(c *cobra.Command) {
+	if args := c.Args; args != nil {
+		c.Args = func(cmd *cobra.Command, a []string) error { return resultExit(cmd, args(cmd, a)) }
+	}
+	if run := c.RunE; run != nil {
+		c.RunE = func(cmd *cobra.Command, a []string) error { return resultExit(cmd, run(cmd, a)) }
+	}
+}
+
 // Poll cadences for waitForBuildResult, as variables so tests drive the loop
 // without real sleeps. The input check is far slower than the status poll
 // because reading the InputAction makes the running pipeline's CPS thread
@@ -156,12 +227,24 @@ var (
 	inputPollInterval = 30 * time.Second
 )
 
+// How long run and rebuild --wait wait for the queue and then the build, as
+// variables so tests reach the limits without real sleeps.
+var (
+	queueTimeout = 5 * time.Minute
+	buildTimeout = 2 * time.Hour
+)
+
 // waitForBuildResult polls until the build finishes and maps its result to the
 // process exit code. While polling it watches for input steps and announces
 // each one once, so a build parked on a manual gate says so instead of looking
 // stalled.
 func waitForBuildResult(ctx context.Context, client *api.Client, jobPath string, buildNum int) error {
-	deadline := time.After(2 * time.Hour)
+	// Ctrl-C also ends --log streaming; polling now would report the build's
+	// result instead of the interrupt.
+	if ctx.Err() != nil {
+		return errInterrupted
+	}
+	deadline := time.After(buildTimeout)
 	announced := map[string]bool{}
 	nextInputCheck := time.Now().Add(inputPollInterval)
 
@@ -169,9 +252,9 @@ func waitForBuildResult(ctx context.Context, client *api.Client, jobPath string,
 		if !first {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("interrupted")
+				return errInterrupted
 			case <-deadline:
-				return fmt.Errorf("build timeout after 2h — check Jenkins for build #%d", buildNum)
+				return &jenkins.ExitError{Code: 5, Message: fmt.Sprintf("build timeout after %s — check Jenkins for build #%d", buildTimeout, buildNum)}
 			case <-time.After(buildPollInterval):
 			}
 		}

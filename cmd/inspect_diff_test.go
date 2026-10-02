@@ -41,13 +41,15 @@ const (
 )
 
 func twoRevisions() ([]jenkins.ConfigChange, map[string]string) {
-	return []jenkins.ConfigChange{
-			change("2026-08-27_14-58-13", "Changed", "Ada Lovelace"),
-			change("2026-07-24_13-06-30", "Changed", "SYSTEM"),
-		}, map[string]string{
-			"2026-07-24_13-06-30": revisionOld,
-			"2026-08-27_14-58-13": revisionNew,
-		}
+	changes := []jenkins.ConfigChange{
+		change("2026-08-27_14-58-13", "Changed", "Ada Lovelace"),
+		change("2026-07-24_13-06-30", "Changed", "SYSTEM"),
+	}
+	revisions := map[string]string{
+		"2026-07-24_13-06-30": revisionOld,
+		"2026-08-27_14-58-13": revisionNew,
+	}
+	return changes, revisions
 }
 
 func TestInspectDiffComparesTheTwoMostRecentRevisions(t *testing.T) {

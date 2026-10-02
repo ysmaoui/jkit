@@ -89,8 +89,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		_, _ = fmt.Fprintf(os.Stderr, "Following the indexing log of %s (%s)\n", target.JobPath, target.Kind)
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()
-		streamer := output.NewLogStreamer(newFetchScanLog(client, target), target.JobPath, 0, os.Stdout)
-		return streamer.Stream(ctx)
+		return streamLog(ctx, client.ScanLog(target), os.Stdout, os.Stderr)
 	}
 
 	maxBytes, _ := cmd.Flags().GetInt64("max-bytes")
@@ -132,19 +131,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// newFetchScanLog adapts the indexing log to the streamer the build console
-// uses. The endpoint answers with the same X-Text-Size and X-More-Data headers,
-// so following a running scan needs no second implementation.
-func newFetchScanLog(client *api.Client, target *api.ScanTarget) output.FetchLogFunc {
-	return func(_ string, _ int, start int64) (string, int64, bool, error) {
-		chunk, err := client.GetScanLog(target, start)
-		if err != nil {
-			return "", 0, false, err
-		}
-		return output.SanitizeLog(chunk.Text), chunk.Offset, chunk.HasMore, nil
-	}
-}
-
 // readScanLog reads the whole log, which every mode but --follow needs: the
 // parse, the filter and the staleness note all depend on lines spread across
 // it.
@@ -162,19 +148,23 @@ func readScanLog(client *api.Client, target *api.ScanTarget, maxBytes int64) (st
 	}
 
 	var b strings.Builder
-	for offset := int64(0); ; {
-		chunk, err := client.GetScanLog(target, offset)
+	l := client.ScanLog(target)
+	for {
+		more, err := l.Read(context.Background(), &b)
 		if err != nil {
 			return "", err
 		}
-		b.WriteString(chunk.Text)
-		if chunk.Offset <= offset || !chunk.HasMore {
+		if l.Stalled() {
+			_, _ = fmt.Fprintf(os.Stderr, "warning: this Jenkins sends a running log 10000 lines at a time without saying where they end; "+
+				"the running scan is shown only up to where the server stopped; jkit scan %s --follow shows the rest\n", target.JobPath)
+		}
+		// A running scan is read up to where it stands.
+		if !more || l.CaughtUp() || l.Stalled() {
 			// progressiveText carries the pipeline annotation markers consoleText
 			// strips. Stripping them here rather than at print time keeps the
 			// parser reading the same text the reader sees.
 			return output.SanitizeLog(b.String()), nil
 		}
-		offset = chunk.Offset
 	}
 }
 

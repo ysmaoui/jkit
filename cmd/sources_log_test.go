@@ -25,7 +25,7 @@ func newSourcesLogServer(t *testing.T, actions []map[string]any, console string)
 	s := &sourcesLogServer{}
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case strings.Contains(r.URL.Path, "progressiveText"):
+		case strings.HasSuffix(r.URL.Path, "/consoleText"):
 			s.logFetched = true
 			w.Header().Set("X-Text-Size", fmt.Sprint(len(console)))
 			_, _ = fmt.Fprint(w, console)
@@ -150,7 +150,7 @@ func TestSourcesSurfacesLogVersusCheckoutDisagreement(t *testing.T) {
 // not be improved.
 func TestSourcesSurvivesAnUnreadableLog(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "progressiveText") {
+		if strings.HasSuffix(r.URL.Path, "/consoleText") {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}

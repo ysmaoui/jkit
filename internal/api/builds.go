@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -118,6 +119,27 @@ func (c *Client) GetBuild(jobPath string, number int) (*jenkins.Build, error) {
 	return &build, nil
 }
 
+// IsBuilding reports whether a build is still running, fetching only that flag.
+func (c *Client) IsBuilding(jobPath string, number int) (bool, error) {
+	path := fmt.Sprintf("%s/%d/api/json", NormalizeJobPath(jobPath), number)
+	resp, err := c.Get(path, url.Values{"tree": {"building"}})
+	if err != nil {
+		if e := c.enrichNotFound(jobPath, err); e != err {
+			return false, e
+		}
+		return false, fmt.Errorf("getting build: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var build struct {
+		Building bool `json:"building"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&build); err != nil {
+		return false, fmt.Errorf("decoding build: %w", err)
+	}
+	return build.Building, nil
+}
+
 // GetBuildEnv returns a build's environment variables and where they came from.
 // EnvInject's /injectedEnvVars only exists when a job actually used the plugin,
 // which pipeline jobs never do, so a 404 there is the normal case rather than a
@@ -190,12 +212,43 @@ func (c *Client) pipelineEnv(jobPath string, number int) (map[string]string, err
 	return nil, nil
 }
 
-func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, error) {
+// TriggerResult is the outcome of TriggerBuild. Indexing is true when the target
+// was a multibranch pipeline or organization folder: POST /build starts a scan
+// there instead of queueing a build, so there is no queue item (QueueID is 0).
+// OrgFolder is true when that target was an organization folder, whose branch
+// jobs sit one level deeper (<org>/<repo>/<branch>) than a multibranch project's.
+type TriggerResult struct {
+	QueueID   int
+	Indexing  bool
+	OrgFolder bool
+}
+
+// TriggerBuild queues a build, or starts a scan on a multibranch pipeline or
+// organization folder. On a parameterized job Jenkins answers a bare POST /build
+// with 400 "Nothing is submitted" (it expects the UI's json form), while
+// /buildWithParameters fills every omitted parameter with its default and
+// rejects unparameterized jobs, so with no params the route follows the job's
+// live definitions. A multibranch branch job has none until its first run
+// executes properties(). With params the job is not looked up first: a branch
+// source has no /buildWithParameters, and only that failure pays for the lookup.
+func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*TriggerResult, error) {
+	parameterized := len(params) > 0
+	indexing, orgFolder := false, false
+	if !parameterized {
+		class, defs, err := c.getJobClassAndParameters(jobPath)
+		if err != nil {
+			return nil, fmt.Errorf("triggering build: %w", err)
+		}
+		job := jenkins.Job{Class: class}
+		indexing, orgFolder = job.IsBranchSource(), job.IsOrgFolder()
+		parameterized = len(defs) > 0
+	}
+
 	path := NormalizeJobPath(jobPath)
 	var body io.Reader
 	contentType := ""
 
-	if len(params) > 0 {
+	if parameterized {
 		path += "/buildWithParameters"
 		form := url.Values{}
 		for k, v := range params {
@@ -209,24 +262,55 @@ func (c *Client) TriggerBuild(jobPath string, params map[string]string) (int, er
 
 	resp, err := c.Post(path, body, contentType)
 	if err != nil {
-		return 0, fmt.Errorf("triggering build: %w", err)
+		var srvErr *jenkins.ServerError
+		var nfErr *jenkins.NotFoundError
+		switch {
+		case errors.As(err, &srvErr) && srvErr.StatusCode == http.StatusBadRequest:
+			return nil, c.explainRejectedTrigger(jobPath, params, err)
+		case len(params) > 0 && (errors.As(err, &nfErr) || errors.As(err, &srvErr) && srvErr.StatusCode == http.StatusMethodNotAllowed):
+			if class, _, lookupErr := c.getJobClassAndParameters(jobPath); lookupErr == nil {
+				switch job := (jenkins.Job{Class: class}); {
+				case job.IsOrgFolder():
+					return nil, fmt.Errorf("%s is an organization folder and takes no parameters; target a branch job (%s/<repo>/<branch>) to set parameters", jobPath, jobPath)
+				case job.IsMultibranch():
+					return nil, fmt.Errorf("%s is a multibranch project and takes no parameters; target a branch job (%s/<branch>) to set parameters", jobPath, jobPath)
+				}
+			}
+		}
+		return nil, fmt.Errorf("triggering build: %w", err)
 	}
 	defer CloseBody(resp)
 
+	if indexing {
+		return &TriggerResult{Indexing: true, OrgFolder: orgFolder}, nil
+	}
+
 	loc := resp.Header.Get("Location")
 	if loc == "" {
-		return 0, fmt.Errorf("no queue item returned — Jenkins did not provide a Location header")
+		return nil, fmt.Errorf("no queue item returned — Jenkins did not provide a Location header")
 	}
 	// Parse queue item ID from Location header: .../queue/item/123/
 	parts := strings.Split(strings.TrimRight(loc, "/"), "/")
 	if len(parts) == 0 {
-		return 0, fmt.Errorf("could not parse queue item from Location: %s", loc)
+		return nil, fmt.Errorf("could not parse queue item from Location: %s", loc)
 	}
 	id, err := strconv.Atoi(parts[len(parts)-1])
 	if err != nil {
-		return 0, fmt.Errorf("could not parse queue item ID from Location %q: %w", loc, err)
+		return nil, fmt.Errorf("could not parse queue item ID from Location %q: %w", loc, err)
 	}
-	return id, nil
+	return &TriggerResult{QueueID: id}, nil
+}
+
+// explainRejectedTrigger turns a 400 from a trigger into advice. The common
+// case is params sent to a job that has since dropped its definitions (e.g. a
+// rebuild), which Jenkins rejects as "not parameterized".
+func (c *Client) explainRejectedTrigger(jobPath string, params map[string]string, err error) error {
+	if len(params) > 0 {
+		if defs, lookupErr := c.GetJobParameters(jobPath); lookupErr == nil && len(defs) == 0 {
+			return fmt.Errorf("build request rejected — %s takes no parameters; trigger it without them: %w", jobPath, err)
+		}
+	}
+	return fmt.Errorf("build request rejected — check parameter names with 'jkit params %s': %w", jobPath, err)
 }
 
 func (c *Client) StopBuild(jobPath string, number int) error {
@@ -239,71 +323,42 @@ func (c *Client) StopBuild(jobPath string, number int) error {
 	return nil
 }
 
-// maxLogChunk bounds how many bytes GetBuildLog reads per request. Jenkins'
-// progressiveText streams the entire log from `start` in one response, so
-// without this cap a multi-hundred-MB console would be buffered whole. Callers
-// page by feeding the returned Offset back in as start.
-const maxLogChunk = 10 << 20 // 10 MB per request
-
-// GetBuildLog fetches a chunk of the console log starting at byte offset `start`.
-// It reads at most maxLogChunk bytes and reports Offset as the byte position
-// actually reached (start + bytes read) — NOT the server's total size. HasMore
-// is true while the build is still producing output (X-More-Data) OR unread
-// bytes remain (Offset < X-Text-Size), so paging on Offset walks the entire log
-// even when it exceeds the per-request cap. (Previously Offset was set to
-// X-Text-Size and HasMore to X-More-Data alone, so a completed build larger
-// than the cap was silently truncated to its first chunk.)
-func (c *Client) GetBuildLog(jobPath string, number int, start int64) (*jenkins.LogChunk, error) {
-	path := fmt.Sprintf("%s/%d/logText/progressiveText", NormalizeJobPath(jobPath), number)
-	chunk, err := c.progressiveChunk(path, start)
-	if err != nil {
-		if e := c.enrichNotFound(jobPath, err); e != err {
-			return nil, e
-		}
-		return nil, fmt.Errorf("getting build log: %w", err)
-	}
-	return chunk, nil
+func consolePath(jobPath string, number int) string {
+	return fmt.Sprintf("%s/%d/logText/progressiveText", NormalizeJobPath(jobPath), number)
 }
 
-// progressiveChunk reads one bounded chunk from any Jenkins progressiveText
-// endpoint. A build's console and a multibranch project's indexing log are both
-// served by it with the same headers, so both page through this.
-func (c *Client) progressiveChunk(path string, start int64) (*jenkins.LogChunk, error) {
-	resp, err := c.Get(path, url.Values{"start": {strconv.FormatInt(start, 10)}})
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	text, err := io.ReadAll(io.LimitReader(resp.Body, maxLogChunk))
-	if err != nil {
-		return nil, fmt.Errorf("reading log: %w", err)
-	}
-
-	offset := start + int64(len(text))
-
-	hasMore := resp.Header.Get("X-More-Data") == "true"
-	if sz := resp.Header.Get("X-Text-Size"); sz != "" {
-		if total, err := strconv.ParseInt(sz, 10, 64); err == nil && total > offset {
-			// Unread bytes remain — e.g. a completed build whose log exceeds the
-			// per-request cap, where X-More-Data is absent.
-			hasMore = true
-		}
-	}
-
-	return &jenkins.LogChunk{
-		Text:    string(text),
-		Offset:  offset,
-		HasMore: hasMore,
-	}, nil
+// ConsoleLog follows a build's console from its first byte. See ProgressiveLog
+// for how each poll finds where the last one stopped.
+func (c *Client) ConsoleLog(jobPath string, number int) *ProgressiveLog {
+	l := c.NewProgressiveLog(consolePath(jobPath, number), 0)
+	l.explain = func(err error) error { return c.consoleErr(jobPath, err) }
+	return l
 }
 
-// GetBuildLogSize returns the current total byte size of the console log via the
-// X-Text-Size header, without downloading the body. Used to locate the tail of
-// large logs cheaply.
+func (c *Client) consoleErr(jobPath string, err error) error {
+	if e := c.enrichNotFound(jobPath, err); e != err {
+		return e
+	}
+	return fmt.Errorf("getting build log: %w", err)
+}
+
+// OpenConsoleText streams a build's whole console as it stands, console notes
+// stripped and line ends as the build wrote them. A running build's text ends
+// wherever the build is, possibly mid-line. The caller closes it.
+func (c *Client) OpenConsoleText(jobPath string, number int) (io.ReadCloser, error) {
+	resp, err := c.Get(fmt.Sprintf("%s/%d/consoleText", NormalizeJobPath(jobPath), number), nil)
+	if err != nil {
+		return nil, c.consoleErr(jobPath, err)
+	}
+	return resp.Body, nil
+}
+
+// GetBuildLogSize returns the X-Text-Size of the console log without
+// downloading the body. For a complete log that is its stored size. For a
+// running one it is the stored size on Jenkins 2.509 and later, and on earlier
+// versions only the end of the first 10000 lines, so it is a lower bound.
 func (c *Client) GetBuildLogSize(jobPath string, number int) (int64, error) {
-	path := fmt.Sprintf("%s/%d/logText/progressiveText", NormalizeJobPath(jobPath), number)
-	return c.progressiveSize(path)
+	return c.progressiveSize(consolePath(jobPath, number))
 }
 
 // progressiveSize reads only the X-Text-Size header of a progressiveText
@@ -326,44 +381,4 @@ func (c *Client) progressiveSize(path string) (int64, error) {
 		return 0, fmt.Errorf("parsing X-Text-Size %q: %w", sz, err)
 	}
 	return n, nil
-}
-
-// GetBuildLogTail returns up to the last maxBytes of the console log, trimming a
-// partial leading line when the window starts mid-stream. It probes the size,
-// then pages from the window start to the end so a window larger than the
-// per-request cap is still fully read.
-func (c *Client) GetBuildLogTail(jobPath string, number int, maxBytes int64) (string, error) {
-	size, err := c.GetBuildLogSize(jobPath, number)
-	if err != nil {
-		return "", err
-	}
-
-	start := int64(0)
-	if maxBytes > 0 && size > maxBytes {
-		start = size - maxBytes
-	}
-
-	var buf strings.Builder
-	for off := start; off < size; {
-		chunk, err := c.GetBuildLog(jobPath, number, off)
-		if err != nil {
-			return "", err
-		}
-		buf.WriteString(chunk.Text)
-		if chunk.Offset <= off {
-			break // no forward progress; avoid looping forever
-		}
-		off = chunk.Offset
-		if !chunk.HasMore {
-			break
-		}
-	}
-
-	text := buf.String()
-	if start > 0 {
-		if i := strings.IndexByte(text, '\n'); i >= 0 {
-			text = text[i+1:]
-		}
-	}
-	return text, nil
 }

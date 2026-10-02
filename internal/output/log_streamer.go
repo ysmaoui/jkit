@@ -7,28 +7,25 @@ import (
 	"time"
 )
 
-type FetchLogFunc func(jobPath string, number int, start int64) (text string, offset int64, hasMore bool, err error)
+// FetchLogFunc writes the log text that is new since its last call to w and
+// reports whether the log may still grow.
+type FetchLogFunc func(ctx context.Context, w io.Writer) (more bool, err error)
 
 type LogStreamer struct {
 	fetchLog     FetchLogFunc
-	jobPath      string
-	buildNum     int
 	writer       io.Writer
 	pollInterval time.Duration
 }
 
-func NewLogStreamer(fetchLog FetchLogFunc, jobPath string, buildNum int, w io.Writer) *LogStreamer {
+func NewLogStreamer(fetchLog FetchLogFunc, w io.Writer, pollInterval time.Duration) *LogStreamer {
 	return &LogStreamer{
 		fetchLog:     fetchLog,
-		jobPath:      jobPath,
-		buildNum:     buildNum,
 		writer:       w,
-		pollInterval: time.Second,
+		pollInterval: pollInterval,
 	}
 }
 
 func (s *LogStreamer) Stream(ctx context.Context) error {
-	var offset int64
 	for {
 		select {
 		case <-ctx.Done():
@@ -36,17 +33,14 @@ func (s *LogStreamer) Stream(ctx context.Context) error {
 		default:
 		}
 
-		text, newOffset, hasMore, err := s.fetchLog(s.jobPath, s.buildNum, offset)
+		more, err := s.fetchLog(ctx, s.writer)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			return fmt.Errorf("streaming log: %w", err)
 		}
-
-		if text != "" {
-			_, _ = fmt.Fprint(s.writer, text)
-		}
-
-		offset = newOffset
-		if !hasMore {
+		if !more {
 			return nil
 		}
 

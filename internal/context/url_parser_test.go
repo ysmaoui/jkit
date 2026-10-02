@@ -135,6 +135,34 @@ func TestParseJenkinsURL(t *testing.T) {
 			wantHost: "https://jenkins.prod.com",
 			wantJob:  "PIPELINE/feature%2Fbranch",
 		},
+		{
+			name:      "branch with hash double-encoded",
+			url:       "https://jenkins.prod.com/job/INT/job/svc/job/feature%252FX%25234/20/",
+			wantHost:  "https://jenkins.prod.com",
+			wantJob:   "INT/svc/feature%2FX%234",
+			wantBuild: 20,
+		},
+		{
+			name:      "branch with hash single-encoded",
+			url:       "https://jenkins.prod.com/job/INT/job/svc/job/feature%2FX%234/20/",
+			wantHost:  "https://jenkins.prod.com",
+			wantJob:   "INT/svc/feature%2FX%234",
+			wantBuild: 20,
+		},
+		{
+			name:      "blue ocean branch with hash",
+			url:       "https://jenkins.prod.com/blue/organizations/jenkins/INT%2Fsvc/detail/feature%2FX%234/20/pipeline/",
+			wantHost:  "https://jenkins.prod.com",
+			wantJob:   "INT/svc/feature%2FX%234",
+			wantBuild: 20,
+		},
+		{
+			name:      "job name with space",
+			url:       "https://jenkins.prod.com/job/my%20team/job/svc/3/",
+			wantHost:  "https://jenkins.prod.com",
+			wantJob:   "my team/svc",
+			wantBuild: 3,
+		},
 
 		// Edge cases
 		{

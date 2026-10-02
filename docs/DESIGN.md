@@ -112,8 +112,8 @@ type Client struct { ... }
 
 func NewClient(host string, auth Auth) *Client
 func (c *Client) GetBuild(jobPath string, number int) (*Build, error)
-func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*QueueItem, error)
-func (c *Client) GetBuildLog(jobPath string, number int, start int64) (*LogChunk, error)
+func (c *Client) TriggerBuild(jobPath string, params map[string]string) (*TriggerResult, error)
+func (c *Client) ConsoleLog(jobPath string, number int) *ProgressiveLog
 func (c *Client) GetPipelineStages(jobPath string, number int) ([]Stage, error)
 func (c *Client) GetPendingInputs(jobPath string, number int) ([]PendingInput, error)
 func (c *Client) ApproveInput(jobPath string, number int, in PendingInput, params map[string]string) error
@@ -132,12 +132,20 @@ GET /job/{path}/api/json?tree=name,url,color,lastBuild[number,result,timestamp]
 GET /job/{path}/{number}/api/json?tree=number,result,timestamp,duration,building
 
 # Trigger build (requires crumb)
-POST /job/{path}/build                          # no params
-POST /job/{path}/buildWithParameters             # with params
+POST /job/{path}/build                          # job defines no parameters
+POST /job/{path}/buildWithParameters             # job defines parameters; omitted ones take defaults
 
-# Console log (supports progressive fetching)
+# Console log (supports progressive fetching). Where an answer's text stops
+# depends on the Stapler version; see "progressiveText offsets" below.
 GET /job/{path}/{number}/logText/progressiveText?start={byte-offset}
-# Response headers: X-Text-Size (current size), X-More-Data (true/false)
+# Response headers: X-Text-Size, X-More-Data (set while the log is written)
+# The whole console as it stands: notes stripped, line ends as stored, an
+# unfinished last line included. No offset and no size header.
+GET /job/{path}/{number}/consoleText
+# Jenkins version (X-Jenkins). Jenkins sends the header on api/json and pages
+# but not on progressiveText, so it is asked here once when no answer has
+# carried it yet.
+GET /api/json?tree=_class
 
 # Pipeline stages — Pipeline Graph View (preferred, plugin v803+)
 GET /job/{path}/{number}/stages/tree
@@ -154,16 +162,44 @@ GET /job/{path}/{number}/timestamps/?elapsed=SSSSS          # times only, no log
 # nothing here can drive a live tail or a size guard. See the note below.
 
 # Pipeline stage / step log (single endpoint, accepts stage IDs and step IDs)
+# Takes no start offset and sends no X-Text-Size; always the whole log from
+# byte 0. Blue Ocean's nodes/{id}/log/ is the same. Tails read past the head
+# client-side, and so does a follow that cannot use the step routes below.
 GET /job/{path}/{number}/stages/log?nodeId={id}
+# stages/log writes, for each step of a stage in this listing's order, the
+# step's log and then its exception text. `log --stage -f` rebuilds that from
+# the two routes below plus the core step log route, reading only new bytes.
+GET /job/{path}/{number}/stages/steps?nodeId={id}
+# Returns: { status, data: { runIsComplete, steps: [ {id, name, state, type,
+#           title, stageId, pauseDurationMillis, startTimeMillis,
+#           totalDurationMillis} ] } }, sorted by ID. state as in stages/tree.
+GET /job/{path}/{number}/stages/exceptionText?nodeId={stepId}
+# Plain text; empty for a step without an error. Only fetched for a step in
+# state failure or aborted, which is where an ErrorAction lives.
+
+# One step's log (core + workflow-support, no plugin). progressiveText from a
+# start= offset, read as the console is (see "progressiveText offsets"). A step
+# that has written nothing has no LogAction yet and 404s. On Jenkins 2.509 to
+# 2.533, a step that passes the 10000-line cap while running is shown to its
+# end once it completes; if the stage ends first, -f fails naming the step.
+GET /job/{path}/{number}/execution/node/{stepId}/log/logText/progressiveText?start={byte-offset}
+# The flow node page. Probed once, on the first step log 404, to tell a step
+# without a log from a server where this route is missing or blocked.
+GET /job/{path}/{number}/execution/node/{id}/
 
 # Pipeline stages — Blue Ocean (fallback for instances without PGV ≥ 803)
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/
 GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/log/
 # Blue Ocean answers node log with 500 on some parallel containers. The steps
-# below are the fallback: list the stage's steps, then read each step's log and
-# concatenate. Capped at the last 30 steps, fetched 5 at a time.
-GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/?limit=1000
-GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/{stepId}/log/
+# below are the fallback: list the stage's steps, then read each step's log in
+# order, one at a time, through the same stage log cap. A step log without
+# start= is only its last 150 KB (LogResource.DEFAULT_LOG_THRESHOLD), so start=0
+# is always sent. The concatenation is not append-only, so it cannot be followed;
+# -f lists these steps and reads each through the core step log route instead.
+# The listing pages with start= and limit= (@PagedResponse, default limit 100),
+# read until a page comes back empty since a short page may be a clamped limit.
+GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/?start={n}&limit=10000
+GET /blue/rest/organizations/jenkins/pipelines/{path}/runs/{number}/nodes/{nodeId}/steps/{stepId}/log/?start=0
 
 # Abort a running build (requires crumb)
 POST /job/{path}/{number}/stop
@@ -383,24 +419,140 @@ All commands must support three output modes:
 
 ### Log Streaming (`internal/output/log_streamer.go`)
 
-Jenkins exposes progressive console output via `X-Text-Size` and `X-More-Data` headers. The streamer must:
+`jkit log -f`, `run --log`, `rebuild --log` and `scan -f` poll
+`progressiveText` once a second through `api.ProgressiveLog` and stop once the
+log is complete. `Ctrl+C` stops following without killing the process
+ungracefully.
 
-1. Poll `/logText/progressiveText?start=N` where N starts at 0
-2. Print new content to stdout as it arrives
-3. Advance `start` by the number of bytes **actually read**, not by `X-Text-Size`.
-   Jenkins streams the whole log from `start` in one response, so a per-request
-   read cap (10 MB) means a single response may not contain everything up to
-   `X-Text-Size`; trusting that header as the next offset silently skips the
-   unread remainder (the large-log truncation bug).
-4. Keep paging while `X-More-Data` is `true` **or** unread bytes remain
-   (`start < X-Text-Size`). Stop only when caught up and the build is complete.
-5. Poll interval: 1 second while building, stop when complete
-6. Support `Ctrl+C` to stop following without killing the process ungracefully
+#### progressiveText offsets
 
-> Non-follow consumers (`jkit log`, `--grep`, `--tail`, `diagnose`) page the same
-> way with bounded memory rather than buffering the full console. `--tail` reads
-> only a server-side tail window; an unfiltered dump over `--max-bytes` is
-> refused rather than truncated. See `internal/api/builds.go`.
+Checked against Jenkins 2.479.3 and 2.568.3 and Stapler's `LargeText`. The
+offset is in stored bytes, console notes included.
+
+| Answer | Text | Where the text stops |
+|---|---|---|
+| Log complete, any version | the rest of the log | X-Text-Size, or meta `end` |
+| Multipart (`Accept: multipart/form-data`, Stapler 2050+, Jenkins 2.534+) | a `text` part written through core's `PlainTextConsoleOutputStream`: notes stripped, stored line ends, the unfinished last line held back; then `meta` `{completed, start, end}` | unknown while running: `end` is the stored length, the unfinished line included |
+| Plain, running, Jenkins up to 2.508 | notes kept, lone LF rewritten to CRLF, up to the last CR or LF and at most 10000 of them (Stapler's `TailMark` counts each) | X-Text-Size, counted from what was sent |
+| Plain, running, Jenkins 2.509+ (or a proxy dropping `Accept`) | as above, but from 2.527 (Stapler #703) cut after X-Text-Size stored bytes when the log grew during the answer: mid-line, even mid-character | unknown: X-Text-Size is the stored length |
+
+The multipart mode also takes a negative `start` (the tail from its first line
+start, `meta.startFromNewLine`) and `searchNewLineUntil`; all three came in the
+same Stapler change (#722).
+
+Two consequences shape the reader:
+
+- Bytes received never give the offset. Plain bodies go through
+  `LineEndNormalizingWriter`, which turns a lone LF into CRLF but leaves a
+  stored CRLF alone, so the two cannot be told apart; multipart text has notes
+  stripped. Advancing by bytes received overshoots, and Stapler answers a start
+  past the end from 0, so a follow repeats the console (27 times for a
+  12000-line one on 2.568.3).
+- Trusting the multipart `end` or an uncounted X-Text-Size skips an unfinished
+  last line, and on 2.509-2.533 anything past the line cap.
+
+`ProgressiveLog` keeps an anchor, a stored offset it has written the text up
+to, and how much text past the anchor it has written. An exact answer moves
+the anchor to its end. Otherwise the stored length an answer reported is a
+candidate when its text ran to the last line end before it (no line cap, and
+a plain body that cannot have run past that length). The written text then
+stops right after the last LF before the candidate, and the next poll moves
+the anchor there. The multipart case relies on the text part holding back the
+unterminated last line, as core's `AnnotatedLargeText` does by writing it
+through the line-based `PlainTextConsoleOutputStream`; a server sending that
+line would have it written twice.
+
+- Multipart: the LF is searched for with `searchNewLineUntil`. Asked from x
+  with `searchNewLineUntil=candidate+1`, Stapler's `findNextLineStart` reads
+  the stored bytes from x up to the candidate, console notes included, and
+  answers from the line start after the first LF there (`meta.start`,
+  `startFromNewLine`), or from x when there is none. Every answer carries the
+  text from its start to the end of the log, so the asks are kept few: the
+  byte before the candidate first while the last search found the LF there
+  (a log written in whole lines, as a pipeline step's, ends in one at every
+  poll); then where the LF would be if the stored bytes were the text
+  written, and the byte after (a log found mid-line with no note or
+  undecodable byte since the anchor); otherwise, as notes put the LF later
+  and bytes Jenkins decodes to U+FFFD earlier, strides doubling down from
+  the candidate, then halving. A found answer starts after the first LF at
+  or after where it was asked from, which moves the lower bound to that LF.
+  The answer from the last LF is written.
+- Plain: one ask from the byte before the candidate. Plain text keeps notes,
+  so it begins with a newline exactly when the stored byte is one.
+
+When the anchor cannot move, the poll asks from it again and writes only the
+text past what it wrote. On 2.534+ a poll that lands on a line end takes one
+request holding only what is new, and one that lands mid-line two, each
+carrying what is new. With console notes or undecodable bytes since the
+anchor, the search takes several requests, each again carrying everything
+new from where it starts, so a note-heavy log found mid-line can download
+the new text several times over. On 2.509-2.533 polls that keep landing
+mid-line re-read from the last line start a poll landed on. A multipart
+answer held for its meta part past 16 MB is dropped and the anchor stays for
+that poll.
+
+A plain body ending in a CR is not written past the CR: only the next byte
+says whether it is half of a CRLF, and asked from the byte after it Stapler
+would turn that LF into CRLF too. Such an answer sets no candidate, and a
+counted one puts the anchor on the CR. The plain body's CR before LF is
+dropped, so a CRLF the build wrote prints as LF there.
+
+On 2.509-2.533 a running log that passes the line cap past the anchor cannot
+move it: every answer from the anchor stops at the same line. The cap counts
+a CRLF received as two line ends, since it may be a stored CRLF, so a log of
+LF lines is taken as capped from 5000 lines. The reader then only checks
+X-More-Data until the log completes, and says so once on stderr.
+
+Stapler 1979 to 2028 (Jenkins 2.509 to 2.526, LTS 2.516) also read on while the
+log grows during an answer, so a plain body can run past X-Text-Size. That is
+no line cap: the answer is written, sets no candidate, and the next poll asks
+from the anchor again. The stored length of a body cannot be told exactly (a
+CRLF received may be a stored LF), so on those versions, or an unknown one, an
+answer's size is a candidate only when a request right after it finds the log
+still that size. The anchor thus moves only when the log does not grow across
+an answer's whole transfer and one more round trip; a chatty build is re-read
+from the anchor every poll and stalls at the line cap.
+
+From 2.527 the body instead stops after X-Text-Size stored bytes, so when the
+log grew during the answer it can end mid-line, its last character decoded
+from part of its bytes as U+FFFD. A running plain answer is therefore written
+only up to its last CR or LF; the rest is not counted as written, and the next
+poll reads that line again from the anchor, whole.
+
+A multipart answer that shows a start before the one asked for (or other than
+it, without `searchNewLineUntil`), or a plain one with X-Text-Size below it, is
+the log resent from 0 and fails the read. Logs only grow, so this is not
+expected.
+
+A poll that finds the log ending inside a console note sees part of the note
+as text in neither mode: plain answers stop at the last line end before it,
+and the multipart text holds back the unterminated line. The note is stripped
+or kept whole once its line completes.
+
+Non-follow readers:
+
+- `--grep`, `--head`, the unfiltered dump and `sources` stream `consoleText`,
+  which is exact on every version and needs no offset. A running build is read
+  as it stands and the command exits.
+- `--tail` and `diagnose` read a byte window up to the last line end, doubled
+  while it holds fewer lines than asked for:
+  - 2.534+: one multipart request with `start=-window`.
+  - Up to 2.508: X-Text-Size, then pages forward by counted offsets keeping
+    only the window. A running log's X-Text-Size from 0 counts only its first
+    10000 lines, so the pages can cover most of the log; memory stays bounded.
+  - 2.509-2.533: X-Text-Size, then one answer from the window. A window past
+    the line cap is halved until it fits; when that cannot hold the lines asked
+    for, the whole `consoleText` is read, keeping only the tail.
+- `--max-bytes` compares X-Text-Size, which on a running log before 2.509 is a
+  lower bound.
+
+A read is one HTTP response, bounded in memory by streaming, but it has to
+arrive within `--timeout`, which covers reading the body; a timed-out console
+read says to raise it. It cannot be cut into chunks: the stored offset at a
+cut is unknown for the reasons above, and chunks advanced by bytes received
+skip text at every cut (67215 lines of a 12 MB console). An idle-read timeout
+in place of the whole-response one would lift the limit, but would change what
+`--timeout` means for every command; it is not done.
 
 ---
 
@@ -449,13 +601,13 @@ Usage: jkit run [job] [-p KEY=VALUE]... [--wait] [--log] [--branch BRANCH]
 
 Trigger a build. If no job specified, resolve from git context.
 -p: build parameters (repeatable)
---wait: block until build completes, exit code reflects result (0=success, 1=failure)
+--wait: block until build completes, exit code reflects result (see Exit codes below)
 --log: implies --wait, stream logs while waiting
 --branch: trigger for a specific branch (multibranch pipelines)
 
 Output: "Build #47 triggered: https://jenkins.company.com/job/..."
 With --wait: "Build #47 completed: SUCCESS (2m 31s)"
-Exit codes: 0=SUCCESS, 1=FAILURE/ERROR, 2=UNSTABLE, 3=ABORTED
+Exit codes with --wait: 0=SUCCESS, 1=FAILURE, 2=UNSTABLE, 3=ABORTED, 4=other, 5=queue or build timeout, 6=error, 130=interrupted
 ```
 
 #### 5. `jkit log [job] [build#] [--follow] [--stage STAGE | --stage-id ID]`

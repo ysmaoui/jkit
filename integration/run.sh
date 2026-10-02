@@ -39,9 +39,10 @@ assert_success() {
         PASS=$((PASS + 1))
         echo "  PASS  $desc"
     else
+        local rc=$?
         FAIL=$((FAIL + 1))
         echo "  FAIL  $desc"
-        ERRORS="${ERRORS}  - ${desc}: exit $?\n    ${output}\n"
+        ERRORS="${ERRORS}  - ${desc}: exit ${rc}\n    ${output}\n"
     fi
 }
 
@@ -141,6 +142,9 @@ assert_success "run test-job --wait" \
 assert_contains "run param-job with params" "queued" \
     "$JK" run param-job -p BRANCH=feature -p ENV=staging
 
+assert_contains "run param-job without params" "queued" \
+    "$JK" run param-job
+
 assert_success "run test-pipeline --wait" \
     "$JK" run test-pipeline --wait
 
@@ -177,8 +181,14 @@ assert_contains "list --json has name field" '"name"' \
 # 8. Pipeline stages
 echo ""
 echo "[stages]"
-assert_contains "status test-pipeline 1 shows Build stage" "Build" \
+assert_contains "status test-pipeline 1 shows stages" "Stages:" \
     "$JK" status test-pipeline 1
+
+assert_contains "stages test-pipeline 1 lists Deploy stage" "Deploy *STAGE *SUCCESS" \
+    "$JK" stages test-pipeline 1
+
+assert_success "wait on finished test-pipeline Build stage" \
+    "$JK" wait test-pipeline 1 --stage Build --max-wait 1m
 
 echo ""
 echo "Done."
