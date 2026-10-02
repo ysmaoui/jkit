@@ -128,8 +128,9 @@ func TestConsoleLogFollowLateJoinReadsLittle(t *testing.T) {
 func TestConsoleTailLinesStreamingOneRequest(t *testing.T) {
 	srv := newConsoleServer(t, staplertest.Streaming)
 	srv.set(testNote+"Started\n"+lines("t", 20000)+"unterminated", true)
-	got, err := NewClient(srv.URL, "u", "t").ConsoleTailLines("app", 1, 3)
+	got, truncated, err := NewClient(srv.URL, "u", "t").ConsoleTailLines("app", 1, 3)
 	require.NoError(t, err)
+	assert.False(t, truncated)
 	assert.Equal(t, []string{"t19997", "t19998", "t19999"}, got)
 	assert.Equal(t, []int64{-startTailWindow}, srv.takeStarts())
 }
@@ -146,10 +147,22 @@ func TestConsoleTailLinesStalledShrinks(t *testing.T) {
 		consoleText = consoleText || strings.HasSuffix(r.URL.Path, "/consoleText")
 		h.ServeHTTP(w, r)
 	})
-	got, err := NewClient(srv.URL, "u", "t").ConsoleTailLines("app", 1, 2)
+	got, truncated, err := NewClient(srv.URL, "u", "t").ConsoleTailLines("app", 1, 2)
 	require.NoError(t, err)
+	assert.False(t, truncated)
 	assert.Equal(t, []string{"s29998", "s29999"}, got)
 	assert.False(t, consoleText)
+}
+
+// TestConsoleTailLinesTruncated checks a log whose last window bytes hold
+// fewer than n lines reports it.
+func TestConsoleTailLinesTruncated(t *testing.T) {
+	srv := newConsoleServer(t, staplertest.Streaming)
+	srv.set("short\n"+strings.Repeat("x", 2048)+"\nlast\n", true)
+	got, truncated, err := NewClient(srv.URL, "u", "t", WithConsoleTailWindow(512)).ConsoleTailLines("app", 1, 3)
+	require.NoError(t, err)
+	assert.True(t, truncated)
+	assert.Equal(t, []string{"last"}, got)
 }
 
 // TestServerVersionRetriedAfterFailure checks a failed version probe is not

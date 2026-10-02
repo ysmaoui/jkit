@@ -142,3 +142,23 @@ func TestLogGrepRunningConsole(t *testing.T) {
 		})
 	}
 }
+
+// TestLogTailConsoleTruncatedWarns checks --tail warns when the largest tail
+// window holds fewer lines than asked for.
+func TestLogTailConsoleTruncatedWarns(t *testing.T) {
+	old := consoleTailWindow
+	consoleTailWindow = 512
+	t.Cleanup(func() { consoleTailWindow = old })
+	newConsoleServer(t, staplertest.Streaming, false, "first\n"+strings.Repeat("x", 2048)+"\nlast\n")
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--tail", "3") })
+	require.NoError(t, err)
+	assert.Equal(t, "last\n", out)
+	assert.Contains(t, stderr, "console log exceeds 512 B; only 1 of 3 lines fit in the last 512 B")
+
+	stderr = captureStderr(t, func() { _, err = executeCmd(t, "log", "my-app", "5", "--tail", "1") })
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+}

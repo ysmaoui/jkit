@@ -400,8 +400,9 @@ When a build is BUILDING but appears stuck:
 | No test results | JUnit plugin not configured, or build has no tests |
 | `--history`: plugin not installed | The JobConfigHistory plugin is missing on that controller; no config change log exists there |
 | `--history`: no config history | Either nothing changed, or you lack Job/Configure — the plugin returns an empty list instead of refusing |
-| Stage log empty / `no stages found` / `blue ocean plugin required` | Pipeline Graph View or Blue Ocean plugin required for stage-level logs. A build that does not exist is reported as not found instead. If you targeted a multibranch container, the error instead lists its branches — re-run with `--branch` |
+| Stage log empty / `no stages found` / `stage logs need the Pipeline Graph View or Blue Ocean plugin` | Pipeline Graph View or Blue Ocean plugin required for stage-level logs. A build that does not exist is reported as not found instead. If you targeted a multibranch container, the error instead lists its branches — re-run with `--branch` |
 | `stage X log exceeds 10.0 MB; showing the first 10.0 MB` | Without `--tail`, only the first 10 MB printed. Add `--tail N` for the end; it keeps the last 10 MB |
+| `console log exceeds 64.0 MB; only K of N lines fit in the last 64.0 MB` | `--tail N` on the console asked for more lines than the last 64 MB holds, so you got the K that fit. Ask for fewer lines or narrow with `--grep` |
 | `stage X log exceeds 10.0 MB; only K of N lines fit in the last 10.0 MB` | `--tail N` asked for more lines than the last 10 MB holds; you got the K that fit. Ask for fewer lines or narrow with `--grep` |
 | `stage X log exceeds 10.0 MB; --grep searched only the first/last 10.0 MB` | `--grep` on a stage log sees one 10 MB window: the first without `--tail`, the last with it. Matches outside it are missing |
 | `has to download within the HTTP timeout` | The whole console or stage log did not arrive within `--timeout`. Re-run with `--timeout 10m` |

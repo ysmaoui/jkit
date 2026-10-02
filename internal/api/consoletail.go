@@ -16,10 +16,10 @@ const (
 	// minTailWindow is the smallest window a stalled tail read shrinks to
 	// before it reads consoleText instead.
 	minTailWindow = 4 << 10
-	// startTailWindow and maxTailWindow bound the window ConsoleTailLines
+	// startTailWindow and defaultTailWindow bound the window ConsoleTailLines
 	// grows while it has fewer lines than asked for.
-	startTailWindow = 2 << 20
-	maxTailWindow   = 64 << 20
+	startTailWindow   = 2 << 20
+	defaultTailWindow = 64 << 20
 )
 
 // errTailStalled means a tail window holds more lines than a plain answer
@@ -124,29 +124,32 @@ func (c *Client) GetBuildLogTail(jobPath string, number int, maxBytes int64) (st
 // doubled while it holds fewer than n lines. On a server whose plain answers
 // for a running log stop after 10000 lines without saying where, the window
 // is halved instead until it fits, and when that cannot hold n lines the
-// whole consoleText is read.
-func (c *Client) ConsoleTailLines(jobPath string, number, n int) ([]string, error) {
+// whole consoleText is read. truncated reports that the largest window
+// still held fewer than n lines of a longer log, so fewer than n are returned.
+func (c *Client) ConsoleTailLines(jobPath string, number, n int) (tail []string, truncated bool, err error) {
 	ctx := context.Background()
-	window := int64(startTailWindow)
+	window := min(int64(startTailWindow), int64(c.consoleTailWindow))
 	shrunk := false
 	for {
 		text, whole, err := c.tailWindow(ctx, jobPath, number, window)
 		if errors.Is(err, errTailStalled) {
 			if n >= maxLinesRead || window/2 < minTailWindow {
-				return c.consoleTextTailLines(jobPath, number, n)
+				lines, err := c.consoleTextTailLines(jobPath, number, n)
+				return lines, false, err
 			}
 			window, shrunk = window/2, true
 			continue
 		}
 		if err != nil {
-			return nil, c.consoleErr(jobPath, err)
+			return nil, false, c.consoleErr(jobPath, err)
 		}
 		lines := splitLines(output.SanitizeLog(text))
 		switch {
-		case len(lines) >= n || whole || window >= maxTailWindow:
-			return lines[max(len(lines)-n, 0):], nil
+		case len(lines) >= n || whole || window >= int64(c.consoleTailWindow):
+			return lines[max(len(lines)-n, 0):], len(lines) < n && !whole, nil
 		case shrunk:
-			return c.consoleTextTailLines(jobPath, number, n)
+			lines, err := c.consoleTextTailLines(jobPath, number, n)
+			return lines, false, err
 		}
 		window *= 2
 	}

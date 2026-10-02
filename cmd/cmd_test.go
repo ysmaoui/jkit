@@ -677,6 +677,28 @@ func TestLogStageFollow(t *testing.T) {
 	assert.Contains(t, out, "remote exec branch log")
 }
 
+// A running stage with -f --grep is read once and filtered, not followed. The
+// stage stops reporting running after a few polls so a following regression
+// fails the call count instead of hanging.
+func TestLogStageFollowGrepReadsOnce(t *testing.T) {
+	var logCalls int
+	srv := stageLogServer(t, func(n int) string {
+		logCalls = n
+		return "alpha\nBETA one\ngamma\nbeta two\n"
+	}, func(n int) bool { return n <= 3 })
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f", "--grep", "beta")
+	require.NoError(t, err)
+	assert.Equal(t, "beta two\n", out)
+
+	out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f", "--grep", "beta", "-i")
+	require.NoError(t, err)
+	assert.Equal(t, "BETA one\nbeta two\n", out)
+	assert.Equal(t, 2, logCalls)
+}
+
 // bigStageLogBody is a stage log well past the 64-byte cap the tests set,
 // ending in a Bazel-style summary.
 var bigStageLogBody = "first line\n" + strings.Repeat("filler line\n", 50) +

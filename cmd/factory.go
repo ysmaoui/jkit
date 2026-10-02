@@ -89,8 +89,15 @@ func clientOpts(cmd *cobra.Command) []api.ClientOption {
 	if stageLogCap > 0 {
 		opts = append(opts, api.WithStageLogCap(stageLogCap))
 	}
+	if consoleTailWindow > 0 {
+		opts = append(opts, api.WithConsoleTailWindow(consoleTailWindow))
+	}
 	return opts
 }
+
+// consoleTailWindow overrides the client's largest console tail window when
+// positive, so tests can exceed it with a small log.
+var consoleTailWindow int
 
 // stageLogCap overrides the client's stage log cap when positive, so tests can
 // exceed it with a small log.

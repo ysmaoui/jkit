@@ -24,7 +24,7 @@ const defaultStageLogCap = 10 << 20 // 10 MB
 
 // ErrStageLogUnavailable means no stage log endpoint answered for the build:
 // neither plugin is installed, or the build itself does not exist.
-var ErrStageLogUnavailable = errors.New("blue ocean plugin required for stage logs")
+var ErrStageLogUnavailable = errors.New("stage logs need the Pipeline Graph View or Blue Ocean plugin")
 
 // ErrStageLogPerStep means the server serves the stage log only step by step.
 // The concatenation is not append-only: the newline added after a step whose

@@ -429,7 +429,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 		grepPattern, _ := cmd.Flags().GetString("grep")
 		grepI, _ := cmd.Flags().GetBool("ignore-case")
 
-		if follow {
+		// --grep reads once to match the console, which does not follow
+		// under --grep either.
+		if follow && grepPattern == "" {
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer cancel()
 			err := streamStageLog(ctx, client, jobPath, buildNum, nodeID, os.Stdout, os.Stderr)
@@ -492,9 +494,13 @@ func runLog(cmd *cobra.Command, args []string) error {
 		return runConsoleGrep(client, jobPath, buildNum, grepPattern, grepI, tail, head, os.Stdout)
 
 	case tail > 0:
-		lines, err := client.ConsoleTailLines(jobPath, buildNum, tail)
+		lines, truncated, err := client.ConsoleTailLines(jobPath, buildNum, tail)
 		if err != nil {
 			return withConsoleTimeoutHint(err)
+		}
+		if truncated {
+			_, _ = fmt.Fprintf(os.Stderr, "warning: console log exceeds %s; only %d of %d lines fit in the last %s\n",
+				humanBytes(int64(client.ConsoleTailWindow())), len(lines), tail, humanBytes(int64(client.ConsoleTailWindow())))
 		}
 		if head > 0 && head < len(lines) {
 			lines = lines[:head]

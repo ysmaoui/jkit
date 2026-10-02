@@ -653,7 +653,8 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 
 - Defaults to latest build if no build# given
 - Auto-follows if the build is in progress, unless `--grep`, `--tail` or `--head`
-  is given. `--grep` with `-f` reads the console once and does not follow
+  is given. `--grep` with `-f` reads the console, or the `--stage` log, once and
+  does not follow
 - `--tail` and `--head` are incompatible with `--follow`
 
 ### Console log
@@ -670,8 +671,9 @@ The console is never buffered whole in memory.
   - any version, finished build: one request for the window
 
   On a running build the output ends at the last complete line. When even the
-  64 MB window holds fewer than N lines, it prints the lines that fit, with no
-  warning.
+  64 MB window holds fewer than N lines, it prints the lines that fit and warns
+  on stderr: `console log exceeds 64.0 MB; only K of N lines fit in the last
+  64.0 MB`.
 - `--head N` stops reading once N lines are seen
 - `--grep` streams the whole console with bounded memory, and stops early under
   `--head`

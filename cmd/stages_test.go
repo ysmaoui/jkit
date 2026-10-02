@@ -188,7 +188,7 @@ func TestStagesReportsMissingBuildNotPluginHint(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 	assert.Contains(t, err.Error(), "jkit list")
-	assert.NotContains(t, err.Error(), "plugin required")
+	assert.NotContains(t, err.Error(), "Pipeline Graph View or Blue Ocean plugin")
 }
 
 func TestStagesKeepsPluginHintWhenBuildExists(t *testing.T) {
@@ -210,7 +210,7 @@ func TestLogStageReportsMissingBuildNotPluginHint(t *testing.T) {
 	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Build")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
-	assert.NotContains(t, err.Error(), "plugin required")
+	assert.NotContains(t, err.Error(), "Pipeline Graph View or Blue Ocean plugin")
 }
 
 func TestLogStageKeepsPluginHintWhenBuildExists(t *testing.T) {
@@ -220,7 +220,7 @@ func TestLogStageKeepsPluginHintWhenBuildExists(t *testing.T) {
 
 	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Build")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "plugin required")
+	assert.Contains(t, err.Error(), "Pipeline Graph View or Blue Ocean plugin")
 }
 
 func TestLogStageIDReportsMissingBuildNotPluginHint(t *testing.T) {
@@ -233,7 +233,7 @@ func TestLogStageIDReportsMissingBuildNotPluginHint(t *testing.T) {
 		_, err := executeCmd(t, args...)
 		require.Error(t, err, extra)
 		assert.Contains(t, err.Error(), "not found", extra)
-		assert.NotContains(t, err.Error(), "plugin required", extra)
+		assert.NotContains(t, err.Error(), "Pipeline Graph View or Blue Ocean plugin", extra)
 	}
 }
 
@@ -244,5 +244,5 @@ func TestLogStageIDKeepsPluginHintWhenBuildExists(t *testing.T) {
 
 	_, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "plugin required")
+	assert.Contains(t, err.Error(), "Pipeline Graph View or Blue Ocean plugin")
 }

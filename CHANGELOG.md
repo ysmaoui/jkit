@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   stage has a result. Exit 0 to 4 as `run --wait`, 5 when `--max-wait` expires.
 - `jkit log --stage` accepts the node IDs `jkit stages` prints.
 - Stage logs over 10 MB print a warning naming what was left out.
+- `jkit log --tail N` on the console warns when even the last 64 MB holds fewer
+  than N lines.
 
 ### Changed
 - `jkit log --stage X --tail N` returns the true end of the stage log. It
@@ -24,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `jkit diagnose` reads the end of each failed stage's log, falls back to its
   head when that download fails, and warns when errors come from part of it.
 - A timed-out console or stage log read suggests raising `--timeout`.
+- `jkit log --stage X -f --grep P` reads the stage log once and filters it, as
+  for the console, instead of ignoring `--grep`.
+- The error for a server with no stage log endpoint names both the Pipeline
+  Graph View and Blue Ocean plugins.
 
 ### Fixed
 - `jkit log -f`, `--tail`, `--grep`, `--head` and the full dump print the

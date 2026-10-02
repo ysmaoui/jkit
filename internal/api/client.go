@@ -49,6 +49,8 @@ type Client struct {
 	verbose        bool
 	pipelineSource PipelineSource
 	stageLogCap    int
+	// consoleTailWindow is the largest window ConsoleTailLines reads.
+	consoleTailWindow int
 
 	versionMu    sync.Mutex
 	version      string
@@ -105,6 +107,18 @@ func WithStageLogCap(n int) ClientOption {
 // StageLogCap returns how many bytes of a stage log one read keeps.
 func (c *Client) StageLogCap() int { return c.stageLogCap }
 
+// WithConsoleTailWindow overrides the largest tail window, in bytes, that
+// ConsoleTailLines reads.
+func WithConsoleTailWindow(n int) ClientOption {
+	return func(c *Client) {
+		c.consoleTailWindow = n
+	}
+}
+
+// ConsoleTailWindow returns the largest tail window, in bytes, that
+// ConsoleTailLines reads.
+func (c *Client) ConsoleTailWindow() int { return c.consoleTailWindow }
+
 // PipelineSource returns the configured backend selector.
 func (c *Client) PipelineSource() PipelineSource { return c.pipelineSource }
 
@@ -144,6 +158,7 @@ func NewClient(host, user, token string, opts ...ClientOption) *Client {
 	}
 	c.crumbs = newCrumbIssuer(c)
 	c.stageLogCap = defaultStageLogCap
+	c.consoleTailWindow = defaultTailWindow
 	c.pipelineSource = parsePipelineSource(os.Getenv("JKIT_PIPELINE_SOURCE"))
 	for _, opt := range opts {
 		opt(c)
