@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
+	"github.com/ysmaoui/jkit/internal/waiter"
 )
 
 var stagesCmd = &cobra.Command{
@@ -68,16 +70,46 @@ func runStages(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	isJSON, _ := cmd.Flags().GetBool("json")
+	tmpl, _ := cmd.Flags().GetString("format")
+	f := output.NewFormatter(os.Stdout, isJSON, tmpl)
+
 	if stages == nil {
-		if err := requireBuild(client, jobPath, buildNum); err != nil {
+		build, pending, err := waiter.ReadBuild(context.Background(), client, jobPath, buildNum, false)
+		if err != nil {
 			return err
 		}
-	}
-	if len(stages) == 0 {
+		if build == nil {
+			state := "queued"
+			if pending == waiter.Starting {
+				state = "starting"
+			}
+			_, _ = fmt.Fprintf(os.Stderr, "build #%d is %s\n", buildNum, state)
+			if isJSON || tmpl != "" {
+				return f.Output([]stageInfo{}, nil)
+			}
+			return nil
+		}
 		if hint := client.ContainerHint(jobPath); hint != nil {
 			return hint
 		}
 		return fmt.Errorf("no stages found — pipeline graph view or blue ocean plugin required")
+	}
+
+	// An empty list is stage data: the pipeline has not entered a stage.
+	if len(stages) == 0 {
+		build, err := client.GetBuild(jobPath, buildNum)
+		if err != nil {
+			return err
+		}
+		if !build.Building {
+			return fmt.Errorf("no stages — build #%d finished %s without entering a stage", buildNum, build.Result)
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "no stages yet (build #%d is running)\n", buildNum)
+		if isJSON || tmpl != "" {
+			return f.Output([]stageInfo{}, nil)
+		}
+		return nil
 	}
 
 	paths := jenkins.QualifiedStagePaths(stages)
@@ -96,10 +128,6 @@ func runStages(cmd *cobra.Command, args []string) error {
 	}
 
 	warnIfNoAgents(os.Stderr, infos)
-
-	isJSON, _ := cmd.Flags().GetBool("json")
-	tmpl, _ := cmd.Flags().GetString("format")
-	f := output.NewFormatter(os.Stdout, isJSON, tmpl)
 
 	if isJSON || tmpl != "" {
 		return f.Output(infos, nil)

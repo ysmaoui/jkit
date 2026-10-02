@@ -14,7 +14,10 @@ type Job struct {
 	Color     string `json:"color"`
 	LastBuild *Build `json:"lastBuild"`
 	InQueue   bool   `json:"inQueue"`
-	Jobs      []Job  `json:"jobs,omitempty"`
+	// NextBuildNumber is the number the next build to leave the queue gets.
+	// Jenkins numbers a build only then, not when it is queued.
+	NextBuildNumber int   `json:"nextBuildNumber,omitempty"`
+	Jobs            []Job `json:"jobs,omitempty"`
 }
 
 // IsFolder returns true if the job is a folder-type container.

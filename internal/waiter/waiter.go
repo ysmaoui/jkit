@@ -16,19 +16,43 @@ import (
 // that, so a stage target fails at once instead of waiting out the build.
 var ErrNoStageData = errors.New("build has no stage data")
 
+// BuildSource is the part of the API client ReadBuild reads. GetJob and
+// GetQueuedTaskURLs tell a build still in the queue, which has no number
+// yet, from one that will never exist.
+type BuildSource interface {
+	GetBuild(jobPath string, number int) (*jenkins.Build, error)
+	GetJob(jobPath string) (*jenkins.Job, error)
+	GetQueuedTaskURLs() ([]string, error)
+}
+
 // Source is the part of the API client the poller reads.
 type Source interface {
-	GetBuild(jobPath string, number int) (*jenkins.Build, error)
+	BuildSource
 	// GetPipelineStages returns nil, nil when there is no stage data, and an
 	// empty non-nil slice for a pipeline with no stages yet.
 	GetPipelineStages(jobPath string, number int) ([]jenkins.Stage, error)
 }
+
+// Pending says why ReadBuild found no build.
+type Pending int
+
+const (
+	NotPending Pending = iota
+	// Queued means a queued item of the job can still take the number.
+	Queued
+	// Starting means the number is assigned but the build is not readable
+	// yet: Jenkins assigns it before it registers the build.
+	Starting
+)
 
 type Target struct {
 	JobPath string
 	Build   int
 	// Stage is a name, qualified path or node ID. Empty waits for the build.
 	Stage string
+	// UntilListed ends the wait as soon as Stage appears in the stage list,
+	// result or not, for a caller that follows the stage from its start.
+	UntilListed bool
 }
 
 type Result struct {
@@ -37,6 +61,8 @@ type Result struct {
 	DurationMillis int64
 	// StagePath is the resolved qualified path, empty if the stage never appeared.
 	StagePath string
+	// StageID is set only for an UntilListed target.
+	StageID string
 	// NotRun explains why a stage target has no result: the build finished
 	// before the stage produced one. Empty otherwise.
 	NotRun string
@@ -48,6 +74,11 @@ type Poller struct {
 	// OnRunning runs after each poll that finds the target unfinished. Wait
 	// stops waiting for it when ctx ends, so it may make blocking requests.
 	OnRunning func()
+	// OnQueued runs after each poll that finds the build still in the queue.
+	OnQueued func()
+	// QueuedInterval, if set, replaces Interval after such a poll. A queued
+	// poll costs three requests.
+	QueuedInterval time.Duration
 }
 
 // Wait polls until the target has a result or ctx ends, in which case it
@@ -55,18 +86,30 @@ type Poller struct {
 // returns without sleeping.
 func (p Poller) Wait(ctx context.Context, t Target) (Result, error) {
 	var stageID string
+	pending := NotPending
 	for first := true; ; first = false {
 		if !first {
-			if err := p.sleep(ctx); err != nil {
+			interval := p.Interval
+			if pending != NotPending && p.QueuedInterval > 0 {
+				interval = p.QueuedInterval
+			}
+			if err := sleep(ctx, interval); err != nil {
 				return Result{}, err
 			}
 		}
 
 		// The build is read before the stages so that a finished build implies
 		// the stage list that follows is final too.
-		build, err := call(ctx, func() (*jenkins.Build, error) { return p.Source.GetBuild(t.JobPath, t.Build) })
+		build, state, err := ReadBuild(ctx, p.Source, t.JobPath, t.Build, pending == Starting)
 		if err != nil {
 			return Result{}, err
+		}
+		pending = state
+		if build == nil {
+			if p.OnQueued != nil {
+				p.OnQueued()
+			}
+			continue
 		}
 		if t.Stage == "" {
 			if !build.Building {
@@ -87,6 +130,64 @@ func (p Poller) Wait(ctx context.Context, t Target) (Result, error) {
 	}
 }
 
+// ReadBuild reads build n, or reports why it is not there yet. Jenkins
+// numbers a build only when it leaves the queue, so until then the number a
+// trigger expects reads as not found. A number that no queued item can take
+// is a real not-found, as is a missing job. A build that stays Starting
+// across two calls is gone: pass startingBefore when the last call returned
+// Starting.
+func ReadBuild(ctx context.Context, src BuildSource, jobPath string, n int, startingBefore bool) (*jenkins.Build, Pending, error) {
+	get := func() (*jenkins.Build, error) { return src.GetBuild(jobPath, n) }
+	build, err := call(ctx, get)
+	var nf *jenkins.NotFoundError
+	if !errors.As(err, &nf) {
+		return build, NotPending, err
+	}
+
+	notFound := err
+
+	// The queue is read before the job, so an item that leaves the queue in
+	// between still counts, as the job's raised nextBuildNumber. Without a
+	// readable queue the not-found stands.
+	queue, err := call(ctx, src.GetQueuedTaskURLs)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, NotPending, err
+		}
+		return nil, NotPending, notFound
+	}
+	job, err := call(ctx, func() (*jenkins.Job, error) { return src.GetJob(jobPath) })
+	var jobNF *jenkins.NotFoundError
+	if errors.As(err, &jobNF) {
+		return nil, NotPending, &jenkins.NotFoundError{Resource: "job", Name: jobPath, Host: jobNF.Host}
+	}
+	if err != nil {
+		return nil, NotPending, err
+	}
+
+	if n < job.NextBuildNumber {
+		// Numbered already: it left the queue after the first read, or was
+		// deleted. A second read tells which, except for the newest number,
+		// which Jenkins assigns a moment before the build becomes readable.
+		build, err = call(ctx, get)
+		if errors.As(err, &nf) && n == job.NextBuildNumber-1 && !startingBefore {
+			return nil, Starting, nil
+		}
+		return build, NotPending, err
+	}
+	queued := 0
+	for _, u := range queue {
+		if u == job.URL {
+			queued++
+		}
+	}
+	if n < job.NextBuildNumber+queued {
+		return nil, Queued, nil
+	}
+	return nil, NotPending, fmt.Errorf("build #%d of %s does not exist and no queued build will get that number (next build is #%d, %d queued): %w",
+		n, jobPath, job.NextBuildNumber, queued, nf)
+}
+
 func (p Poller) pollStage(ctx context.Context, t Target, stageID *string, build *jenkins.Build) (Result, bool, error) {
 	stages, err := p.stages(ctx, t)
 	if err != nil {
@@ -99,7 +200,7 @@ func (p Poller) pollStage(ctx context.Context, t Target, stageID *string, build 
 	// The stage source can trail the build: a stage may still read running
 	// just after the build reports finished. Look once more before calling
 	// it a stage without a result.
-	if err := p.sleep(ctx); err != nil {
+	if err := sleep(ctx, p.Interval); err != nil {
 		return Result{}, false, err
 	}
 	if stages, err = p.stages(ctx, t); err != nil {
@@ -116,11 +217,11 @@ func (p Poller) stages(ctx context.Context, t Target) ([]jenkins.Stage, error) {
 	return stages, err
 }
 
-func (p Poller) sleep(ctx context.Context) error {
+func sleep(ctx context.Context, d time.Duration) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(p.Interval):
+	case <-time.After(d):
 		return nil
 	}
 }
@@ -147,6 +248,9 @@ func stageResult(stages []jenkins.Stage, t Target, stageID *string, build *jenki
 			return Result{}, false, err
 		}
 		*stageID = id
+		if t.UntilListed {
+			return Result{StageID: id, StagePath: jenkins.QualifiedStagePaths(stages)[id]}, true, nil
+		}
 	}
 
 	for _, s := range stages {

@@ -185,7 +185,7 @@ func (c *Client) getJobClassAndParameters(jobPath string) (string, []jenkins.Par
 
 func (c *Client) GetJob(jobPath string) (*jenkins.Job, error) {
 	path := NormalizeJobPath(jobPath) + "/api/json"
-	query := url.Values{"tree": {"name,fullName,url,color,lastBuild[number,result,timestamp,duration,building],inQueue"}}
+	query := url.Values{"tree": {"name,fullName,url,color,lastBuild[number,result,timestamp,duration,building],inQueue,nextBuildNumber"}}
 
 	resp, err := c.Get(path, query)
 	if err != nil {

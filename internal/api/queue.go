@@ -26,6 +26,31 @@ func (c *Client) GetQueue() ([]jenkins.QueueItem, error) {
 	return result.Items, nil
 }
 
+// GetQueuedTaskURLs returns the job URL of each queued item.
+func (c *Client) GetQueuedTaskURLs() ([]string, error) {
+	resp, err := c.Get("/queue/api/json", url.Values{"tree": {"items[task[url]]"}})
+	if err != nil {
+		return nil, fmt.Errorf("getting queue: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		Items []struct {
+			Task struct {
+				URL string `json:"url"`
+			} `json:"task"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding queue: %w", err)
+	}
+	urls := make([]string, len(result.Items))
+	for i, it := range result.Items {
+		urls[i] = it.Task.URL
+	}
+	return urls, nil
+}
+
 func (c *Client) CancelQueueItem(id int) error {
 	path := fmt.Sprintf("/queue/cancelItem?id=%d", id)
 	resp, err := c.Post(path, nil, "")

@@ -750,6 +750,12 @@ The console is never buffered whole in memory.
     once the stage log passes 10 MB; re-run with `--tail N` after the stage
     finishes. If Blue Ocean also serves that stage only step by step, a
     finished stage prints once, as without `-f`, and a running one errors
+  - A `--stage` name, path or ID not in the stage list yet is waited for while
+    the build runs, with one note on stderr, so `-f` can start right after a
+    trigger. A build still in the queue is waited for the same way `jkit wait`
+    does. If the build ends and the stage never appeared, the command fails
+    with `stage "X" never ran`. An ambiguous name fails at once, and so does a
+    missing stage without `-f` or with `--grep`. `--stage-id` is not waited for
   - It follows a stage without a result until it gets one or the build ends.
     For a stage that has not run (NOT_BUILT, e.g. skipped by `when{}`), a note
     on stderr says so, since the wait can last until the build ends
@@ -864,6 +870,12 @@ jkit stages [job] [build#]
   and names both causes, since an all-`-` column otherwise reads as "no agents"
 - Feed a path or ID to `jkit log --stage` or `jkit wait --stage`
 - A build that does not exist is reported as not found, not as a missing plugin
+- A running build that has not entered its first stage prints
+  `no stages yet (build #N is running)` on stderr and exits 0; `--json` prints
+  `[]`. A finished build with an empty stage list is an error that says so
+- A build still in the queue prints `build #N is queued` on stderr and exits 0,
+  with `[]` under `--json`. The number must be one a queued build can take, as
+  for `jkit wait`
 - `DURATION` of a running, paused or queued stage is the time since it started (a queued stage that has a start time is waiting for an executor). Pipeline Graph View reports no duration for such a stage, so jkit computes it from the start time and `--json` keeps the raw `durationMillis` (0). Blue Ocean reports the time so far itself
 - Honors `--json` / `--format` for scripting (the JSON includes `id` and `path`)
 
@@ -966,6 +978,16 @@ jkit wait [job] [build#] [--stage X] [--max-wait DUR]
 | `--max-wait DUR` | Give up after `DUR` (e.g. `30m`) and exit 5. `0` (default) waits indefinitely. The global `--timeout` still sets the HTTP timeout per request |
 
 Defaults to the latest build. A build that has already finished returns at once.
+
+A build number that does not exist yet is waited for while the build sits in
+the queue: Jenkins numbers a build only when it leaves the queue, so
+`jkit wait my-app 42` works right after a trigger. A note on stderr says so
+once. The number must be one a queued build of the job can take, that is below
+the job's `nextBuildNumber` plus its queued items; any other number, and a
+missing job, fails at once as not found. `--max-wait` and Ctrl+C apply while
+queued too. Jenkins assigns the newest number a moment before the build can be
+read, so a not-found newest build is read again on the next poll before it
+counts as gone.
 The target is polled every 5 seconds. A line on stderr says when waiting
 starts, and each pending `input` step is announced once with the command that
 answers it, as with `run --wait`. Ctrl+C interrupts.

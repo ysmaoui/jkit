@@ -46,6 +46,12 @@ jkit wait URL --stage Deploy --max-wait 9m
   `--tail N` keeps the last 10 MB. If that download times out, raise `--timeout`.
 - `--stage -f` has no size cap when the server serves step logs. Without them
   it re-reads the whole stage log each poll and stops following at 10 MB.
+- Right after `jkit run`, `jkit wait URL`, `jkit wait URL --stage X` and
+  `jkit log URL --stage X -f` wait for a queued build to start and for a stage
+  that has not started yet. `jkit stages URL` on a queued build prints
+  `build #N is queued`, and on a running build with no stage yet
+  `no stages yet`; both exit 0, so run it again later. `jkit log URL --tail N`
+  on a queued build is not found.
 - Don't write `jkit status` poll loops. `jkit wait` exits 0 SUCCESS, 1 FAILURE,
   2 UNSTABLE, 3 ABORTED, 4 unknown result or stage never ran, 5 `--max-wait`
   expired. Exit 1 is also any error (not found, auth); `--json` prints a result
@@ -409,7 +415,8 @@ When a build is BUILDING but appears stuck:
 | `stage X log passed 10.0 MB; stopped following` | `--stage -f` on a server without step logs re-reads the whole stage log each poll, so it stops there. Run `--stage X --tail N` after the stage finishes |
 | `Scan triggered for X` from `jkit run` | X is a multibranch project or organization folder. Pass `--branch` (org folder: `jkit run org/repo --branch name`) |
 | `build request rejected` | Jenkins answered 400. Check names with `jkit params`; a job that takes no parameters must be run without `-p` |
-| `jkit wait` exits 4: `stage "X" never ran` / `has no result` | The build ended and the stage got no result (skipped by `when`, NOT_BUILT) |
+| `jkit wait` exits 4: `stage "X" never ran` / `has no result` | The build ended and the stage got no result (skipped by `when`, NOT_BUILT). `log --stage X -f` fails with the same `never ran` message |
+| `build #N of X does not exist and no queued build will get that number` | Wrong build number: it is past the job's next number plus its queued builds. A queued build is waited for, so this is not a timing issue |
 | `console log is … — refusing to dump it whole` | Log exceeds `--max-bytes` (default 50MB). Narrow with `--tail`/`--head`/`--grep`, redirect to a file, or pass `--max-bytes 0` |
 | `refusing to approve input …: it declares N parameter(s)` | The input step declares parameters and the parameter-less endpoint submits none of them, so the pipeline would receive them unset, not defaulted. Pass each one with `-p NAME=VALUE`; the error lists them with the defaults Jenkins would show in the browser |
 | `the step restricts who may answer it to …` | The `input` step names its submitters. No Jenkins permission overrides that list — ask one of the named users or groups |

@@ -2,6 +2,7 @@ package waiter
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -35,6 +36,10 @@ func (f *fakeSource) GetPipelineStages(string, int) ([]jenkins.Stage, error) {
 	f.stageReads++
 	return s, nil
 }
+
+func (f *fakeSource) GetJob(string) (*jenkins.Job, error) { return &jenkins.Job{}, nil }
+
+func (f *fakeSource) GetQueuedTaskURLs() ([]string, error) { return nil, nil }
 
 var (
 	running  = jenkins.Build{Number: 1, Building: true}
@@ -133,3 +138,108 @@ func TestCancelDuringOnRunningReturnsPromptly(t *testing.T) {
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(start), time.Second)
 }
+
+func TestUntilListedReturnsOnceStageAppears(t *testing.T) {
+	src := &fakeSource{builds: []jenkins.Build{running}, stages: [][]jenkins.Stage{{}, deploy("IN_PROGRESS")}}
+	p := Poller{Source: src, Interval: time.Millisecond}
+
+	res, err := p.Wait(context.Background(), Target{JobPath: "app", Build: 1, Stage: "Deploy", UntilListed: true})
+	require.NoError(t, err)
+	assert.Equal(t, "9", res.StageID)
+	assert.Equal(t, "Deploy", res.StagePath)
+	assert.Equal(t, 2, src.stageReads)
+}
+
+const jobURL = "http://jenkins/job/app/"
+
+// buildLookup answers the reads ReadBuild makes. found[i] says whether the
+// i-th GetBuild read finds the build; the last entry repeats.
+type buildLookup struct {
+	found      []bool
+	next       int
+	queued     int
+	buildReads int
+}
+
+func (b *buildLookup) GetBuild(string, int) (*jenkins.Build, error) {
+	ok := b.found[min(b.buildReads, len(b.found)-1)]
+	b.buildReads++
+	if !ok {
+		return nil, &jenkins.NotFoundError{Resource: "resource", Name: "/job/app/1/api/json", Host: "http://jenkins"}
+	}
+	return &finished, nil
+}
+
+func (b *buildLookup) GetJob(string) (*jenkins.Job, error) {
+	return &jenkins.Job{URL: jobURL, NextBuildNumber: b.next}, nil
+}
+
+func (b *buildLookup) GetQueuedTaskURLs() ([]string, error) {
+	urls := []string{"http://jenkins/job/other/"}
+	for range b.queued {
+		urls = append(urls, jobURL)
+	}
+	return urls, nil
+}
+
+func TestReadBuildQueued(t *testing.T) {
+	src := &buildLookup{found: []bool{false}, next: 1, queued: 1}
+	b, state, err := ReadBuild(context.Background(), src, "app", 1, false)
+	require.NoError(t, err)
+	assert.Nil(t, b)
+	assert.Equal(t, Queued, state)
+}
+
+// The item left the queue between the first build read and the job read.
+func TestReadBuildLeftQueueBetweenReads(t *testing.T) {
+	src := &buildLookup{found: []bool{false, true}, next: 2}
+	b, state, err := ReadBuild(context.Background(), src, "app", 1, false)
+	require.NoError(t, err)
+	assert.NotNil(t, b)
+	assert.Equal(t, NotPending, state)
+	assert.Equal(t, 2, src.buildReads)
+}
+
+// The newest number is assigned before the build is readable.
+func TestReadBuildNewestNumberNotReadableYet(t *testing.T) {
+	src := &buildLookup{found: []bool{false}, next: 2}
+	b, state, err := ReadBuild(context.Background(), src, "app", 1, false)
+	require.NoError(t, err)
+	assert.Nil(t, b)
+	assert.Equal(t, Starting, state)
+
+	_, _, err = ReadBuild(context.Background(), src, "app", 1, true)
+	var nf *jenkins.NotFoundError
+	assert.True(t, errors.As(err, &nf), "still unreadable on the next poll: gone, got %v", err)
+}
+
+func TestReadBuildDeletedOlderBuild(t *testing.T) {
+	src := &buildLookup{found: []bool{false}, next: 5}
+	_, _, err := ReadBuild(context.Background(), src, "app", 1, false)
+	var nf *jenkins.NotFoundError
+	require.True(t, errors.As(err, &nf), "got %v", err)
+	assert.Equal(t, 2, src.buildReads)
+}
+
+func TestReadBuildPastQueue(t *testing.T) {
+	src := &buildLookup{found: []bool{false}, next: 1, queued: 1}
+	_, _, err := ReadBuild(context.Background(), src, "app", 2, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "next build is #1, 1 queued")
+}
+
+// A build Jenkins has numbered but not yet registered is read again next poll.
+func TestWaitRetriesStartingBuild(t *testing.T) {
+	src := &lookupSource{buildLookup{found: []bool{false, false, true}, next: 2}}
+	pending := 0
+	p := Poller{Source: src, Interval: time.Millisecond, OnQueued: func() { pending++ }}
+
+	res, err := p.Wait(context.Background(), Target{JobPath: "app", Build: 1})
+	require.NoError(t, err)
+	assert.Equal(t, "SUCCESS", res.Status)
+	assert.Equal(t, 1, pending)
+}
+
+type lookupSource struct{ buildLookup }
+
+func (*lookupSource) GetPipelineStages(string, int) ([]jenkins.Stage, error) { return nil, nil }

@@ -126,6 +126,38 @@ func withStageHint(err error, byID string) error {
 	return err
 }
 
+// awaitStage resolves a stage to its node ID, waiting while the build is
+// queued or has not reached the stage yet, so -f can start right after a
+// trigger.
+func awaitStage(ctx context.Context, client *api.Client, jobPath string, buildNum int, stage string, errW io.Writer) (string, error) {
+	queued, noted := false, false
+	p := waiter.Poller{
+		Source:         client,
+		Interval:       stagePollInterval,
+		QueuedInterval: waitPollInterval,
+		OnQueued: func() {
+			if !queued {
+				queued = true
+				_, _ = fmt.Fprintf(errW, "note: build #%d has not started yet; waiting for it to leave the queue\n", buildNum)
+			}
+		},
+		OnRunning: func() {
+			if !noted {
+				noted = true
+				_, _ = fmt.Fprintf(errW, "note: stage %q has not started yet; waiting for it in build #%d\n", stage, buildNum)
+			}
+		},
+	}
+	res, err := p.Wait(ctx, waiter.Target{JobPath: jobPath, Build: buildNum, Stage: stage, UntilListed: true})
+	if err != nil {
+		return "", err
+	}
+	if res.NotRun != "" {
+		return "", errors.New(res.NotRun)
+	}
+	return res.StageID, nil
+}
+
 // stageRunning reports whether the stage may still write output, and its
 // status. A stage with no final result counts as running while the build does:
 // Blue Ocean reports UNKNOWN for a running stage, and both sources NOT_BUILT for
@@ -397,6 +429,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 		buildNum = builds[0].Number
 	}
 
+	grepPattern, _ := cmd.Flags().GetString("grep")
+	grepI, _ := cmd.Flags().GetBool("ignore-case")
+
 	stageName, _ := cmd.Flags().GetString("stage")
 	stageID, _ := cmd.Flags().GetString("stage-id")
 	if stageName != "" && stageID != "" {
@@ -408,8 +443,30 @@ func runLog(cmd *cobra.Command, args []string) error {
 			"run the stamped console instead and narrow it with --grep")
 	}
 	if stageName != "" || stageID != "" {
+		// --grep reads once to match the console, which does not follow
+		// under --grep either.
+		followStage := follow && grepPattern == ""
+		ctx := context.Background()
+		if followStage {
+			var cancel context.CancelFunc
+			ctx, cancel = signal.NotifyContext(ctx, os.Interrupt)
+			defer cancel()
+		}
+
 		nodeID := stageID
-		if nodeID == "" {
+		switch {
+		case nodeID == "" && followStage:
+			var err error
+			nodeID, err = awaitStage(ctx, client, jobPath, buildNum, stageName, os.Stderr)
+			switch {
+			case ctx.Err() != nil:
+				return nil
+			case errors.Is(err, waiter.ErrNoStageData):
+				return api.ErrStageLogUnavailable
+			case err != nil:
+				return withStageHint(err, "--stage-id <id>")
+			}
+		case nodeID == "":
 			stages, err := client.GetPipelineStages(jobPath, buildNum)
 			if err != nil {
 				return err
@@ -426,14 +483,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		grepPattern, _ := cmd.Flags().GetString("grep")
-		grepI, _ := cmd.Flags().GetBool("ignore-case")
-
-		// --grep reads once to match the console, which does not follow
-		// under --grep either.
-		if follow && grepPattern == "" {
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-			defer cancel()
+		if followStage {
 			err := streamStageLog(ctx, client, jobPath, buildNum, nodeID, os.Stdout, os.Stderr)
 			return stageLogErr(client, jobPath, buildNum, err)
 		}
@@ -453,9 +503,6 @@ func runLog(cmd *cobra.Command, args []string) error {
 		warnStageLogTruncated(os.Stderr, nodeID, client.StageLogCap(), truncated, tail, head, grepPattern != "", len(splitLogLines(text)))
 		return nil
 	}
-
-	grepPattern, _ := cmd.Flags().GetString("grep")
-	grepI, _ := cmd.Flags().GetBool("ignore-case")
 
 	if slowest > 0 {
 		isJSON, _ := cmd.Flags().GetBool("json")

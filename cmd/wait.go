@@ -84,10 +84,16 @@ func runWait(cmd *cobra.Command, args []string) error {
 	}
 	announced := map[string]bool{}
 	nextInputCheck := time.Now().Add(inputPollInterval)
-	started := false
+	started, queued := false, false
 	p := waiter.Poller{
 		Source:   client,
 		Interval: waitPollInterval,
+		OnQueued: func() {
+			if !queued {
+				queued = true
+				_, _ = fmt.Fprintf(os.Stderr, "Build #%d of %s has not started yet; waiting for it to leave the queue...\n", buildNum, jobPath)
+			}
+		},
 		OnRunning: func() {
 			if !started {
 				started = true
