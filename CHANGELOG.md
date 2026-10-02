@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `jkit status --json` and `jkit stages --json` add `elapsedMillis` to a
   running build and to a running, paused or queued stage. `duration` and
   `durationMillis` stay raw.
+- Queued builds: `jkit wait` and `jkit log -f` (console or `--stage X`) wait
+  for a build still in the queue, and `log --stage X -f` waits for a stage that
+  has not started. `jkit status`, `jkit stages` and non-follow `jkit log` report
+  `build #N is queued` and exit 0; `status --json` prints an object with
+  `"queued": true`.
 
 ### Changed
 - `jkit run --wait` and `jkit rebuild --wait` exit 5 when the queue or build
@@ -50,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   instead of asking for a plugin.
 - The Blue Ocean steps fallback reads full step logs, up to the 10 MB stage
   log cap.
+- `jkit stages` no longer lists Pipeline Graph View's "System Generated"
+  placeholder before the first stage starts; it reports `no stages yet`.
+- `jkit log --stage-id` with an unknown node reports `node "ID" not found`
+  instead of printing Jenkins' `No logs found` placeholder.
 
 ## [0.8.0] - 2026-09-14
 
