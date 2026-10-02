@@ -47,3 +47,52 @@ func TestStageElapsed(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildRunningElapsed(t *testing.T) {
+	now := time.UnixMilli(1_700_000_000_000)
+	cases := []struct {
+		name  string
+		b     Build
+		want  time.Duration
+		known bool
+	}{
+		{"running", Build{Building: true, Timestamp: now.UnixMilli() - 90_000}, 90 * time.Second, true},
+		{"running without timestamp", Build{Building: true}, 0, false},
+		{"finished", Build{Duration: 30_000, Timestamp: now.UnixMilli() - 999_000}, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d, ok := c.b.RunningElapsed(now)
+			assert.Equal(t, c.want, d)
+			assert.Equal(t, c.known, ok)
+		})
+	}
+}
+
+func TestStageRunningElapsed(t *testing.T) {
+	now := time.UnixMilli(1_700_000_000_000)
+	start := now.UnixMilli() - 125_000
+	cases := []struct {
+		name  string
+		s     Stage
+		want  time.Duration
+		known bool
+	}{
+		{"in progress", Stage{Status: "IN_PROGRESS", StartTimeMillis: start}, 125 * time.Second, true},
+		{"in progress without start", Stage{Status: "IN_PROGRESS"}, 0, false},
+		{"paused", Stage{Status: "PAUSED_PENDING_INPUT", StartTimeMillis: start}, 125 * time.Second, true},
+		{"queued", Stage{Status: "QUEUED", StartTimeMillis: start}, 125 * time.Second, true},
+		{"queued without start", Stage{Status: "QUEUED"}, 0, false},
+		{"blue ocean running", Stage{Status: "UNKNOWN", DurationMillis: 125_000}, 125 * time.Second, true},
+		{"blue ocean without duration", Stage{Status: "UNKNOWN"}, 0, false},
+		{"finished", Stage{Status: "SUCCESS", DurationMillis: 5000, StartTimeMillis: start}, 0, false},
+		{"no status", Stage{StartTimeMillis: start}, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d, ok := c.s.RunningElapsed(now)
+			assert.Equal(t, c.want, d)
+			assert.Equal(t, c.known, ok)
+		})
+	}
+}

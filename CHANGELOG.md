@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Stage logs over 10 MB print a warning naming what was left out.
 - `jkit log --tail N` on the console warns when even the last 64 MB holds fewer
   than N lines.
+- `jkit status --json` and `jkit stages --json` add `elapsedMillis` to a
+  running build and to a running, paused or queued stage. `duration` and
+  `durationMillis` stay raw.
 
 ### Changed
 - `jkit log --stage X --tail N` returns the true end of the stage log. It

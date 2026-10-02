@@ -34,6 +34,18 @@ func init() {
 // clock is swapped in tests to make elapsed times deterministic.
 var clock = time.Now
 
+// buildInfo is the JSON/template shape of a build: the raw Jenkins fields plus
+// the time so far of a running build. Absent once it finishes.
+type buildInfo struct {
+	jenkins.Build
+	ElapsedMillis int64 `json:"elapsedMillis,omitempty"`
+}
+
+func newBuildInfo(b jenkins.Build, now time.Time) buildInfo {
+	d, _ := b.RunningElapsed(now)
+	return buildInfo{Build: b, ElapsedMillis: d.Milliseconds()}
+}
+
 func runStatus(cmd *cobra.Command, args []string) error {
 	client, jobPath, buildNum, err := resolveJobArgs(cmd, args, false)
 	if err != nil {
@@ -60,7 +72,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if isJSON || tmpl != "" {
-		return f.Output(builds, nil)
+		infos := make([]buildInfo, len(builds))
+		for i, b := range builds {
+			infos[i] = newBuildInfo(b, clock())
+		}
+		return f.Output(infos, nil)
 	}
 
 	if len(builds) == 0 {
@@ -110,13 +126,13 @@ func showBuildDetail(client *api.Client, f *output.Formatter, jobPath string, nu
 	if build == nil {
 		_, _ = fmt.Fprintf(os.Stderr, "build #%d is %s\n", num, pendingState(pending))
 		if isJSON || tmpl != "" {
-			return f.Output(jenkins.Build{Number: num, Queued: true}, nil)
+			return f.Output(buildInfo{Build: jenkins.Build{Number: num, Queued: true}}, nil)
 		}
 		return nil
 	}
 
 	if isJSON || tmpl != "" {
-		return f.Output(build, nil)
+		return f.Output(newBuildInfo(*build, clock()), nil)
 	}
 
 	result := build.Result

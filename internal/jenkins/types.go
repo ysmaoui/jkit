@@ -268,6 +268,29 @@ func (s Stage) Elapsed(now time.Time) time.Duration {
 	return time.Duration(s.DurationMillis) * time.Millisecond
 }
 
+// RunningElapsed returns the time so far of a running, paused or queued stage
+// and whether it is known. Blue Ocean reports a running node's result as
+// UNKNOWN with durationInMillis already counting up; PGV maps "unknown" to an
+// empty status, so UNKNOWN here is never a PGV stage.
+func (s Stage) RunningElapsed(now time.Time) (time.Duration, bool) {
+	switch s.Status {
+	case "IN_PROGRESS", "PAUSED_PENDING_INPUT", "QUEUED", "UNKNOWN":
+		d := s.Elapsed(now)
+		return d, d > 0
+	}
+	return 0, false
+}
+
+// RunningElapsed returns the time so far of a running build and whether it is
+// known.
+func (b Build) RunningElapsed(now time.Time) (time.Duration, bool) {
+	if !b.Building {
+		return 0, false
+	}
+	d := b.Elapsed(now)
+	return d, d > 0
+}
+
 // PGVResponse is the envelope returned by Pipeline Graph View endpoints.
 type PGVResponse struct {
 	Status string  `json:"status"`

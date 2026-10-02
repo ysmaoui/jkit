@@ -71,6 +71,8 @@ jkit wait URL --stage Deploy --max-wait 9m
   text tables. Running stages' IDs (Pipeline Graph View reports `IN_PROGRESS`,
   Blue Ocean `UNKNOWN`):
   `jkit stages URL --json | jq -r '.[] | select(.status=="IN_PROGRESS" or .status=="UNKNOWN") | .id'`
+  A running build or stage has `duration`/`durationMillis` 0 in JSON; the
+  time so far is `elapsedMillis`, present only while it runs.
 
 ---
 
@@ -239,7 +241,8 @@ jkit status URL --json | jq -r 'if .queued then "QUEUED" elif .building then "BU
 Text output already collapses the two fields and prints `BUILDING`; `--json`
 and `--format` expose them raw. The same applies to a running build's
 `duration`, which Jenkins reports as `0` until the build is finalized; text
-output shows the time so far.
+output shows the time so far, and `--json` adds `elapsedMillis` (running builds
+and stages only, absent once finished).
 
 ---
 

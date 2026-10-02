@@ -41,8 +41,11 @@ type stageInfo struct {
 	Type           string `json:"type"`
 	Status         string `json:"status"`
 	DurationMillis int64  `json:"durationMillis"`
-	Agent          string `json:"agent,omitempty"`
-	// elapsed backs the text DURATION column; JSON keeps the raw DurationMillis.
+	// ElapsedMillis is the time so far of a running, paused or queued stage.
+	// Absent once the stage has finished.
+	ElapsedMillis int64  `json:"elapsedMillis,omitempty"`
+	Agent         string `json:"agent,omitempty"`
+	// elapsed backs the text DURATION column.
 	elapsed time.Duration
 }
 
@@ -114,7 +117,10 @@ func runStages(cmd *cobra.Command, args []string) error {
 
 	paths := jenkins.QualifiedStagePaths(stages)
 	infos := make([]stageInfo, len(stages))
+	now := clock()
 	for i, s := range stages {
+		elapsed := s.Elapsed(now)
+		running, _ := s.RunningElapsed(now)
 		infos[i] = stageInfo{
 			ID:             s.ID,
 			Name:           s.Name,
@@ -122,7 +128,8 @@ func runStages(cmd *cobra.Command, args []string) error {
 			Type:           s.Type,
 			Status:         s.Status,
 			DurationMillis: s.DurationMillis,
-			elapsed:        s.Elapsed(clock()),
+			ElapsedMillis:  running.Milliseconds(),
+			elapsed:        elapsed,
 			Agent:          s.Agent,
 		}
 	}

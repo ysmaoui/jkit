@@ -131,6 +131,176 @@ func TestStagesJSONKeepsRawDuration(t *testing.T) {
 	assert.Contains(t, out, `"durationMillis": 0`)
 }
 
+func jsonItems(t *testing.T, out string) []map[string]any {
+	t.Helper()
+	var items []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &items))
+	return items
+}
+
+func TestStagesJSONAddsElapsedOnlyForRunningStage(t *testing.T) {
+	fixClock(t)
+	srv := runningBuildServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5", "--json")
+	require.NoError(t, err)
+	stages := jsonItems(t, out)
+	require.Len(t, stages, 2)
+	assert.NotContains(t, stages[0], "elapsedMillis")
+	assert.EqualValues(t, 5000, stages[0]["durationMillis"])
+	assert.EqualValues(t, 125_000, stages[1]["elapsedMillis"])
+	assert.EqualValues(t, 0, stages[1]["durationMillis"])
+}
+
+// Blue Ocean's live durationMillis equals the elapsed time, and the stage
+// still gets elapsedMillis so consumers read one field for every source.
+func TestStagesJSONAddsElapsedForBlueOceanRunningStage(t *testing.T) {
+	fixClock(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/runs/5/nodes/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"id": "6", "displayName": "Build", "type": "STAGE", "state": "FINISHED", "result": "SUCCESS", "durationInMillis": 5000},
+			{"id": "7", "displayName": "Test", "type": "STAGE", "state": "RUNNING", "result": "UNKNOWN", "durationInMillis": 125_000},
+		})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5", "--json")
+	require.NoError(t, err)
+	stages := jsonItems(t, out)
+	require.Len(t, stages, 2)
+	assert.NotContains(t, stages[0], "elapsedMillis")
+	assert.EqualValues(t, 125_000, stages[1]["elapsedMillis"])
+	assert.EqualValues(t, 125_000, stages[1]["durationMillis"])
+}
+
+func TestStagesJSONElapsedForPausedQueuedAndStartlessStages(t *testing.T) {
+	fixClock(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/stages/tree") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "ok",
+			"data": map[string]any{"complete": false, "stages": []map[string]any{
+				{"id": "1", "name": "Approve", "type": "STAGE", "state": "paused", "startTimeMillis": elapsedNowMillis - 60_000},
+				{"id": "2", "name": "Wait", "type": "STAGE", "state": "queued", "startTimeMillis": elapsedNowMillis - 30_000},
+				{"id": "3", "name": "NoStart", "type": "STAGE", "state": "running"},
+			}},
+		})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5", "--json")
+	require.NoError(t, err)
+	stages := jsonItems(t, out)
+	require.Len(t, stages, 3)
+	assert.Equal(t, "PAUSED_PENDING_INPUT", stages[0]["status"])
+	assert.EqualValues(t, 60_000, stages[0]["elapsedMillis"])
+	assert.Equal(t, "QUEUED", stages[1]["status"])
+	assert.EqualValues(t, 30_000, stages[1]["elapsedMillis"])
+	assert.Equal(t, "IN_PROGRESS", stages[2]["status"])
+	assert.NotContains(t, stages[2], "elapsedMillis")
+}
+
+func TestStagesFormatTemplateReadsElapsedMillis(t *testing.T) {
+	fixClock(t)
+	srv := runningBuildServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "stages", "my-app", "5", "--format", "{{range .}}{{.Name}}={{.ElapsedMillis}} {{end}}")
+	require.NoError(t, err)
+	assert.Equal(t, "Build=0 Test=125000", strings.TrimSpace(out))
+}
+
+func TestStatusQueuedBuildJSONHasNoElapsed(t *testing.T) {
+	queueServer(t, 42, 1<<30)
+
+	out, err := executeCmd(t, "status", "my-app", "42", "--json")
+	require.NoError(t, err)
+	var b map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &b))
+	assert.Equal(t, true, b["queued"])
+	assert.NotContains(t, b, "elapsedMillis")
+}
+
+func TestStatusQueuedBuildFormatReadsElapsedMillis(t *testing.T) {
+	queueServer(t, 42, 1<<30)
+
+	out, err := executeCmd(t, "status", "my-app", "42", "--format", "{{.Number}} {{.Queued}} {{.ElapsedMillis}}")
+	require.NoError(t, err)
+	assert.Equal(t, "42 true 0", strings.TrimSpace(out))
+}
+
+func TestStatusListJSONEmptyIsArray(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"builds": []map[string]any{}})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "status", "my-app", "--json")
+	require.NoError(t, err)
+	assert.JSONEq(t, "[]", out)
+}
+
+func TestStatusDetailJSONAddsElapsedForRunningBuild(t *testing.T) {
+	fixClock(t)
+	srv := runningBuildServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "status", "my-app", "5", "--json")
+	require.NoError(t, err)
+	var b map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &b))
+	assert.EqualValues(t, 3_725_000, b["elapsedMillis"])
+	assert.EqualValues(t, 0, b["duration"])
+	assert.Equal(t, true, b["building"])
+}
+
+func TestStatusListJSONAddsElapsedOnlyForRunningBuild(t *testing.T) {
+	fixClock(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"builds": []map[string]any{
+				{"number": 6, "building": true, "duration": 0, "timestamp": elapsedNowMillis - 90_000},
+				{"number": 5, "building": false, "result": "SUCCESS", "duration": 4000, "timestamp": elapsedNowMillis - 900_000},
+			},
+		})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "status", "my-app", "--json")
+	require.NoError(t, err)
+	builds := jsonItems(t, out)
+	require.Len(t, builds, 2)
+	assert.EqualValues(t, 90_000, builds[0]["elapsedMillis"])
+	assert.NotContains(t, builds[1], "elapsedMillis")
+	assert.EqualValues(t, 4000, builds[1]["duration"])
+}
+
+func TestStatusFormatTemplateReadsBuildFields(t *testing.T) {
+	fixClock(t)
+	srv := runningBuildServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "status", "my-app", "5", "--format", "{{.Number}} {{.Building}} {{.ElapsedMillis}}")
+	require.NoError(t, err)
+	assert.Equal(t, "5 true 3725000", strings.TrimSpace(out))
+}
+
 func TestStatusDetailShowsElapsedForRunningBuildAndStage(t *testing.T) {
 	fixClock(t)
 	srv := runningBuildServer(t)

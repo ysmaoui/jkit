@@ -181,7 +181,7 @@ Stages:
 
 Stages come from Pipeline Graph View or Blue Ocean (see `--pipeline-source`).
 
-Jenkins reports duration 0 for a running build, and Pipeline Graph View does the same for a running, paused or queued stage. A building build shows time since it started, and such a stage shows time since its start. Blue Ocean reports a running stage's time so far itself. `--json` keeps the raw values.
+Jenkins reports duration 0 for a running build, and Pipeline Graph View does the same for a running, paused or queued stage. A building build shows time since it started, and such a stage shows time since its start. Blue Ocean reports a running stage's time so far itself. `--json` keeps the raw values (`duration`, `durationMillis`) and adds `elapsedMillis`, the time so far, for every running, paused or queued item whose time so far is known, Blue Ocean stages included. The field is absent once the build or stage has finished.
 
 A build still in the queue has no data to show, so `jkit status my-app N`
 prints `build #N is queued` (or `build #N is starting`, in the moment between
@@ -911,13 +911,13 @@ jkit stages [job] [build#]
 - A build still in the queue prints `build #N is queued` on stderr and exits 0,
   with `[]` under `--json`. The number must be one a queued build can take, as
   for `jkit wait`
-- `DURATION` of a running, paused or queued stage is the time since it started (a queued stage that has a start time is waiting for an executor). Pipeline Graph View reports no duration for such a stage, so jkit computes it from the start time and `--json` keeps the raw `durationMillis` (0). Blue Ocean reports the time so far itself
-- Honors `--json` / `--format` for scripting (the JSON includes `id` and `path`)
+- `DURATION` of a running, paused or queued stage is the time since it started (a queued stage that has a start time is waiting for an executor). Pipeline Graph View reports no duration for such a stage, so jkit computes it from the start time and `--json` keeps the raw `durationMillis` (0) and adds `elapsedMillis` with the computed value. Blue Ocean reports the time so far itself, and its `durationMillis` and `elapsedMillis` match
+- Honors `--json` / `--format` for scripting (the JSON includes `id` and `path`, and `elapsedMillis` for a running, paused or queued stage)
 
 ```bash
 jkit stages my-app             # latest build
 jkit stages my-app 42          # specific build
-jkit stages my-app 42 --json   # machine-readable (id, name, path, type, status, agent)
+jkit stages my-app 42 --json   # machine-readable (id, name, path, type, status, durationMillis, elapsedMillis, agent)
 ```
 
 ---
