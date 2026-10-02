@@ -601,13 +601,13 @@ Usage: jkit run [job] [-p KEY=VALUE]... [--wait] [--log] [--branch BRANCH]
 
 Trigger a build. If no job specified, resolve from git context.
 -p: build parameters (repeatable)
---wait: block until build completes, exit code reflects result (0=success, 1=failure)
+--wait: block until build completes, exit code reflects result (see Exit codes below)
 --log: implies --wait, stream logs while waiting
 --branch: trigger for a specific branch (multibranch pipelines)
 
 Output: "Build #47 triggered: https://jenkins.company.com/job/..."
 With --wait: "Build #47 completed: SUCCESS (2m 31s)"
-Exit codes: 0=SUCCESS, 1=FAILURE/ERROR, 2=UNSTABLE, 3=ABORTED
+Exit codes with --wait: 0=SUCCESS, 1=FAILURE, 2=UNSTABLE, 3=ABORTED, 4=other, 5=queue or build timeout, 6=error, 130=interrupted
 ```
 
 #### 5. `jkit log [job] [build#] [--follow] [--stage STAGE | --stage-id ID]`

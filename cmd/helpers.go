@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"time"
@@ -171,6 +173,50 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh%dm", h, m)
 }
 
+// errInterrupted ends a wait that Ctrl-C cut short.
+var errInterrupted = errors.New("interrupted")
+
+// interruptContext is a variable so tests interrupt a wait without a signal.
+var interruptContext = func() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt)
+}
+
+// waitsForResult reports whether cmd's exit code carries a build result:
+// always for wait, for run and rebuild only under --wait or --log.
+func waitsForResult(cmd *cobra.Command) bool {
+	if cmd == waitCmd {
+		return true
+	}
+	wait, _ := cmd.Flags().GetBool("wait")
+	showLog, _ := cmd.Flags().GetBool("log")
+	return wait || showLog
+}
+
+// resultExit keeps a jkit error from reading as a build result when cmd's exit
+// code carries one. Result codes pass through, Ctrl-C exits 130 as in a shell,
+// and any other error exits 6.
+func resultExit(cmd *cobra.Command, err error) error {
+	var ee *jenkins.ExitError
+	switch {
+	case err == nil || !waitsForResult(cmd) || errors.As(err, &ee):
+		return err
+	case errors.Is(err, errInterrupted):
+		return &jenkins.ExitError{Code: 130, Message: err.Error()}
+	}
+	return &jenkins.ExitError{Code: 6, Message: err.Error()}
+}
+
+// withResultExit routes the errors of c's arguments check and run through
+// resultExit.
+func withResultExit(c *cobra.Command) {
+	if args := c.Args; args != nil {
+		c.Args = func(cmd *cobra.Command, a []string) error { return resultExit(cmd, args(cmd, a)) }
+	}
+	if run := c.RunE; run != nil {
+		c.RunE = func(cmd *cobra.Command, a []string) error { return resultExit(cmd, run(cmd, a)) }
+	}
+}
+
 // Poll cadences for waitForBuildResult, as variables so tests drive the loop
 // without real sleeps. The input check is far slower than the status poll
 // because reading the InputAction makes the running pipeline's CPS thread
@@ -181,12 +227,24 @@ var (
 	inputPollInterval = 30 * time.Second
 )
 
+// How long run and rebuild --wait wait for the queue and then the build, as
+// variables so tests reach the limits without real sleeps.
+var (
+	queueTimeout = 5 * time.Minute
+	buildTimeout = 2 * time.Hour
+)
+
 // waitForBuildResult polls until the build finishes and maps its result to the
 // process exit code. While polling it watches for input steps and announces
 // each one once, so a build parked on a manual gate says so instead of looking
 // stalled.
 func waitForBuildResult(ctx context.Context, client *api.Client, jobPath string, buildNum int) error {
-	deadline := time.After(2 * time.Hour)
+	// Ctrl-C also ends --log streaming; polling now would report the build's
+	// result instead of the interrupt.
+	if ctx.Err() != nil {
+		return errInterrupted
+	}
+	deadline := time.After(buildTimeout)
 	announced := map[string]bool{}
 	nextInputCheck := time.Now().Add(inputPollInterval)
 
@@ -194,9 +252,9 @@ func waitForBuildResult(ctx context.Context, client *api.Client, jobPath string,
 		if !first {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("interrupted")
+				return errInterrupted
 			case <-deadline:
-				return fmt.Errorf("build timeout after 2h — check Jenkins for build #%d", buildNum)
+				return &jenkins.ExitError{Code: 5, Message: fmt.Sprintf("build timeout after %s — check Jenkins for build #%d", buildTimeout, buildNum)}
 			case <-time.After(buildPollInterval):
 			}
 		}

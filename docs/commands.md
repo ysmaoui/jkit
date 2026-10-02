@@ -609,6 +609,12 @@ jkit run [job] [-p KEY=VALUE]... [--wait] [--log]
 | 2 | UNSTABLE |
 | 3 | ABORTED |
 | 4 | Unknown result |
+| 5 | Gave up waiting: queue timeout (5 minutes) or build timeout (2 hours) |
+| 6 | Error: job not found, authentication, network, bad arguments |
+| 130 | Interrupted (Ctrl+C) |
+
+Without `--wait`, errors exit 1. So does a flag that fails to parse, since
+jkit then cannot tell whether `--wait` was asked for.
 
 Progress messages go to stderr, log output to stdout. Ctrl+C interrupts gracefully. Queue timeout: 5 minutes. Build timeout: 2 hours.
 
@@ -1056,10 +1062,8 @@ qualified path or the stage ID to pick a branch.
 | 3 | ABORTED |
 | 4 | Unknown result, or the stage never ran |
 | 5 | `--max-wait` expired |
-
-Any other error (job not found, authentication, Ctrl+C) also exits 1. Only a
-result prints to stdout, so an empty stdout with exit 1 is an error, not a
-failed build.
+| 6 | Error: job or build not found, authentication, network, bad arguments |
+| 130 | Interrupted (Ctrl+C) |
 
 ```bash
 jkit wait my-app 42                        # wait for the build

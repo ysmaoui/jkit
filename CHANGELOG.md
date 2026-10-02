@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 - `jkit wait [job] [build#] [--stage X] [--max-wait D]` blocks until a build or
-  stage has a result. Exit 0 to 4 as `run --wait`, 5 when `--max-wait` expires.
+  stage has a result. Exit 0 SUCCESS, 1 FAILURE, 2 UNSTABLE, 3 ABORTED,
+  4 unknown result or stage never ran, 5 `--max-wait` expired, 6 error,
+  130 Ctrl+C.
 - `jkit log --stage` accepts the node IDs `jkit stages` prints.
 - Stage logs over 10 MB print a warning naming what was left out.
 - `jkit log --tail N` on the console warns when even the last 64 MB holds fewer
@@ -18,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `durationMillis` stay raw.
 
 ### Changed
+- `jkit run --wait` and `jkit rebuild --wait` exit 5 when the queue or build
+  timeout expires, 6 on a jkit error (not found, auth, network, bad arguments)
+  and 130 on Ctrl+C. 0.8.0 exited 1 for these, the same as a `FAILURE` result.
+  `jkit wait` uses the same codes.
 - `jkit log --stage X --tail N` returns the true end of the stage log. It
   downloads the whole stage log and keeps the last 10 MB.
 - `jkit log --stage X -f` follows step by step from each step's offset, with no

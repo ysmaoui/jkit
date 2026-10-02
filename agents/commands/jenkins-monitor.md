@@ -19,8 +19,8 @@ Given build URL: $ARGUMENTS
    - Exit 5: still queued or running. If `jkit status URL` finds the build, you
      can show progress with `jkit log URL --tail 50`; a queued build has no log
      yet. Then re-run step 1.
-   - Exit 1 with nothing on stdout: an error, not a failed build. A queued build
-     is waited for, so "not found" means a wrong job or build number.
+   - Exit 6: an error, printed on stderr. A queued build is waited for, so
+     "not found" means a wrong job or build number.
 2. Report the result:
    - **FAILURE**: Run `jkit diagnose URL` for failure analysis
    - **UNSTABLE**: Run `jkit test URL --failed` for test failures

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -30,6 +29,10 @@ var waitCmd = &cobra.Command{
 
 func init() {
 	registerWaitFlags(waitCmd)
+	withResultExit(waitCmd)
+	// Not on run or rebuild: when their flags fail to parse, whether --wait
+	// was asked for is unknown.
+	waitCmd.SetFlagErrorFunc(resultExit)
 	rootCmd.AddCommand(waitCmd)
 }
 
@@ -71,7 +74,7 @@ func runWait(cmd *cobra.Command, args []string) error {
 	stage, _ := cmd.Flags().GetString("stage")
 	maxWait, _ := cmd.Flags().GetDuration("max-wait")
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := interruptContext()
 	defer cancel()
 	if maxWait > 0 {
 		ctx, cancel = context.WithTimeout(ctx, maxWait)
@@ -112,7 +115,7 @@ func runWait(cmd *cobra.Command, args []string) error {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			return &jenkins.ExitError{Code: 5, Message: fmt.Sprintf("gave up after %s (--max-wait) waiting for %s", maxWait, what)}
 		case ctx.Err() != nil:
-			return fmt.Errorf("interrupted")
+			return errInterrupted
 		case errors.Is(err, waiter.ErrNoStageData):
 			return fmt.Errorf("no stages for build #%d of %s — --stage needs a pipeline job and the Pipeline Graph View or Blue Ocean plugin", buildNum, jobPath)
 		}

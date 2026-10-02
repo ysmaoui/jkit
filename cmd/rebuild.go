@@ -1,13 +1,13 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 var rebuildCmd = &cobra.Command{
@@ -21,9 +21,15 @@ var rebuildCmd = &cobra.Command{
 }
 
 func init() {
-	rebuildCmd.Flags().Bool("wait", false, "Wait for build to complete")
-	rebuildCmd.Flags().Bool("log", false, "Stream build log (implies --wait)")
+	registerRebuildFlags(rebuildCmd)
+	withResultExit(rebuildCmd)
 	rootCmd.AddCommand(rebuildCmd)
+}
+
+// registerRebuildFlags is shared with the test harness, which resets flags.
+func registerRebuildFlags(c *cobra.Command) {
+	c.Flags().Bool("wait", false, "Wait for build to complete")
+	c.Flags().Bool("log", false, "Stream build log (implies --wait)")
 }
 
 func runRebuild(cmd *cobra.Command, args []string) error {
@@ -75,22 +81,21 @@ func runRebuild(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Set up signal handling
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := interruptContext()
 	defer cancel()
 
 	// Poll queue for build number
 	var newBuildNum int
-	deadline := time.After(5 * time.Minute)
+	deadline := time.After(queueTimeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("interrupted")
+				return errInterrupted
 			case <-deadline:
-				return fmt.Errorf("queue timeout after 5m — check Jenkins")
+				return &jenkins.ExitError{Code: 5, Message: fmt.Sprintf("queue timeout after %s — check Jenkins", queueTimeout)}
 			case <-ticker.C:
 			}
 		}

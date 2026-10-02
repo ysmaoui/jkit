@@ -1,14 +1,14 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ysmaoui/jkit/internal/jenkins"
 )
 
 var runCmd = &cobra.Command{
@@ -28,6 +28,7 @@ func init() {
 	runCmd.Flags().StringArrayP("param", "p", nil, "Build parameter (KEY=VALUE)")
 	runCmd.Flags().Bool("wait", false, "Wait for build to complete")
 	runCmd.Flags().Bool("log", false, "Stream build log (implies --wait)")
+	withResultExit(runCmd)
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -77,13 +78,12 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Set up signal handling
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := interruptContext()
 	defer cancel()
 
 	// Poll queue for build number
 	var buildNum int
-	deadline := time.After(5 * time.Minute)
+	deadline := time.After(queueTimeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 pollQueue:
@@ -91,9 +91,9 @@ pollQueue:
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("interrupted")
+				return errInterrupted
 			case <-deadline:
-				return fmt.Errorf("queue timeout after 5m — check Jenkins")
+				return &jenkins.ExitError{Code: 5, Message: fmt.Sprintf("queue timeout after %s — check Jenkins", queueTimeout)}
 			case <-ticker.C:
 			}
 		}

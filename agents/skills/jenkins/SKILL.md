@@ -65,8 +65,9 @@ jkit wait URL --stage Deploy --max-wait 9m
   proof the text never appears.
 - Don't write `jkit status` poll loops. `jkit wait` exits 0 SUCCESS, 1 FAILURE,
   2 UNSTABLE, 3 ABORTED, 4 unknown result or stage never ran, 5 `--max-wait`
-  expired. Exit 1 is also any error (not found, auth); `--json` prints a result
-  only when there is one.
+  expired, 6 jkit error (not found, auth, network, bad arguments), 130
+  interrupted. `run --wait` and `rebuild --wait` use the same codes; their 5 is
+  the 5-minute queue or 2-hour build timeout.
 - For scripts use `--json` on `stages`, `status` and `wait`; don't parse the
   text tables. Running stages' IDs (Pipeline Graph View reports `IN_PROGRESS`,
   Blue Ocean `UNKNOWN`):
@@ -175,7 +176,7 @@ jkit enable my-job                  # on a branch job, the next scan may undo it
 # Abort running build
 jkit abort my-job 42 --wait
 
-# Block until a build or stage finishes; exit 0/1/2/3/4 = SUCCESS/FAILURE/UNSTABLE/ABORTED/other, 5 = --max-wait expired
+# Block until a build or stage finishes; exit 0/1/2/3/4 = SUCCESS/FAILURE/UNSTABLE/ABORTED/other, 5 = --max-wait expired, 6 = error
 jkit wait URL                       # instead of polling `jkit status`
 jkit wait URL --stage Deploy --max-wait 30m
 
