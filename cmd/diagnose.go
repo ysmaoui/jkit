@@ -139,6 +139,10 @@ func printDiagnosis(r *api.DiagnoseResult) {
 		for i, fs := range r.FailedStages {
 			names[i] = fs.Name
 		}
+		if names[0] == api.ConsoleStageName {
+			_, _ = fmt.Fprintf(os.Stdout, "\nUse 'jkit log <job> %d --tail 200' for the end of the console\n", r.Build)
+			return
+		}
 		_, _ = fmt.Fprintf(os.Stdout, "\nUse 'jkit log <job> %d --stage \"%s\"' for full stage log\n", r.Build, names[0])
 	}
 }

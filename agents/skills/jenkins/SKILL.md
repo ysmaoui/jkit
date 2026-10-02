@@ -52,10 +52,14 @@ jkit wait URL --stage Deploy --max-wait 9m
   `jkit stages URL`, `jkit status URL` and `jkit log URL` without `-f` on a
   queued build print `build #N is queued` (or `is starting`) and exit 0, and
   `jkit stages URL` on a running build with no stage yet prints
-  `no stages yet`, so run it again later.
-  `status --json` on a queued build sets `"queued": true`. `log --stage X`
-  without `-f`, `--timestamps`, `--elapsed` and `--slowest` still report it as
-  not found.
+  `no stages yet`, so run it again later. `log --stage X` and `--stage-id`
+  report a queued build the same way.
+  `status --json` on a queued build sets `"queued": true`. `--timestamps`,
+  `--elapsed` and `--slowest` still report it as not found.
+- `log --stage X` without `-f` on a running build that has not reached X fails
+  (exit 1) with `stage "X" has not started yet (build #N is running); stages
+  so far: ...`. Check X against that list for a typo, else add `-f` to wait
+  for it.
 - `-f` with `--grep` does not follow: it searches once and notes
   `--follow is ignored with --grep` on stderr. An empty result is then not
   proof the text never appears.
@@ -429,4 +433,6 @@ When a build is BUILDING but appears stuck:
 | `the step restricts who may answer it to …` | The `input` step names its submitters. No Jenkins permission overrides that list — ask one of the named users or groups |
 | `input … is no longer pending` | Someone answered it, or the build ended, between listing and deciding. Re-run `jkit input` |
 | `sources`: `SHA not resolvable` | Jenkins recorded no checkout that can be attributed to that library without guessing. Read the `Git checkouts` list yourself; do not assume the commit |
+| `stage "X" has not started yet (build #N is running); stages so far: ...` | X is not in the stage list yet. If X is not a typo of a listed stage, the build has not reached it: use `log --stage X -f` or `jkit wait URL --stage X` to wait for it. Once the build ends, a stage that never ran is `stage "X" not found` |
+| `node "ID" not found` | `--stage-id` got an ID that is neither a stage in `jkit stages` nor a step with output. Take the ID from `jkit stages` |
 | `stage "X" is ambiguous` | Same name in multiple parallel branches — re-run with the qualified path (`--stage "Branch/X"`) or the ID from `jkit stages` (`--stage <id>`) |

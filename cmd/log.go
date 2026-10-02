@@ -424,15 +424,59 @@ func pendingState(p waiter.Pending) string {
 	return "queued"
 }
 
-// stageLogErr reports a missing build as such: both stage log endpoints 404
-// for one, which alone reads as a missing plugin.
-func stageLogErr(client *api.Client, jobPath string, buildNum int, err error) error {
-	if errors.Is(err, api.ErrStageLogUnavailable) {
-		if berr := requireBuild(client, jobPath, buildNum); berr != nil {
+// stageLogErr reports a missing or queued build as such: the stage log
+// endpoints 404 for both, which alone reads as a missing plugin. A queued
+// build is no error, as on the console paths.
+func stageLogErr(client *api.Client, jobPath string, buildNum int, err error, errW io.Writer) error {
+	var nf *jenkins.NotFoundError
+	if errors.Is(err, api.ErrStageLogUnavailable) || errors.As(err, &nf) {
+		if pending, berr := reportPendingBuild(client, jobPath, buildNum, errW); berr != nil || pending {
 			return berr
 		}
 	}
 	return err
+}
+
+// stageNotStartedError is a --stage missing from the list of a running
+// build. The stage may not have started yet, or the name may be a typo, so
+// it keeps the stages so far.
+type stageNotStartedError struct {
+	nf    *jenkins.StageNotFoundError
+	build int
+}
+
+func (e *stageNotStartedError) Error() string {
+	msg := fmt.Sprintf("stage %q has not started yet (build #%d is running)", e.nf.Input, e.build)
+	if len(e.nf.Available) > 0 {
+		msg += "; stages so far: " + strings.Join(e.nf.Available, ", ")
+	}
+	return msg + "\nadd -f to wait for it, or use --stage-id <id>"
+}
+
+func (e *stageNotStartedError) Unwrap() error { return e.nf }
+
+// stageNotFoundErr words a --stage missing from the list. A failed build
+// read leaves the plain not-found, which is still right for a typo.
+func stageNotFoundErr(client *api.Client, jobPath string, buildNum int, err error) error {
+	var nf *jenkins.StageNotFoundError
+	if errors.As(err, &nf) {
+		if building, berr := client.IsBuilding(jobPath, buildNum); berr == nil && building {
+			return &stageNotStartedError{nf: nf, build: buildNum}
+		}
+	}
+	return withStageHint(err, "--stage-id <id>")
+}
+
+// requireListedStage checks a --stage-id whose log came back as PGV's no-logs
+// placeholder, which PGV sends for any node ID, existing or not. The ID is
+// checked only then because PGV also serves the log of a step ID, which no
+// stage list holds.
+func requireListedStage(client *api.Client, jobPath string, buildNum int, nodeID string) error {
+	stages, err := client.GetPipelineStages(jobPath, buildNum)
+	if err != nil || stages == nil {
+		return err
+	}
+	return jenkins.RequireStageID(stages, nodeID)
 }
 
 // withTimeoutHint points at --timeout when a stage log read timed out. Stage
@@ -545,25 +589,22 @@ func runLog(cmd *cobra.Command, args []string) error {
 			}
 		case nodeID == "":
 			stages, err := client.GetPipelineStages(jobPath, buildNum)
-			if err != nil {
-				return err
-			}
 			if stages == nil {
-				if err := requireBuild(client, jobPath, buildNum); err != nil {
-					return err
+				if err == nil {
+					err = api.ErrStageLogUnavailable
 				}
-				return api.ErrStageLogUnavailable
+				return stageLogErr(client, jobPath, buildNum, err, os.Stderr)
 			}
 			nodeID, err = jenkins.ResolveStageID(stages, stageName)
 			if err != nil {
-				return withStageHint(err, "--stage-id <id>")
+				return stageNotFoundErr(client, jobPath, buildNum, err)
 			}
 		}
 
 		label := stageLabel(stageName, nodeID)
 		if followStage {
 			err := streamStageLog(ctx, client, jobPath, buildNum, nodeID, label, os.Stdout, os.Stderr)
-			return stageLogErr(client, jobPath, buildNum, err)
+			return stageLogErr(client, jobPath, buildNum, err, os.Stderr)
 		}
 
 		getLog := client.GetStageLog
@@ -574,7 +615,12 @@ func runLog(cmd *cobra.Command, args []string) error {
 		// A partial tail ends where the read failed, not where the log does,
 		// so printing it as the last N lines would mislead.
 		if err != nil {
-			return stageLogErr(client, jobPath, buildNum, withTimeoutHint(err))
+			return stageLogErr(client, jobPath, buildNum, withTimeoutHint(err), os.Stderr)
+		}
+		if stageID != "" && log == api.PGVNoLogs {
+			if err := requireListedStage(client, jobPath, buildNum, stageID); err != nil {
+				return err
+			}
 		}
 		text := applyTailHead(filterLines(output.SanitizeLog(log), grepPattern, grepI), tail, head)
 		fmt.Print(text)

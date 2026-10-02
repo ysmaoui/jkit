@@ -158,6 +158,10 @@ func (c *Client) diagnoseStage(jobPath string, number int, s jenkins.Stage) Fail
 	return fs
 }
 
+// ConsoleStageName names the FailedStage that holds errors from the console,
+// which is no stage --stage can read.
+const ConsoleStageName = "(console)"
+
 // diagnoseFallbackConsole extracts errors from the console log when stages
 // aren't available. It scans the tail, not the head — build failures surface at
 // the end, and on a large log the head holds only setup noise.
@@ -172,7 +176,7 @@ func diagnoseFallbackConsole(c *Client, jobPath string, number int) []FailedStag
 	if len(errors) == 0 {
 		return nil
 	}
-	return []FailedStage{{Name: "(console)", Errors: errors}}
+	return []FailedStage{{Name: ConsoleStageName, Errors: errors}}
 }
 
 // extractErrors pulls error-relevant lines from a log string.

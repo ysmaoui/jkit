@@ -667,8 +667,9 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
   (`note: build #N is queued; waiting for it to start`), polling as `jkit wait`
   does, then followed as usual. Ctrl-C stops the wait. Without `-f`, or with
   `--grep`, `log` prints `build #N is queued` (or `is starting`) on stderr and
-  exits 0, as `jkit stages` does. `--timestamps`, `--elapsed`, `--slowest` and
-  `--stage` without `-f` still report the build as not found
+  exits 0, as `jkit stages` does. So do `--stage` and `--stage-id` reads that
+  do not wait. `--timestamps`, `--elapsed` and `--slowest` still report the
+  build as not found
 - `--tail` and `--head` are incompatible with `--follow`
 
 ### Console log
@@ -722,6 +723,18 @@ The console is never buffered whole in memory.
   falls back to the node ID only when no path or name matches, so a stage named
   like a number wins over another stage's ID. `--stage-id` takes only node IDs.
   The two are mutually exclusive
+- A `--stage` missing from the list of a running build fails with exit 1 and
+  `stage "X" has not started yet (build #N is running); stages so far: ...`,
+  then `add -f to wait for it, or use --stage-id <id>`. The log does not exist
+  yet, and X may be a typo, hence the list. `-f` waits for it instead. Once
+  the build has finished, or when the build cannot be read, a missing stage
+  fails with `stage "X" not found` and the list of stages
+- Pipeline Graph View answers a `--stage-id` it does not know with the same
+  `No logs found` text as a stage that has written nothing yet. On that answer
+  jkit checks the ID against the stage list and fails with `node "ID" not
+  found` and the list of stages when it is not there; before the first stage
+  there is no list to add. A step ID is in no stage list, but its log comes
+  back as is, so `--stage-id` still prints one step's log
 - When a bare `--stage` name matches multiple stages (e.g. the same stage in two
   parallel branches), the command errors and lists each candidate's qualified
   path and ID. Pass a qualified path (`--stage "RemoteExec/Run Bazel Build"`) or
@@ -890,6 +903,11 @@ jkit stages [job] [build#]
 - A running build that has not entered its first stage prints
   `no stages yet (build #N is running)` on stderr and exits 0; `--json` prints
   `[]`. A finished build with an empty stage list is an error that says so
+- Pipeline Graph View lists the pipeline start node as a stage named `System
+  Generated` (type `PIPELINE_START`) while no real stage exists, and keeps it
+  for a pipeline that never declares one. jkit leaves it out of every stage
+  list, so it never shows as a running stage. A pipeline without stages has
+  only its console: use `jkit log`, not `--stage`
 - A build still in the queue prints `build #N is queued` on stderr and exits 0,
   with `[]` under `--json`. The number must be one a queued build can take, as
   for `jkit wait`

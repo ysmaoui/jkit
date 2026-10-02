@@ -113,10 +113,20 @@ func (e *ServerError) Error() string {
 type StageNotFoundError struct {
 	Input     string
 	Available []string // "path (id)" for every stage in the list
+	// ByID means Input was taken as a node ID only, which may name a step.
+	ByID bool
 }
 
 func (e *StageNotFoundError) Error() string {
-	return fmt.Sprintf("stage %q not found — available stages: %s", e.Input, strings.Join(e.Available, ", "))
+	what := "stage"
+	if e.ByID {
+		what = "node"
+	}
+	msg := fmt.Sprintf("%s %q not found", what, e.Input)
+	if len(e.Available) > 0 {
+		msg += " — available stages: " + strings.Join(e.Available, ", ")
+	}
+	return msg
 }
 
 // StageAmbiguousError reports a bare stage name shared by several stages,

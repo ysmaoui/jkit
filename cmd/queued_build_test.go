@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ysmaoui/jkit/internal/api"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/staplertest"
 	"github.com/ysmaoui/jkit/internal/waiter"
 )
@@ -352,12 +353,102 @@ func TestLogStageFollowBuildEndsWithoutStage(t *testing.T) {
 	assert.Contains(t, err.Error(), `stage "Big" never ran — build #5 finished SUCCESS`)
 }
 
+// A missing stage of a running build may not have started yet, which the
+// stage list a typo gets would not explain. It still fails: there is no log.
 func TestLogStageWithoutFollowFailsAtOnce(t *testing.T) {
 	stageAppearsServer(t, 0, 1<<30, 1<<30, 0)
 
 	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Big")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `stage "Big" not found`)
+	assert.Equal(t, "stage \"Big\" has not started yet (build #5 is running); stages so far: Build (4)\n"+
+		"add -f to wait for it, or use --stage-id <id>", err.Error())
+	var nf *jenkins.StageNotFoundError
+	assert.ErrorAs(t, err, &nf)
+}
+
+// A build that cannot be read leaves the plain not-found: the stage list is
+// all the user gets either way.
+func TestLogStageNotFoundBuildUnreadable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/job/my-app/5/stages/tree" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{
+				map[string]any{"id": "4", "name": "Build", "type": "STAGE", "state": "running"},
+			}}})
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Big")
+	require.Error(t, err)
+	assert.Equal(t, "stage \"Big\" not found — available stages: Build (4)\nuse --stage-id <id> for an exact node ID", err.Error())
+}
+
+// A missing job is not a queued build, even when the queue reads fine.
+func TestLogStageMissingJob(t *testing.T) {
+	queueServer(t, 42, 1<<30)
+
+	for _, args := range [][]string{{"--stage", "X"}, {"--stage-id", "6"}, {"--stage-id", "6", "-f"}} {
+		var err error
+		stderr := captureStderr(t, func() { _, err = executeCmd(t, append([]string{"log", "nope", "1"}, args...)...) })
+		require.Error(t, err, args)
+		assert.Contains(t, err.Error(), `job "nope" not found`, args)
+		assert.NotContains(t, stderr, "queued", args)
+	}
+}
+
+// Every stage log path reports a queued build as the console paths do.
+func TestLogStageQueuedBuild(t *testing.T) {
+	queueServer(t, 42, 1<<30)
+
+	for _, args := range [][]string{
+		{"--stage", "X"},
+		{"--stage", "X", "--grep", "x"},
+		{"--stage", "X", "--tail", "2"},
+		{"--stage", "X", "-f", "--grep", "x"},
+		{"--stage-id", "6"},
+		{"--stage-id", "6", "--tail", "2"},
+		{"--stage-id", "6", "-f"},
+	} {
+		var out string
+		var err error
+		stderr := captureStderr(t, func() { out, err = executeCmd(t, append([]string{"log", "my-app", "42"}, args...)...) })
+		require.NoError(t, err, args)
+		assert.Empty(t, out, args)
+		assert.Contains(t, stderr, "build #42 is queued", args)
+		assert.NotContains(t, stderr, "jkit list", args)
+	}
+}
+
+// PGV lists its start node as "System Generated" until the first stage starts.
+func TestStagesOnlyPipelineStart(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/job/my-app/5/stages/tree":
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{
+				map[string]any{"id": "2", "name": "System Generated", "type": "PIPELINE_START", "state": "running", "synthetic": true},
+			}}})
+		case "/job/my-app/5/api/json":
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": true})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "stages", "my-app", "5") })
+	require.NoError(t, err)
+	assert.Empty(t, out)
+	assert.Equal(t, "no stages yet (build #5 is running)\n", stderr)
+
+	out, err = executeCmd(t, "stages", "my-app", "5", "--json")
+	require.NoError(t, err)
+	assert.JSONEq(t, "[]", out)
 }
 
 // A queued poll costs three requests, so it runs at the wait interval, not

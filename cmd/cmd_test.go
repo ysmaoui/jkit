@@ -596,6 +596,9 @@ func parallelStagesServer(t *testing.T, execState, cacheState string) *httptest.
 			default:
 				w.WriteHeader(http.StatusNotFound)
 			}
+		case r.URL.Path == "/job/my-app/5/api/json":
+			building := execState == "running" || cacheState == "running"
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": building, "result": "SUCCESS"})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -660,6 +663,57 @@ func TestLogStageNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 	assert.Contains(t, err.Error(), "RemoteExec/Run Bazel Build")
 	assert.Contains(t, err.Error(), "use --stage-id <id> for an exact node ID")
+}
+
+// PGV answers any node ID with its no-logs placeholder, so only the stage list
+// tells a stage without output from a node that does not exist. A step ID is
+// in no stage list, and its log is served as is.
+func TestLogStageIDValidatedOnPlaceholder(t *testing.T) {
+	var stageReads int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/job/my-app/5/stages/tree":
+			stageReads++
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{
+				map[string]any{"id": "6", "name": "X", "type": "STAGE", "state": "running"},
+			}}})
+		case "/job/my-app/7/stages/tree":
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{
+				map[string]any{"id": "2", "name": "System Generated", "type": "PIPELINE_START", "state": "running"},
+			}}})
+		case "/job/my-app/5/stages/log", "/job/my-app/7/stages/log":
+			if r.URL.Query().Get("nodeId") == "11" {
+				_, _ = fmt.Fprint(w, "step output\n")
+				return
+			}
+			_, _ = fmt.Fprint(w, "No logs found\n")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	for _, args := range [][]string{{"--stage-id", "99"}, {"--stage-id", "99", "--tail", "2"}, {"--stage-id", "99", "--grep", "x"}} {
+		out, err := executeCmd(t, append([]string{"log", "my-app", "5"}, args...)...)
+		require.Error(t, err, args)
+		assert.Equal(t, `node "99" not found — available stages: X (6)`, err.Error(), args)
+		assert.Empty(t, out, args)
+	}
+
+	_, err := executeCmd(t, "log", "my-app", "7", "--stage-id", "99")
+	require.Error(t, err)
+	assert.Equal(t, `node "99" not found`, err.Error(), "no stages yet, so no list")
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "6")
+	require.NoError(t, err)
+	assert.Equal(t, "No logs found\n", out)
+
+	stageReads = 0
+	out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "11")
+	require.NoError(t, err)
+	assert.Equal(t, "step output\n", out)
+	assert.Zero(t, stageReads, "a log that is not the placeholder needs no stage list")
 }
 
 func TestLogStageFollow(t *testing.T) {
@@ -1185,6 +1239,34 @@ func TestDiagnoseHintsAtTimeoutWhenBothStageLogReadsStall(t *testing.T) {
 	assert.Contains(t, out, "Compile")
 	assert.Contains(t, stderr, "warning: stage Compile: could not read the stage log: ")
 	assert.Contains(t, stderr, "--timeout")
+}
+
+// A pipeline that declares no stage has only PGV's start node, which jkit
+// does not list, so its errors come from the console, which --stage cannot read.
+func TestDiagnoseStagelessPipelinePointsAtConsole(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/job/my-app/5/api/json":
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "result": "FAILURE", "building": false})
+		case "/job/my-app/5/stages/tree":
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{
+				map[string]any{"id": "2", "name": "System Generated", "type": "PIPELINE_START", "state": "failure"},
+			}}})
+		case "/job/my-app/5/logText/progressiveText":
+			w.Header().Set("X-Text-Size", "100")
+			_, _ = fmt.Fprint(w, "ERROR: boom\n")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "diagnose", "my-app", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "ERROR: boom")
+	assert.Contains(t, out, "Use 'jkit log <job> 5 --tail 200' for the end of the console")
+	assert.NotContains(t, out, "--stage")
 }
 
 func TestSanitizingLineWriterStripsSplitAnnotation(t *testing.T) {

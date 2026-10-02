@@ -32,9 +32,10 @@ var ErrStageLogUnavailable = errors.New("stage logs need the Pipeline Graph View
 // into it does not stay put between reads and the log cannot be followed.
 var ErrStageLogPerStep = errors.New("stage log is only available per step on this server")
 
-// pgvNoLogs is the whole body PGV's stages/log sends for a node with no step
-// logs yet. It is not log text, so it must not advance a follow offset.
-const pgvNoLogs = "No logs found\n"
+// PGVNoLogs is the whole body PGV's stages/log sends for a node with no step
+// logs yet, or for no such node. It is not log text, so it must not advance a
+// follow offset.
+const PGVNoLogs = "No logs found\n"
 
 // GetPipelineStages returns the flat stage list for a build. It prefers the
 // Pipeline Graph View plugin (`/stages/tree`, v803+) and falls back to Blue
@@ -148,12 +149,12 @@ func (c *Client) CopyStageLogFrom(jobPath string, number int, nodeID string, sta
 	}
 	src := io.LimitReader(lr, limit-start)
 	if start == 0 {
-		head := make([]byte, len(pgvNoLogs)+1)
+		head := make([]byte, len(PGVNoLogs)+1)
 		k, err := io.ReadFull(src, head)
 		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			return 0, false, fmt.Errorf("reading stage log: %w", err)
 		}
-		if string(head[:k]) == pgvNoLogs {
+		if string(head[:k]) == PGVNoLogs {
 			return 0, false, nil
 		}
 		src = io.MultiReader(bytes.NewReader(head[:k]), src)

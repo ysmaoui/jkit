@@ -186,11 +186,7 @@ func ResolveStageID(stages []Stage, input string) (string, error) {
 		candidates = nameMatches
 	}
 	if len(candidates) == 0 {
-		available := make([]string, 0, len(stages))
-		for _, s := range stages {
-			available = append(available, fmt.Sprintf("%s (%s)", paths[s.ID], s.ID))
-		}
-		return "", &StageNotFoundError{Input: input, Available: available}
+		return "", stageNotFound(stages, paths, input)
 	}
 
 	matches := make([]string, 0, len(candidates))
@@ -202,4 +198,24 @@ func ResolveStageID(stages []Stage, input string) (string, error) {
 		matches = append(matches, fmt.Sprintf("%s  (id=%s, %s)", paths[s.ID], s.ID, status))
 	}
 	return "", &StageAmbiguousError{Input: input, Matches: matches, Example: paths[candidates[0].ID]}
+}
+
+// RequireStageID returns a StageNotFoundError unless a stage has node ID id.
+func RequireStageID(stages []Stage, id string) error {
+	for _, s := range stages {
+		if s.ID == id {
+			return nil
+		}
+	}
+	nf := stageNotFound(stages, QualifiedStagePaths(stages), id)
+	nf.ByID = true
+	return nf
+}
+
+func stageNotFound(stages []Stage, paths map[string]string, input string) *StageNotFoundError {
+	available := make([]string, 0, len(stages))
+	for _, s := range stages {
+		available = append(available, fmt.Sprintf("%s (%s)", paths[s.ID], s.ID))
+	}
+	return &StageNotFoundError{Input: input, Available: available}
 }

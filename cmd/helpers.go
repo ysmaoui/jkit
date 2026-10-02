@@ -16,6 +16,7 @@ import (
 	appctx "github.com/ysmaoui/jkit/internal/context"
 	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
+	"github.com/ysmaoui/jkit/internal/waiter"
 )
 
 // streamLog follows a progressiveText log to w until it completes or ctx ends,
@@ -36,12 +37,18 @@ func streamLog(ctx context.Context, l *api.ProgressiveLog, w, errW io.Writer) er
 	return withConsoleTimeoutHint(output.NewLogStreamer(fetch, lw, consolePollInterval).Stream(ctx))
 }
 
-// requireBuild returns the typed not-found (or container) error when the build
-// is missing. GetPipelineStages returns nil, nil when both stage endpoints
-// 404, which a missing build produces just as a missing plugin does.
-func requireBuild(client *api.Client, jobPath string, buildNum int) error {
-	_, err := client.GetBuild(jobPath, buildNum)
-	return err
+// reportPendingBuild tells why the stage endpoints 404, which a missing
+// plugin, a missing build and a build still in the queue all produce. A
+// queued or starting build is reported on errW as the console paths report it,
+// and pending is true. A missing build is the typed not-found (or container)
+// error.
+func reportPendingBuild(client *api.Client, jobPath string, buildNum int, errW io.Writer) (pending bool, err error) {
+	build, p, err := waiter.ReadBuild(context.Background(), client, jobPath, buildNum, false)
+	if err != nil || build != nil {
+		return false, err
+	}
+	_, _ = fmt.Fprintf(errW, "build #%d is %s\n", buildNum, pendingState(p))
+	return true, nil
 }
 
 // resolveJobArgs extracts client, job path, and optional build number from command arguments.
