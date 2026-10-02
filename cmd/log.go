@@ -195,7 +195,7 @@ func stageActive(status string) bool {
 // whole-stage log instead, which has no offset: every poll re-downloads it from
 // byte 0, so that path stops once the output reaches the client's stage log
 // cap rather than pull an ever larger prefix each second.
-func streamStageLog(ctx context.Context, client *api.Client, jobPath string, buildNum int, nodeID string, w, errW io.Writer) error {
+func streamStageLog(ctx context.Context, client *api.Client, jobPath string, buildNum int, nodeID, label string, w, errW io.Writer) error {
 	lw := &sanitizingLineWriter{w: w}
 	defer lw.Flush()
 	steps := client.NewStageStepFollower(jobPath, buildNum, nodeID)
@@ -218,12 +218,13 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 		n, capped, err := client.CopyStageLogFrom(jobPath, buildNum, nodeID, printed, lw)
 		printed += n
 		if errors.Is(err, api.ErrStageLogPerStep) {
-			return true, printPerStepStageLog(client, jobPath, buildNum, nodeID, printed, lw, errW, err)
+			return true, printPerStepStageLog(client, jobPath, buildNum, nodeID, label, printed, lw, errW, err)
 		}
 		if capped {
 			lw.Flush()
+			lw.endLine()
 			_, _ = fmt.Fprintf(errW, "warning: stage %s log passed %s; stopped following. "+
-				"Re-run with --tail N instead of -f after the stage finishes\n", nodeID, humanBytes(int64(client.StageLogCap())))
+				"Re-run with --tail N instead of -f after the stage finishes\n", label, humanBytes(int64(client.StageLogCap())))
 		}
 		return capped, withTimeoutHint(err)
 	}
@@ -251,13 +252,13 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 				if stop, err := copyNew(true); stop || err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(errW, "note: build #%d has finished but stage %s still reports %s; stopped following\n", buildNum, nodeID, status)
+				_, _ = fmt.Fprintf(errW, "note: build #%d has finished but stage %s still reports %s; stopped following\n", buildNum, label, status)
 				return nil
 			}
 		}
 		if running && status == "NOT_BUILT" && !notedNotBuilt {
 			notedNotBuilt = true
-			_, _ = fmt.Fprintf(errW, "note: stage %s has not run (NOT_BUILT); following until it starts or the build ends\n", nodeID)
+			_, _ = fmt.Fprintf(errW, "note: stage %s has not run (NOT_BUILT); following until it starts or the build ends\n", label)
 		}
 		if !running {
 			// Output written between the read above and the stage finishing.
@@ -277,7 +278,7 @@ func streamStageLog(ctx context.Context, client *api.Client, jobPath string, bui
 // stage whose whole log the server serves only step by step: that
 // concatenation cannot be followed by offset. A finished stage is printed once,
 // as without -f; a running one is refused.
-func printPerStepStageLog(client *api.Client, jobPath string, buildNum int, nodeID string, printed int64, lw *sanitizingLineWriter, errW io.Writer, perStep error) error {
+func printPerStepStageLog(client *api.Client, jobPath string, buildNum int, nodeID, label string, printed int64, lw *sanitizingLineWriter, errW io.Writer, perStep error) error {
 	running, _, err := stageRunning(client, jobPath, buildNum, nodeID)
 	if err != nil {
 		return err
@@ -291,7 +292,7 @@ func printPerStepStageLog(client *api.Client, jobPath string, buildNum int, node
 	}
 	_, _ = io.WriteString(lw, text)
 	lw.Flush()
-	warnStageLogTruncated(errW, nodeID, client.StageLogCap(), truncated, 0, 0, false, len(splitLogLines(text)))
+	warnStageLogTruncated(errW, label, client.StageLogCap(), truncated, 0, 0, false, len(splitLogLines(text)), lw.endLine)
 	return nil
 }
 
@@ -305,6 +306,24 @@ const maxPendingLine = 64 << 10
 type sanitizingLineWriter struct {
 	w       io.Writer
 	pending []byte
+	last    byte // last byte written to w, 0 before any
+}
+
+func (l *sanitizingLineWriter) emit(s string) error {
+	if s == "" {
+		return nil
+	}
+	l.last = s[len(s)-1]
+	_, err := io.WriteString(l.w, s)
+	return err
+}
+
+// endLine terminates the output if it ends mid-line. Call after Flush.
+func (l *sanitizingLineWriter) endLine() {
+	if l.last != 0 && l.last != '\n' {
+		_, _ = io.WriteString(l.w, "\n")
+		l.last = '\n'
+	}
 }
 
 func (l *sanitizingLineWriter) Write(p []byte) (int, error) {
@@ -314,7 +333,7 @@ func (l *sanitizingLineWriter) Write(p []byte) (int, error) {
 		i = len(l.pending) - 1
 	}
 	if i >= 0 {
-		if _, err := io.WriteString(l.w, output.SanitizeLog(string(l.pending[:i+1]))); err != nil {
+		if err := l.emit(output.SanitizeLog(string(l.pending[:i+1]))); err != nil {
 			return 0, err
 		}
 		l.pending = append(l.pending[:0], l.pending[i+1:]...)
@@ -325,29 +344,84 @@ func (l *sanitizingLineWriter) Write(p []byte) (int, error) {
 // Flush writes the held-back partial line.
 func (l *sanitizingLineWriter) Flush() {
 	if len(l.pending) > 0 {
-		_, _ = io.WriteString(l.w, output.SanitizeLog(string(l.pending)))
+		_ = l.emit(output.SanitizeLog(string(l.pending)))
 		l.pending = l.pending[:0]
 	}
 }
 
 // warnStageLogTruncated tells the user when a stage log read hit the window
-// and the output may be incomplete. shown is the number of lines printed.
-func warnStageLogTruncated(w io.Writer, nodeID string, window int, truncated bool, tail, head int, grep bool, shown int) {
+// and the output may be incomplete. label names the stage as the user
+// addressed it. shown is the number of lines printed. endLine runs just before a
+// warning is written, so text cut mid-line gets its newline first.
+func warnStageLogTruncated(w io.Writer, label string, window int, truncated bool, tail, head int, grep bool, shown int, endLine func()) {
 	if !truncated {
 		return
 	}
 	size := humanBytes(int64(window))
+	var msg string
 	switch {
 	case tail > 0 && shown >= tail, head > 0 && shown >= head:
+		return
 	case tail > 0 && grep:
-		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; --grep searched only the last %s\n", nodeID, size, size)
+		msg = fmt.Sprintf("warning: stage %s log exceeds %s; --grep searched only the last %s\n", label, size, size)
 	case tail > 0:
-		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; only %d of %d lines fit in the last %s\n", nodeID, size, shown, tail, size)
+		msg = fmt.Sprintf("warning: stage %s log exceeds %s; only %d of %d lines fit in the last %s\n", label, size, shown, tail, size)
 	case grep:
-		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; --grep searched only the first %s, add --tail N to search the end\n", nodeID, size, size)
+		msg = fmt.Sprintf("warning: stage %s log exceeds %s; --grep searched only the first %s, add --tail N to search the end\n", label, size, size)
 	default:
-		_, _ = fmt.Fprintf(w, "warning: stage %s log exceeds %s; showing the first %s, use --tail N to read the end\n", nodeID, size, size)
+		msg = fmt.Sprintf("warning: stage %s log exceeds %s; showing the first %s, use --tail N to read the end\n", label, size, size)
 	}
+	endLine()
+	_, _ = io.WriteString(w, msg)
+}
+
+// stageLabel names a stage in messages as the user addressed it: the --stage
+// value when there is one, else the node ID.
+func stageLabel(name, nodeID string) string {
+	if name != "" {
+		return fmt.Sprintf("%q", name)
+	}
+	return nodeID
+}
+
+// endLine terminates text that ends mid-line, as a truncated log does, so
+// whatever the shell prints next does not join its last line.
+func endLine(w io.Writer, text string) {
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		_, _ = io.WriteString(w, "\n")
+	}
+}
+
+// awaitBuildStart waits while build n is queued or starting, with one note on
+// errW, and returns the build once it is readable. A cancelled ctx returns
+// (nil, nil); the caller tells it from success by ctx.Err().
+func awaitBuildStart(ctx context.Context, client *api.Client, jobPath string, n int, pending waiter.Pending, errW io.Writer) (*jenkins.Build, error) {
+	_, _ = fmt.Fprintf(errW, "note: build #%d is queued; waiting for it to start\n", n)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, nil
+		case <-time.After(waitPollInterval):
+		}
+		build, p, err := waiter.ReadBuild(ctx, client, jobPath, n, pending == waiter.Starting)
+		switch {
+		case ctx.Err() != nil:
+			return nil, nil
+		case err != nil:
+			return nil, err
+		case build != nil:
+			return build, nil
+		}
+		pending = p
+	}
+}
+
+// pendingState words a build that has no data yet.
+func pendingState(p waiter.Pending) string {
+	if p == waiter.Starting {
+		return "starting"
+	}
+	return "queued"
 }
 
 // stageLogErr reports a missing build as such: both stage log endpoints 404
@@ -442,6 +516,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 			"stage logs come from the pipeline graph endpoint, which carries no timestamps; " +
 			"run the stamped console instead and narrow it with --grep")
 	}
+	if follow && grepPattern != "" {
+		_, _ = fmt.Fprintln(os.Stderr, "note: --follow is ignored with --grep; searched the log as it is now")
+	}
 	if stageName != "" || stageID != "" {
 		// --grep reads once to match the console, which does not follow
 		// under --grep either.
@@ -483,8 +560,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		label := stageLabel(stageName, nodeID)
 		if followStage {
-			err := streamStageLog(ctx, client, jobPath, buildNum, nodeID, os.Stdout, os.Stderr)
+			err := streamStageLog(ctx, client, jobPath, buildNum, nodeID, label, os.Stdout, os.Stderr)
 			return stageLogErr(client, jobPath, buildNum, err)
 		}
 
@@ -500,7 +578,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 		}
 		text := applyTailHead(filterLines(output.SanitizeLog(log), grepPattern, grepI), tail, head)
 		fmt.Print(text)
-		warnStageLogTruncated(os.Stderr, nodeID, client.StageLogCap(), truncated, tail, head, grepPattern != "", len(splitLogLines(text)))
+		warnStageLogTruncated(os.Stderr, label, client.StageLogCap(), truncated, tail, head, grepPattern != "", len(splitLogLines(text)), func() { endLine(os.Stdout, text) })
 		return nil
 	}
 
@@ -515,15 +593,30 @@ func runLog(cmd *cobra.Command, args []string) error {
 			grepPattern, grepI, tail, head, maxBytes, os.Stdout)
 	}
 
-	// Auto-follow if build in progress (unless grep/tail/head active)
-	if !follow && grepPattern == "" && tail == 0 && head == 0 {
-		build, err := client.GetBuild(jobPath, buildNum)
+	build, pending, err := waiter.ReadBuild(context.Background(), client, jobPath, buildNum, false)
+	if err != nil {
+		return err
+	}
+	if build == nil {
+		// A grep reads once, so it has nothing to wait for.
+		if !follow || grepPattern != "" {
+			_, _ = fmt.Fprintf(os.Stderr, "build #%d is %s\n", buildNum, pendingState(pending))
+			return nil
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		build, err = awaitBuildStart(ctx, client, jobPath, buildNum, pending, os.Stderr)
+		if ctx.Err() != nil {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		if build.Building {
-			follow = true
-		}
+	}
+
+	// Auto-follow if build in progress (unless grep/tail/head active)
+	if !follow && grepPattern == "" && tail == 0 && head == 0 && build.Building {
+		follow = true
 	}
 
 	if follow && grepPattern == "" {

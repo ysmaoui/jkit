@@ -689,9 +689,14 @@ func TestLogStageFollowGrepReadsOnce(t *testing.T) {
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)
 
-	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f", "--grep", "beta")
+	var out string
+	var err error
+	stderr := captureStderr(t, func() {
+		out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f", "--grep", "beta")
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "beta two\n", out)
+	assert.Contains(t, stderr, "note: --follow is ignored with --grep; searched the log as it is now")
 
 	out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f", "--grep", "beta", "-i")
 	require.NoError(t, err)
@@ -758,9 +763,40 @@ func TestLogStagePastCapWarns(t *testing.T) {
 	var err error
 	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4") })
 	require.NoError(t, err)
-	assert.Equal(t, bigStageLogBody[:64], out)
+	assert.Equal(t, bigStageLogBody[:64]+"\n", out, "a log cut mid-line still ends in a newline")
 	assert.Contains(t, stderr, "stage 4 log exceeds")
 	assert.Contains(t, stderr, "use --tail N to read the end")
+}
+
+// Unterminated output with no warning after it is left byte-exact.
+func TestLogStageUnterminatedWithoutWarningStaysExact(t *testing.T) {
+	srv := stageLogServer(t, func(int) string { return "a\nlast" }, func(int) bool { return false })
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4")
+	require.NoError(t, err)
+	assert.Equal(t, "a\nlast", out)
+}
+
+// The warning names the stage as the user addressed it.
+func TestLogStageWarningUsesStageName(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	stderr := captureStderr(t, func() {
+		_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Build")
+		require.NoError(t, err)
+	})
+	assert.Contains(t, stderr, `stage "Build" log exceeds`)
+	assert.NotContains(t, stderr, "stage 4")
+
+	stderr = captureStderr(t, func() {
+		_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Build", "--tail", "100", "--grep", "line")
+		require.NoError(t, err)
+	})
+	assert.Contains(t, stderr, `stage "Build" log exceeds`)
 }
 
 func TestLogStageHeadWithinCapDoesNotWarn(t *testing.T) {
@@ -865,7 +901,7 @@ func TestLogStageStepsFallbackPastCapWarns(t *testing.T) {
 	var err error
 	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4") })
 	require.NoError(t, err)
-	assert.Equal(t, bigStageLogBody[:64], out)
+	assert.Equal(t, bigStageLogBody[:64]+"\n", out)
 	assert.Contains(t, stderr, "stage 4 log exceeds")
 
 	stderr = captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "2") })
@@ -895,7 +931,7 @@ func TestLogStageStepsFallbackFollowPrintsFinishedStage(t *testing.T) {
 	var err error
 	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
 	require.NoError(t, err)
-	assert.Equal(t, bigStageLogBody[:64], out)
+	assert.Equal(t, bigStageLogBody[:64]+"\n", out)
 	assert.Contains(t, stderr, "stage 4 log exceeds")
 }
 
@@ -924,7 +960,7 @@ func TestLogStageFollowStopsAtCap(t *testing.T) {
 	var err error
 	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
 	require.NoError(t, err)
-	assert.Equal(t, bigStageLogBody[:64], out)
+	assert.Equal(t, bigStageLogBody[:64]+"\n", out, "the cut line is ended before the warning")
 	assert.Contains(t, stderr, "stopped following")
 	assert.Contains(t, stderr, "--tail N")
 }

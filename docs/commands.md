@@ -183,6 +183,13 @@ Stages come from Pipeline Graph View or Blue Ocean (see `--pipeline-source`).
 
 Jenkins reports duration 0 for a running build, and Pipeline Graph View does the same for a running, paused or queued stage. A building build shows time since it started, and such a stage shows time since its start. Blue Ocean reports a running stage's time so far itself. `--json` keeps the raw values.
 
+A build still in the queue has no data to show, so `jkit status my-app N`
+prints `build #N is queued` (or `build #N is starting`, in the moment between
+leaving the queue and becoming readable) on stderr and exits 0. Under `--json`
+stdout is the usual build object with `"queued": true`, `"building": false`
+and an empty `result`; the field is absent from every other build. `--format`
+sees the same object.
+
 ```bash
 jkit status my-app            # last 10 builds
 jkit status my-app --limit 3  # last 3 builds
@@ -654,7 +661,14 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 - Defaults to latest build if no build# given
 - Auto-follows if the build is in progress, unless `--grep`, `--tail` or `--head`
   is given. `--grep` with `-f` reads the console, or the `--stage` log, once and
-  does not follow
+  does not follow, with `note: --follow is ignored with --grep; searched the log
+  as it is now` on stderr
+- A build still in the queue is waited for under `-f`, with one note on stderr
+  (`note: build #N is queued; waiting for it to start`), polling as `jkit wait`
+  does, then followed as usual. Ctrl-C stops the wait. Without `-f`, or with
+  `--grep`, `log` prints `build #N is queued` (or `is starting`) on stderr and
+  exits 0, as `jkit stages` does. `--timestamps`, `--elapsed`, `--slowest` and
+  `--stage` without `-f` still report the build as not found
 - `--tail` and `--head` are incompatible with `--follow`
 
 ### Console log
@@ -715,7 +729,10 @@ The console is never buffered whole in memory.
 - The stage log endpoints take no start offset, so every non-follow stage log
   read starts at byte 0
   - Without `--tail`, a stage log over 10 MB shows its first 10 MB and a
-    warning on stderr
+    warning on stderr. The cut usually falls mid-line, so jkit adds the missing
+    newline before the warning. The warnings name the stage as passed to
+    `--stage` (`stage "Build" log exceeds 10.0 MB`), or the node ID for
+    `--stage-id`
   - `--stage --tail N` downloads the whole stage log and keeps the last 10 MB.
     It warns when fewer than N lines fit, or when `--grep` found fewer than N
     matches in that window. A slow download can hit the HTTP timeout; raise it

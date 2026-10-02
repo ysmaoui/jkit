@@ -102,6 +102,21 @@ func TestLogFollowConsole(t *testing.T) {
 	}
 }
 
+func TestLogFollowGrepNotesFollowIgnored(t *testing.T) {
+	newConsoleServer(t, staplertest.Streaming, false, "alpha\nbeta\n")
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "-f", "--grep", "beta") })
+	require.NoError(t, err)
+	assert.Equal(t, "beta\n", out)
+	assert.Contains(t, stderr, "note: --follow is ignored with --grep; searched the log as it is now")
+
+	stderr = captureStderr(t, func() { _, err = executeCmd(t, "log", "my-app", "5", "--grep", "beta") })
+	require.NoError(t, err)
+	assert.NotContains(t, stderr, "--follow")
+}
+
 // TestLogTailRunningConsole asks a running console for its last lines, past
 // the first 10000 and across that boundary, in every mode.
 func TestLogTailRunningConsole(t *testing.T) {

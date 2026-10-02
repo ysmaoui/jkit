@@ -388,7 +388,7 @@ func TestStreamStageLogReturnsOnCancel(t *testing.T) {
 			time.AfterFunc(100*time.Millisecond, cancel)
 			done := make(chan error, 1)
 			go func() {
-				done <- streamStageLog(ctx, api.NewClient(srv.URL, "u", "t"), "my-app", 5, "4", io.Discard, io.Discard)
+				done <- streamStageLog(ctx, api.NewClient(srv.URL, "u", "t"), "my-app", 5, "4", "4", io.Discard, io.Discard)
 			}()
 			select {
 			case err := <-done:

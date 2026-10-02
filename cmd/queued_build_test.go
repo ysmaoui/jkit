@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,7 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/staplertest"
+	"github.com/ysmaoui/jkit/internal/waiter"
 )
 
 // queueServer serves job my-app, whose next build number is next, with build
@@ -40,6 +45,12 @@ func queueServer(t *testing.T, next, queuedPolls int) (*httptest.Server, *int) {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(done("SUCCESS"))
+		case "/api/json":
+			staplertest.WriteRoot(w, staplertest.Streaming)
+		case "/job/my-app/42/logText/progressiveText":
+			staplertest.WriteProgressive(w, r, staplertest.Streaming, "console line\n", false)
+		case "/job/my-app/42/consoleText":
+			staplertest.ConsoleText(w, "console line\n")
 		case "/job/my-app/api/json":
 			n := next
 			if !queued {
@@ -150,6 +161,81 @@ func TestStagesQueuedBuild(t *testing.T) {
 	out, err = executeCmd(t, "stages", "my-app", "42", "--json")
 	require.NoError(t, err)
 	assert.JSONEq(t, "[]", out)
+}
+
+func TestLogFollowWaitsForQueuedBuild(t *testing.T) {
+	fastWaitPolls(t)
+	_, buildReads := queueServer(t, 42, 3)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "42", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, "console line\n", out)
+	assert.Equal(t, 1, strings.Count(stderr, "note: build #42 is queued; waiting for it to start"), stderr)
+	assert.GreaterOrEqual(t, *buildReads, 4)
+}
+
+func TestAwaitBuildStartReturnsOnCancel(t *testing.T) {
+	fastWaitPolls(t)
+	srv, _ := queueServer(t, 42, 1<<30)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(20*time.Millisecond, cancel)
+	done := make(chan error, 1)
+	go func() {
+		build, err := awaitBuildStart(ctx, api.NewClient(srv.URL, "u", "t"), "my-app", 42, waiter.Queued, io.Discard)
+		if build != nil {
+			err = errors.New("build returned for a queued build")
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("awaitBuildStart did not return after cancel")
+	}
+}
+
+// Without -f, or with --grep which reads once, a queued build is reported as
+// stages reports it, not as an error.
+func TestLogQueuedBuildWithoutFollow(t *testing.T) {
+	queueServer(t, 42, 1<<30)
+
+	for _, args := range [][]string{
+		{"log", "my-app", "42"},
+		{"log", "my-app", "42", "--tail", "5"},
+		{"log", "my-app", "42", "-f", "--grep", "x"},
+	} {
+		var out string
+		var err error
+		stderr := captureStderr(t, func() { out, err = executeCmd(t, args...) })
+		require.NoError(t, err, args)
+		assert.Empty(t, out, args)
+		assert.Contains(t, stderr, "build #42 is queued", args)
+	}
+}
+
+func TestStatusQueuedBuild(t *testing.T) {
+	queueServer(t, 42, 1<<30)
+
+	for _, extra := range [][]string{nil, {"--json"}, {"--format", "{{.Number}} {{.Queued}}"}} {
+		var out string
+		var err error
+		stderr := captureStderr(t, func() { out, err = executeCmd(t, append([]string{"status", "my-app", "42"}, extra...)...) })
+		require.NoError(t, err, extra)
+		assert.Contains(t, stderr, "build #42 is queued", extra)
+		if extra == nil {
+			assert.Empty(t, out)
+			continue
+		}
+		if extra[0] == "--format" {
+			assert.Equal(t, "42 true", out)
+			continue
+		}
+		assert.JSONEq(t, `{"number":42,"result":"","building":false,"duration":0,"timestamp":0,"url":"","queued":true}`, out)
+	}
 }
 
 func TestStagesEmptyWhileRunning(t *testing.T) {

@@ -48,10 +48,17 @@ jkit wait URL --stage Deploy --max-wait 9m
   it re-reads the whole stage log each poll and stops following at 10 MB.
 - Right after `jkit run`, `jkit wait URL`, `jkit wait URL --stage X` and
   `jkit log URL --stage X -f` wait for a queued build to start and for a stage
-  that has not started yet. `jkit stages URL` on a queued build prints
-  `build #N is queued`, and on a running build with no stage yet
-  `no stages yet`; both exit 0, so run it again later. `jkit log URL --tail N`
-  on a queued build is not found.
+  that has not started yet; `jkit log URL -f` waits for a queued build too.
+  `jkit stages URL`, `jkit status URL` and `jkit log URL` without `-f` on a
+  queued build print `build #N is queued` (or `is starting`) and exit 0, and
+  `jkit stages URL` on a running build with no stage yet prints
+  `no stages yet`, so run it again later.
+  `status --json` on a queued build sets `"queued": true`. `log --stage X`
+  without `-f`, `--timestamps`, `--elapsed` and `--slowest` still report it as
+  not found.
+- `-f` with `--grep` does not follow: it searches once and notes
+  `--follow is ignored with --grep` on stderr. An empty result is then not
+  proof the text never appears.
 - Don't write `jkit status` poll loops. `jkit wait` exits 0 SUCCESS, 1 FAILURE,
   2 UNSTABLE, 3 ABORTED, 4 unknown result or stage never ran, 5 `--max-wait`
   expired. Exit 1 is also any error (not found, auth); `--json` prints a result
@@ -219,10 +226,10 @@ jkit open my-job 42
 **Check `building` before `result`.** Jenkins serves a result on in-progress
 builds, so `"result": "SUCCESS"` next to `"building": true` is normal and tells
 you nothing: a pipeline that assigns `currentBuild.result` stamps a value that
-afterwards only ever worsens. A build is finished only when `building` is false.
+afterwards only ever worsens. A build is finished only when `building` is false and `queued` is absent.
 
 ```bash
-jkit status URL --json | jq -r 'if .building then "BUILDING" else .result end'
+jkit status URL --json | jq -r 'if .queued then "QUEUED" elif .building then "BUILDING" else .result end'
 ```
 
 Text output already collapses the two fields and prints `BUILDING`; `--json`
@@ -407,7 +414,7 @@ When a build is BUILDING but appears stuck:
 | `--history`: plugin not installed | The JobConfigHistory plugin is missing on that controller; no config change log exists there |
 | `--history`: no config history | Either nothing changed, or you lack Job/Configure — the plugin returns an empty list instead of refusing |
 | Stage log empty / `no stages found` / `stage logs need the Pipeline Graph View or Blue Ocean plugin` | Pipeline Graph View or Blue Ocean plugin required for stage-level logs. A build that does not exist is reported as not found instead. If you targeted a multibranch container, the error instead lists its branches — re-run with `--branch` |
-| `stage X log exceeds 10.0 MB; showing the first 10.0 MB` | Without `--tail`, only the first 10 MB printed. Add `--tail N` for the end; it keeps the last 10 MB |
+| `stage X log exceeds 10.0 MB; showing the first 10.0 MB` | X is the `--stage` value in quotes, or the node ID for `--stage-id`; all stage warnings name it so. Without `--tail`, only the first 10 MB printed. Add `--tail N` for the end; it keeps the last 10 MB |
 | `console log exceeds 64.0 MB; only K of N lines fit in the last 64.0 MB` | `--tail N` on the console asked for more lines than the last 64 MB holds, so you got the K that fit. Ask for fewer lines or narrow with `--grep` |
 | `stage X log exceeds 10.0 MB; only K of N lines fit in the last 10.0 MB` | `--tail N` asked for more lines than the last 10 MB holds; you got the K that fit. Ask for fewer lines or narrow with `--grep` |
 | `stage X log exceeds 10.0 MB; --grep searched only the first/last 10.0 MB` | `--grep` on a stage log sees one 10 MB window: the first without `--tail`, the last with it. Matches outside it are missing |

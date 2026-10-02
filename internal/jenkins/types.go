@@ -172,6 +172,9 @@ type Build struct {
 	URL        string        `json:"url"`
 	Actions    []BuildAction `json:"actions,omitempty"`
 	ChangeSets []ChangeSet   `json:"changeSets,omitempty"`
+	// Queued marks a build that has no data yet: still in the queue, or
+	// numbered but not readable. Jenkins never sends it.
+	Queued bool `json:"queued,omitempty"`
 }
 
 // Elapsed returns the build duration. Jenkins reports duration=0 while a build

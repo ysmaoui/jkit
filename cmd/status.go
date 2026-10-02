@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
+	"github.com/ysmaoui/jkit/internal/waiter"
 )
 
 var statusCmd = &cobra.Command{
@@ -101,9 +103,16 @@ func runStatus(cmd *cobra.Command, args []string) error {
 }
 
 func showBuildDetail(client *api.Client, f *output.Formatter, jobPath string, num int, isJSON bool, tmpl string) error {
-	build, err := client.GetBuild(jobPath, num)
+	build, pending, err := waiter.ReadBuild(context.Background(), client, jobPath, num, false)
 	if err != nil {
 		return err
+	}
+	if build == nil {
+		_, _ = fmt.Fprintf(os.Stderr, "build #%d is %s\n", num, pendingState(pending))
+		if isJSON || tmpl != "" {
+			return f.Output(jenkins.Build{Number: num, Queued: true}, nil)
+		}
+		return nil
 	}
 
 	if isJSON || tmpl != "" {
