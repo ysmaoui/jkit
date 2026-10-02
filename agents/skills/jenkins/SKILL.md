@@ -11,6 +11,52 @@ stored in `~/.config/jkit/config.yml` — run `jkit auth login` once before firs
 
 ---
 
+## Large or running builds
+
+Consoles of hundreds of MB and stage logs over 10 MB are normal. Use these:
+
+```bash
+jkit log URL --tail 50                  # where a running build is now
+jkit stages URL                         # stage IDs, paths, status; a running stage shows time so far
+jkit log URL --stage Build --tail 200   # end of one stage; downloads the whole stage log
+jkit log URL --stage 6710 --tail 200    # same, by the ID `jkit stages` printed
+jkit log URL --stage Build -f           # live output of one stage
+jkit wait URL --max-wait 9m             # block until the build has a result
+jkit wait URL --stage Deploy --max-wait 9m
+```
+
+- The shell tool kills long commands: Claude Code's Bash tool defaults to 2
+  minutes, 10 at most. Set its timeout up to 10 minutes or run the command in
+  the background. A larger jkit `--timeout` or `--max-wait` does not help once
+  the shell has killed the command. Keep `--max-wait` under the shell timeout
+  and re-run `jkit wait` on exit 5.
+- `--tail N` is cheap on Jenkins 2.534+ and on any finished build, where it reads
+  only the end of the console. On older Jenkins a running build's tail can read
+  most of the console. Up to 2.508 it pages from about line 10000, and 2.509 to
+  2.533 may fall back to the whole console, which must arrive within `--timeout`.
+- Don't check progress with `--grep`, `--max-bytes 0` or a plain `jkit log`.
+  `--grep` and a full dump download the whole console in one response, which
+  must arrive within `--timeout` (30s by default). A plain `jkit log` on a
+  running build follows from the first line until the build ends.
+- To search a huge console, raise `--timeout` (e.g. `--timeout 10m`) and the
+  shell timeout together. For repeated searches, download it once with
+  `jkit log URL --max-bytes 0 > build.log` and grep the file.
+- `--stage` takes a name, a qualified path (`Linux/Test`) or a node ID.
+- Without `--tail`, a stage log over 10 MB prints its first 10 MB and a warning.
+  `--tail N` keeps the last 10 MB. If that download times out, raise `--timeout`.
+- `--stage -f` has no size cap when the server serves step logs. Without them
+  it re-reads the whole stage log each poll and stops following at 10 MB.
+- Don't write `jkit status` poll loops. `jkit wait` exits 0 SUCCESS, 1 FAILURE,
+  2 UNSTABLE, 3 ABORTED, 4 unknown result or stage never ran, 5 `--max-wait`
+  expired. Exit 1 is also any error (not found, auth); `--json` prints a result
+  only when there is one.
+- For scripts use `--json` on `stages`, `status` and `wait`; don't parse the
+  text tables. Running stages' IDs (Pipeline Graph View reports `IN_PROGRESS`,
+  Blue Ocean `UNKNOWN`):
+  `jkit stages URL --json | jq -r '.[] | select(.status=="IN_PROGRESS" or .status=="UNKNOWN") | .id'`
+
+---
+
 ## Quick Reference
 
 All commands accept a Jenkins URL as first arg, or `job [build#]` positional args.
@@ -34,12 +80,12 @@ jkit stages URL                     # list stages: ID, path, type, status, agent
 jkit stages URL --json              # machine-readable (id, name, path, …)
 
 # Build log  (--tail/--head/--grep cover the ENTIRE log — no head/tail-buffer limit)
-jkit log URL --tail 50              # last 50 lines (cheap server-side tail window)
+jkit log URL --tail 50              # last 50 lines (server-side tail window)
 jkit log URL --head 20              # first 20 lines (stops reading early)
 jkit log URL --grep "ERROR" -i      # search the WHOLE console for matches
 jkit log URL --stage "Build"        # stage log by name
 jkit log URL --stage "Linux/Test"   # by qualified path (disambiguates branches)
-jkit log URL --stage-id 6710        # by exact node ID (from `jkit stages`)
+jkit log URL --stage 6710           # by node ID from `jkit stages` (--stage-id 6710 takes only IDs)
 jkit log URL --stage "Test" -f      # follow one stage of a running build
 jkit log -f my-job                  # stream (follow)
 jkit log URL                        # full console — refused if >50MB; use --tail/--grep/--head, redirect, or --max-bytes 0
@@ -96,8 +142,9 @@ jkit inspect my-job --history --show-system   # include automated re-index write
 jkit inspect my-job --diff          # what the last config change actually did
 jkit inspect my-job --diff --diff-from 2026-07-24_13-06-30 --diff-to 2026-08-27_14-58-13
 
-# Trigger build
+# Trigger build (omitted params take their defaults)
 jkit run my-job -p KEY=VAL --wait --log
+jkit run team/svc --branch main     # multibranch: without --branch, run starts a branch scan instead
 
 # Rebuild with same params
 jkit rebuild my-job 42 --wait --log
@@ -153,7 +200,7 @@ jkit open my-job 42
 | `--json` | Structured JSON output |
 | `--format TMPL` | Go template output |
 | `--host URL` | Override Jenkins host (or alias) |
-| `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x`); slashes encoded automatically. Not needed when passing a URL |
+| `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x#4`); `/ # % ? [ ] \` are encoded the way Jenkins names the branch job. Not needed when passing a URL |
 | `--verbose` | Show HTTP request/response on stderr |
 | `--timeout DUR` | HTTP timeout (default 30s) |
 | `--pipeline-source` | Pipeline backend: `auto` (default), `pgv`, `blueocean` (env `JKIT_PIPELINE_SOURCE`) |
@@ -174,7 +221,8 @@ jkit status URL --json | jq -r 'if .building then "BUILDING" else .result end'
 
 Text output already collapses the two fields and prints `BUILDING`; `--json`
 and `--format` expose them raw. The same applies to a running build's
-`duration`, which Jenkins reports as `0` until the build is finalized.
+`duration`, which Jenkins reports as `0` until the build is finalized; text
+output shows the time so far.
 
 ---
 
@@ -184,8 +232,9 @@ and `--format` expose them raw. The same applies to a running build's
 2. `jkit log URL --stage "StageName"` — full stage log for failed stage. If the
    name is ambiguous (same stage in multiple parallel branches), the command
    lists every candidate with its qualified path and ID — re-run with the
-   qualified path (`--stage "Branch/StageName"`) or `--stage-id <id>`. Use
-   `jkit stages URL` to see all stages and IDs up front.
+   qualified path (`--stage "Branch/StageName"`) or the ID (`--stage <id>`). Use
+   `jkit stages URL` to see all stages and IDs up front. For a stage log over
+   10 MB, add `--tail 200` to read its end.
 3. `jkit test URL --failed` — if UNSTABLE, show test failures
 4. `jkit test URL --new-failures` — regressions vs previous build
 5. `jkit changes URL` — what commits triggered the build
@@ -194,10 +243,15 @@ and `--format` expose them raw. The same applies to a running build's
 
 **Searching a large console:** `--grep` streams the *entire* log (even multi-GB
 ones) with bounded memory — use it to find an error anywhere, e.g.
-`jkit log URL -i --grep "exception"`. `--tail N` reads the true end of the log,
-not a buffer. Don't assume `jkit log` only returns the head/tail or fabricate
-console-tail workarounds; a plain unfiltered dump is *refused* for big logs, so
-always narrow with `--grep`/`--tail`/`--head` (matches are line-oriented
+`jkit log URL -i --grep "exception"`. It downloads the whole console within
+`--timeout`, so on a console of hundreds of MB add `--timeout 10m` and raise the
+shell tool timeout to match, or save the console once with `--max-bytes 0 >
+build.log` and grep the file. `--tail N` reads the true end of the log, not a
+buffer; it is cheap on Jenkins 2.534+ and on finished builds (see
+[Large or running builds](#large-or-running-builds)). Don't assume
+`jkit log` only returns the head/tail or fabricate console-tail workarounds; a
+plain unfiltered dump is *refused* for big logs, so always narrow with
+`--grep`/`--tail`/`--head` (matches are line-oriented
 substring matches, not regex — grep a single distinctive token, not a
 multi-line phrase).
 
@@ -224,7 +278,7 @@ child-jobs have builds. Two ways to address a branch build:
 # 1. Full URL (branch is already encoded in the path) — works as-is
 jkit log "https://jenkins.example.com/job/team/job/svc/job/feature%2Fx/42/"
 
-# 2. job build# + --branch (slashes in the branch are encoded for you)
+# 2. job build# + --branch (/, # and other special characters are encoded for you)
 jkit log team/svc 42 --branch feature/x
 jkit diagnose team/svc 42 --branch feature/x
 ```
@@ -233,6 +287,11 @@ Don't hand-encode the branch into the `job` arg (`team/svc/feature%2Fx`) — pas
 `--branch` instead. If you target the container without a branch, the command
 returns an error **listing the available branches** — pick one and re-run with
 `--branch`. To browse branches up front: `jkit list --folder team/svc`.
+
+`jkit run team/svc` without `--branch` does not fail: it starts a branch-indexing
+scan, prints a notice, and exits 0. On an organization folder, branch jobs sit at
+`org/repo/branch`, so pick the repository first:
+`jkit run org/repo --branch main`.
 
 `jkit inspect team/svc` answers why a branch is missing or not building. It
 reads `config.xml`, which is the only source for multibranch discovery rules,
@@ -323,7 +382,7 @@ means (no shared libraries loaded, versus libraries that could not be read).
 When a build is BUILDING but appears stuck:
 
 1. **Check for a pending input step first** — `jkit input URL`. A build paused on `input message: 'Promote to prod?'` reports `building: true` and looks identical to a hang. Answer it with `--approve`/`--deny`, or leave it alone; `--wait` announces it too.
-2. **Never run a full `jkit log` in background on BUILDING jobs** — it hangs waiting for more output. Instead tail a single stage with `jkit log URL --stage "Stage" -f` (or `--stage-id <id>`), which returns when that stage finishes, or run a one-shot `jkit log --stage` on an already-completed stage. Use `jkit stages URL` to find the running stage's ID.
+2. **Never run a full `jkit log` in background on BUILDING jobs** — it follows until the build ends. Use `jkit log URL --tail 50` for the latest output, or tail a single stage with `jkit log URL --stage "Stage" -f` (or `--stage <id>`), which returns when that stage finishes, or when the build has ended while the stage still reports running. `jkit stages URL` shows the running stage, its ID and how long it has run. To block until it is done, `jkit wait URL --stage <id>`.
 3. **Find the last log line, then reason about the code** — identify what step executes *after* the last visible output. That's where it's stuck.
 4. **Pod YAML printed = pod is running.** The hang is in whatever step follows pod allocation (e.g. a shell step in the wrong container), not in pod scheduling.
 5. **Wait for diagnostic commands to return before concluding.** If a command hasn't returned data yet, don't move on — either wait or try a different approach.
@@ -341,10 +400,18 @@ When a build is BUILDING but appears stuck:
 | No test results | JUnit plugin not configured, or build has no tests |
 | `--history`: plugin not installed | The JobConfigHistory plugin is missing on that controller; no config change log exists there |
 | `--history`: no config history | Either nothing changed, or you lack Job/Configure — the plugin returns an empty list instead of refusing |
-| Stage log empty / `no stages found` | Pipeline Graph View or Blue Ocean plugin required for stage-level logs. If you targeted a multibranch container, the error instead lists its branches — re-run with `--branch` |
+| Stage log empty / `no stages found` / `blue ocean plugin required` | Pipeline Graph View or Blue Ocean plugin required for stage-level logs. A build that does not exist is reported as not found instead. If you targeted a multibranch container, the error instead lists its branches — re-run with `--branch` |
+| `stage X log exceeds 10.0 MB; showing the first 10.0 MB` | Without `--tail`, only the first 10 MB printed. Add `--tail N` for the end; it keeps the last 10 MB |
+| `stage X log exceeds 10.0 MB; only K of N lines fit in the last 10.0 MB` | `--tail N` asked for more lines than the last 10 MB holds; you got the K that fit. Ask for fewer lines or narrow with `--grep` |
+| `stage X log exceeds 10.0 MB; --grep searched only the first/last 10.0 MB` | `--grep` on a stage log sees one 10 MB window: the first without `--tail`, the last with it. Matches outside it are missing |
+| `has to download within the HTTP timeout` | The whole console or stage log did not arrive within `--timeout`. Re-run with `--timeout 10m` |
+| `stage X log passed 10.0 MB; stopped following` | `--stage -f` on a server without step logs re-reads the whole stage log each poll, so it stops there. Run `--stage X --tail N` after the stage finishes |
+| `Scan triggered for X` from `jkit run` | X is a multibranch project or organization folder. Pass `--branch` (org folder: `jkit run org/repo --branch name`) |
+| `build request rejected` | Jenkins answered 400. Check names with `jkit params`; a job that takes no parameters must be run without `-p` |
+| `jkit wait` exits 4: `stage "X" never ran` / `has no result` | The build ended and the stage got no result (skipped by `when`, NOT_BUILT) |
 | `console log is … — refusing to dump it whole` | Log exceeds `--max-bytes` (default 50MB). Narrow with `--tail`/`--head`/`--grep`, redirect to a file, or pass `--max-bytes 0` |
 | `refusing to approve input …: it declares N parameter(s)` | The input step declares parameters and the parameter-less endpoint submits none of them, so the pipeline would receive them unset, not defaulted. Pass each one with `-p NAME=VALUE`; the error lists them with the defaults Jenkins would show in the browser |
 | `the step restricts who may answer it to …` | The `input` step names its submitters. No Jenkins permission overrides that list — ask one of the named users or groups |
 | `input … is no longer pending` | Someone answered it, or the build ended, between listing and deciding. Re-run `jkit input` |
 | `sources`: `SHA not resolvable` | Jenkins recorded no checkout that can be attributed to that library without guessing. Read the `Git checkouts` list yourself; do not assume the commit |
-| `stage "X" is ambiguous` | Same name in multiple parallel branches — re-run with the qualified path (`--stage "Branch/X"`) or `--stage-id` from `jkit stages` |
+| `stage "X" is ambiguous` | Same name in multiple parallel branches — re-run with the qualified path (`--stage "Branch/X"`) or the ID from `jkit stages` (`--stage <id>`) |

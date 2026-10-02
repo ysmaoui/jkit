@@ -10,7 +10,7 @@
 ```bash
 go build -o jkit .          # build binary
 make test                  # unit tests
-make integration-test      # Docker Compose integration tests (starts Jenkins, runs 18 assertions, tears down)
+make integration-test      # Docker Compose integration tests (starts Jenkins, runs 20 assertions, tears down)
 ```
 
 Integration test targets:
@@ -33,6 +33,7 @@ cmd/
   status.go                 # jkit status
   run.go                    # jkit run
   log.go                    # jkit log
+  stages.go                 # jkit stages
   open.go                   # jkit open
   lint.go                   # jkit lint
   abort.go                  # jkit abort
@@ -58,7 +59,8 @@ internal/
     crumb.go                # CSRF crumb fetch/cache/invalidate
     jobs.go                 # ListJobs, GetJob
     builds.go               # TriggerBuild, GetBuild, GetBuilds, ConsoleLog, OpenConsoleText, StopBuild
-    pipeline.go             # GetPipelineStages, GetStageLog (Blue Ocean REST API)
+    pipeline.go             # GetPipelineStages, GetStageLog, GetStageLogTail (Pipeline Graph View or Blue Ocean)
+    steplog.go              # StageStepFollower: --stage -f, each step read from its last offset
     progressive.go          # ProgressiveLog: progressiveText followed poll by poll
     consoletail.go          # GetBuildLogTail, ConsoleTailLines: console tail per Stapler version
   config/
@@ -70,6 +72,7 @@ internal/
     types.go                # Domain types: Job, Build, Stage, QueueItem, TestReport, etc.
     errors.go               # Typed errors: AuthError, NotFoundError, PermissionError, etc.
     stage_tree.go           # BuildStageTree — flat stages to depth-annotated tree
+    branchname.go           # BranchJobName: branch name to the job name branch-api gives it
   output/
     formatter.go            # Table, JSON, Go template output
     color.go                # ANSI color for build statuses

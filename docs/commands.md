@@ -8,16 +8,16 @@ All commands support these flags:
 |------|-------------|
 | `--host HOST` | Override Jenkins host URL |
 | `--branch NAME` | Branch of a multibranch pipeline job (e.g. `feature/x#4`). jkit encodes `# % / ? [ ] \` the way branch-api names the job (`feature%2Fx%234`); that job name is accepted as well |
-
-`--branch` composes with a URL target: a URL naming the multibranch job plus
-`--branch feature/x` is the same request as the job-path form. A URL that already
-names the branch is left alone rather than having it appended twice.
 | `--json` | Output as JSON |
 | `--format TMPL` | Output using Go template |
 | `--no-color` | Disable colored output |
 | `--verbose` | Show HTTP request/response details |
-| `--timeout DUR` | HTTP client timeout (default `30s`) |
+| `--timeout DUR` | HTTP client timeout (default `30s`). It covers reading the whole response, so a full console or stage log download must finish within it |
 | `--pipeline-source SRC` | Pipeline backend: `auto` (default), `pgv`, `blueocean` (env `JKIT_PIPELINE_SOURCE`) |
+
+`--branch` composes with a URL target: a URL naming the multibranch job plus
+`--branch feature/x` is the same request as the job-path form. A URL that already
+names the branch is left alone rather than having it appended twice.
 
 ---
 
@@ -39,7 +39,8 @@ directory name. Omitting the build number uses the latest build.
 A multibranch pipeline job holds one child job per branch, and only those
 children have builds. Name the branch with `--branch`, or paste a URL, which
 already carries it. Targeting the parent without a branch returns an error
-listing the branches available.
+listing the branches available, except with `jkit run`, which starts a branch
+scan instead.
 
 ```bash
 jkit log team/svc 42 --branch feature/x
@@ -178,7 +179,7 @@ Stages:
   Deploy      SUCCESS   42s
 ```
 
-Stages displayed for pipeline jobs via Blue Ocean REST API.
+Stages come from Pipeline Graph View or Blue Ocean (see `--pipeline-source`).
 
 Jenkins reports duration 0 for a running build, and Pipeline Graph View does the same for a running, paused or queued stage. A building build shows time since it started, and such a stage shows time since its start. Blue Ocean reports a running stage's time so far itself. `--json` keeps the raw values.
 
@@ -604,6 +605,11 @@ jkit run [job] [-p KEY=VALUE]... [--wait] [--log]
 
 Progress messages go to stderr, log output to stdout. Ctrl+C interrupts gracefully. Queue timeout: 5 minutes. Build timeout: 2 hours.
 
+A parameterized job run without `-p` uses each parameter's default, and any
+parameter `-p` leaves out also takes its default. When Jenkins rejects the
+request (HTTP 400), the error says to check the names with `jkit params`, or,
+for `-p` on a job that takes no parameters, to run it without them.
+
 **Multibranch projects and organization folders.** `jkit run <container>` without `--branch` starts a scan (branch indexing), not a build, and exits 0 after printing a stderr notice pointing at `jkit scan`. `--wait` and `--log` do not apply to a scan: the notice adds a note and the command still exits 0. `-p` on the container itself is an error because a container takes no parameters; nothing is triggered.
 
 - Multibranch project: the notice points at `--branch <name>` to build a branch (`jkit run <project> --branch <name>`).
@@ -646,24 +652,36 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 | `--slowest N` | Report the N log lines with the largest time gap to the next line |
 
 - Defaults to latest build if no build# given
-- Auto-follows if build is in progress (disabled when `--grep`, `--tail`, or `--head` active)
-- Large logs are handled without buffering the whole console in memory:
-  - `--tail N` fetches only a tail window from the server, 2 MB and doubled
-    while it holds fewer than N lines. What that costs depends on the Jenkins
-    version:
-    - 2.534 and later: one request for the window
-    - up to 2.508, running build: pages from about the 10000th line to the end
-    - 2.509 to 2.533, running build: halves the window until one response holds
-      it; when that cannot hold N lines, downloads the whole console
-    - any version, finished build: one request for the window
-  - `--head N` stops reading once N lines are seen
-  - `--grep` streams the full log with bounded memory and exits early under `--head`
-  - an unfiltered `jkit log` over `--max-bytes` is refused with guidance (use `--tail`/`--head`/`--grep`, redirect, or `--max-bytes 0`) rather than silently truncated
-  - The whole console comes in one response, which has to arrive within
-    `--timeout`; a timed-out read says so
-- `--grep`, `--head` and a plain dump of a running build read the console as it
-  stands, an unfinished last line included, and exit. `--tail` on a running
-  build ends at the last complete line
+- Auto-follows if the build is in progress, unless `--grep`, `--tail` or `--head`
+  is given. `--grep` with `-f` reads the console once and does not follow
+- `--tail` and `--head` are incompatible with `--follow`
+
+### Console log
+
+The console is never buffered whole in memory.
+
+- `--tail N` reads a tail window from the server, 2 MB, doubled up to 64 MB
+  while it holds fewer than N lines. What that costs depends on the Jenkins
+  version:
+  - 2.534 and later: one request for the window
+  - up to 2.508, running build: pages from about the 10000th line to the end
+  - 2.509 to 2.533, running build: halves the window until one response holds
+    it; when that cannot hold N lines, downloads the whole console
+  - any version, finished build: one request for the window
+
+  On a running build the output ends at the last complete line. When even the
+  64 MB window holds fewer than N lines, it prints the lines that fit, with no
+  warning.
+- `--head N` stops reading once N lines are seen
+- `--grep` streams the whole console with bounded memory, and stops early under
+  `--head`
+- `--grep`, `--head` and a plain dump read the console in one response, which
+  has to arrive within `--timeout`; a timed-out read says so and suggests
+  raising it. On a running build `--grep` and `--head` read the console as it
+  stands, an unfinished last line included, and exit
+- An unfiltered `jkit log` over `--max-bytes` is refused with guidance (use
+  `--tail`/`--head`/`--grep`, redirect, or `--max-bytes 0`) rather than
+  silently truncated
 - `-f` prints each byte of the console once, on every Jenkins version
   - An unfinished line prints once it is complete
   - On Jenkins 2.534 and later each poll downloads what is new, about twice
@@ -678,17 +696,22 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
     is downloaded again from that line start each time, up to that limit
   - Before Jenkins 2.534, a CRLF line ending the build wrote itself prints as
     LF with `-f`
-- `--stage` requires the Pipeline Graph View or Blue Ocean plugin
+
+### Stage log
+
+- `--stage` and `--stage-id` require the Pipeline Graph View or Blue Ocean
+  plugin. On a build that does not exist they report the missing build, not a
+  missing plugin
+- `--stage` takes a name, a qualified path or a node ID from `jkit stages`. It
+  falls back to the node ID only when no path or name matches, so a stage named
+  like a number wins over another stage's ID. `--stage-id` takes only node IDs.
+  The two are mutually exclusive
 - When a bare `--stage` name matches multiple stages (e.g. the same stage in two
   parallel branches), the command errors and lists each candidate's qualified
   path and ID. Pass a qualified path (`--stage "RemoteExec/Run Bazel Build"`) or
-  `--stage-id` to disambiguate.
-- `--stage` falls back to an exact node ID only when no path or name matches,
-  so a stage named like a number wins over another stage's ID.
-- `--stage`/`--stage-id` combine with `-f` to tail a single stage of a running
-  build; `--stage` and `--stage-id` are mutually exclusive
+  the ID
 - The stage log endpoints take no start offset, so every non-follow stage log
-  read starts at byte 0.
+  read starts at byte 0
   - Without `--tail`, a stage log over 10 MB shows its first 10 MB and a
     warning on stderr
   - `--stage --tail N` downloads the whole stage log and keeps the last 10 MB.
@@ -702,10 +725,12 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
     `[jkit: step <id> log unavailable: ...]` line, and one cut off mid-download
     as `[jkit: step <id> log incomplete: ...]`. An authentication or permission
     error, or a server that cannot be reached, fails the command instead
-- `--stage -f` has no size limit. Each poll lists the stage's steps and reads
-  each step's log from where the last poll stopped, so a poll downloads only
-  new output. Joining late, the first poll downloads each step's output so far
-  in one response, which has to arrive within `--timeout`
+- `--stage -f` tails one stage of a running build. When the server serves step
+  logs there is no size limit; the fallback below stops at 10 MB. Each
+  poll lists the stage's steps and reads each step's log from where the last
+  poll stopped, so a poll downloads only new output. Joining late, the first
+  poll downloads each step's output so far in one response, which has to
+  arrive within `--timeout`
   - Steps print in order, each once it has started and every earlier step has
     finished, so the output matches the whole stage log. A stage's own steps
     run one after another; steps of parallel branches belong to the branches
@@ -723,16 +748,13 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
     once the stage log passes 10 MB; re-run with `--tail N` after the stage
     finishes. If Blue Ocean also serves that stage only step by step, a
     finished stage prints once, as without `-f`, and a running one errors
-- `--stage`/`--stage-id` on a build that does not exist reports the missing
-  build, not a missing plugin
-- `--stage -f` follows a stage without a result until it gets one or the build
-  ends. For a stage that has not run (NOT_BUILT, e.g. skipped by `when{}`), a
-  note on stderr says so, since the wait can last until the build ends
-- A running stage is trusted for 30 polls at a time; then `--stage -f` checks
-  that the build still runs. A killed build or a controller restart can leave a
-  stage reporting running forever, so once the build has ended it stops
-  following with a note on stderr
-- `--tail` and `--head` are incompatible with `--follow`
+  - It follows a stage without a result until it gets one or the build ends.
+    For a stage that has not run (NOT_BUILT, e.g. skipped by `when{}`), a note
+    on stderr says so, since the wait can last until the build ends
+  - A running stage is trusted for 30 polls at a time; then the build is
+    checked. A killed build or a controller restart can leave a stage
+    reporting running forever, so once the build has ended it stops following
+    with a note on stderr
 
 ### `--timestamps` / `--elapsed`: when each line was logged
 
@@ -806,10 +828,11 @@ jkit log my-app 42                               # specific build
 jkit log my-app -f                               # follow live
 jkit log my-app --stage Build                    # specific stage log
 jkit log my-app --stage "RemoteExec/Run Bazel Build"  # disambiguate by branch
-jkit log my-app --stage-id 17 -f                 # tail one stage by ID
+jkit log my-app --stage 17 -f                    # tail one stage by ID
+jkit log my-app --stage Build --tail 200         # end of a large stage log
 jkit log my-app --grep ERROR                     # filter lines
 jkit log my-app --grep error -i                  # case-insensitive filter
-jkit log my-app --tail 50                        # last 50 lines (tail window, cheap)
+jkit log my-app --tail 50                        # last 50 lines (server-side tail window)
 jkit log my-app --head 20                        # first 20 lines (stops early)
 jkit log my-app --max-bytes 0 > build.log        # force a full dump to a file
 jkit log my-app 42 --elapsed --tail 100          # last 100 lines, offset from build start
@@ -837,7 +860,8 @@ jkit stages [job] [build#]
   block, or the branch head of a parallel block, which has no agent of its own
 - When no stage in the build reports an agent at all, a note on stderr says so
   and names both causes, since an all-`-` column otherwise reads as "no agents"
-- Feed a path to `jkit log --stage` or an ID to `jkit log --stage-id`
+- Feed a path or ID to `jkit log --stage` or `jkit wait --stage`
+- A build that does not exist is reported as not found, not as a missing plugin
 - `DURATION` of a running, paused or queued stage is the time since it started (a queued stage that has a start time is waiting for an executor). Pipeline Graph View reports no duration for such a stage, so jkit computes it from the start time and `--json` keeps the raw `durationMillis` (0). Blue Ocean reports the time so far itself
 - Honors `--json` / `--format` for scripting (the JSON includes `id` and `path`)
 
@@ -973,6 +997,10 @@ qualified path or the stage ID to pick a branch.
 | 3 | ABORTED |
 | 4 | Unknown result, or the stage never ran |
 | 5 | `--max-wait` expired |
+
+Any other error (job not found, authentication, Ctrl+C) also exits 1. Only a
+result prints to stdout, so an empty stdout with exit 1 is an error, not a
+failed build.
 
 ```bash
 jkit wait my-app 42                        # wait for the build

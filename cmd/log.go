@@ -41,7 +41,10 @@ var logCmd = &cobra.Command{
 	Short: "View build log",
 	Example: `  jkit log my-app
   jkit log my-app 42
-  jkit log -f my-app`,
+  jkit log -f my-app
+  jkit log my-app 42 --tail 50
+  jkit log my-app 42 --stage Build --tail 200
+  jkit log my-app 42 --stage 17 -f`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runLog,
 }

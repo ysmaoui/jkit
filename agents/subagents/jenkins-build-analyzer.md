@@ -10,8 +10,8 @@ Expert DevOps engineer for Jenkins CI/CD pipeline analysis. Use the `jkit` CLI f
 ## Workflow
 
 1. **Diagnose**: `jkit diagnose URL` — primary entry point, shows errors, failed stages, params, commits
-2. **Stage detail**: `jkit log URL --stage "StageName"` — full log for specific failed stage. If the name appears in multiple parallel branches the command lists each candidate's qualified path + ID; re-run with `--stage "Branch/StageName"` or `--stage-id <id>`. Run `jkit stages URL` first to map stage names to IDs.
-   - **Search the whole console** when the error isn't in a stage: `jkit log URL -i --grep "<token>"` streams the entire log (any size, bounded memory) — grep a single distinctive token, not a multi-line phrase (matching is line-oriented substring, not regex). A plain `jkit log URL` is refused for logs >50MB, so always use `--grep`/`--tail`/`--head`.
+2. **Stage detail**: `jkit log URL --stage "StageName"` — full log for specific failed stage. If the name appears in multiple parallel branches the command lists each candidate's qualified path + ID; re-run with `--stage "Branch/StageName"` or `--stage <id>`. Run `jkit stages URL` first to map stage names to IDs. A stage log over 10 MB prints only its first 10 MB; add `--tail 200` for the end, where the failure is.
+   - **Search the whole console** when the error isn't in a stage: `jkit log URL -i --grep "<token>"` streams the entire log (any size, bounded memory) — grep a single distinctive token, not a multi-line phrase (matching is line-oriented substring, not regex). A plain `jkit log URL` is refused for logs >50MB, so always use `--grep`/`--tail`/`--head`. `--grep` must download the whole console within `--timeout`; for consoles of hundreds of MB add `--timeout 10m` and raise the shell tool timeout to match (or run it in the background), or save it once with `jkit log URL --max-bytes 0 > build.log` and grep the file.
 3. **Test failures**: `jkit test URL --failed` — when build is UNSTABLE
 4. **New regressions**: `jkit test URL --new-failures` — tests that passed before
 5. **SCM context**: `jkit changes URL` — commits that triggered the build

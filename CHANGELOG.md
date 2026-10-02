@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `jkit wait [job] [build#] [--stage X] [--max-wait D]` blocks until a build or
+  stage has a result. Exit 0 to 4 as `run --wait`, 5 when `--max-wait` expires.
+- `jkit log --stage` accepts the node IDs `jkit stages` prints.
+- Stage logs over 10 MB print a warning naming what was left out.
+
+### Changed
+- `jkit log --stage X --tail N` returns the true end of the stage log. It
+  downloads the whole stage log and keeps the last 10 MB.
+- `jkit log --stage X -f` follows step by step from each step's offset, with no
+  size cap.
+- Running builds and stages show the time so far instead of `< 1s`.
+- `jkit run` on a multibranch project or organization folder without `--branch`
+  starts a scan and says how to build a branch. A parameterized job run without
+  `-p` uses its defaults. A rejected trigger (HTTP 400) says what to check.
+- `jkit diagnose` reads the end of each failed stage's log, falls back to its
+  head when that download fails, and warns when errors come from part of it.
+- A timed-out console or stage log read suggests raising `--timeout`.
+
+### Fixed
+- `jkit log -f`, `--tail`, `--grep`, `--head` and the full dump print the
+  console exactly on current Jenkins. 0.8.0 duplicated or dropped text.
+  `--tail` on Jenkins 2.534 and later is one request per window.
+- Branch names with `#` and the other characters branch-api escapes work in
+  URLs and `--branch`.
+- `stages`, `log --stage` and `--stage-id` report a missing build as not found
+  instead of asking for a plugin.
+- The Blue Ocean steps fallback reads full step logs, up to the 10 MB stage
+  log cap.
+
 ## [0.8.0] - 2026-09-14
 
 ### Changed

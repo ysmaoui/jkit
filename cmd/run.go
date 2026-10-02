@@ -14,6 +14,9 @@ import (
 var runCmd = &cobra.Command{
 	Use:   "run [job]",
 	Short: "Trigger a build",
+	Long: `Trigger a build. A parameterized job takes the default of every parameter
+-p does not set. On a multibranch project or organization folder without
+--branch, this starts a branch scan instead of a build.`,
 	Example: `  jkit run my-app
   jkit run my-app -p BRANCH=main -p ENV=staging
   jkit run my-app --wait --log`,

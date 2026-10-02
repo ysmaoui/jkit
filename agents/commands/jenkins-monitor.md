@@ -12,18 +12,17 @@ Usage:
 
 Given build URL: $ARGUMENTS
 
-1. Check current status: `jkit status URL --json`. The build is finished only when
-   `.building` is false. Ignore `.result` while `.building` is true: Jenkins reports
-   a result on in-progress builds, so a running build can read `SUCCESS`.
-2. Based on status:
-   - **Building**: Stream log with `jkit log -f URL`. The stream ends when Jenkins
-     stops sending log data, which can happen before the build is finalized, so
-     afterwards poll `jkit status URL --json` every 15s until `.building` is false.
-   - **Queued**: Wait 30s, re-check `jkit status URL --json`, repeat until building, then stream
-   - **Finished**: Skip to step 3
-3. Once `.building` is false, report `.result`:
+1. Run `jkit wait URL --json --max-wait 9m`, with the Bash tool timeout set to
+   10 minutes. It returns at once for a finished build and otherwise blocks until
+   the build has a result. Read `.result` from the JSON; the exit code matches it
+   (0 SUCCESS, 1 FAILURE, 2 UNSTABLE, 3 ABORTED, 4 unknown).
+   - Exit 5: still running. Optionally show progress with `jkit log URL --tail 50`,
+     then re-run step 1.
+   - Exit 1 with nothing on stdout: an error, not a failed build. If it says the
+     build is not found, it may still be queued: wait 30s and re-run step 1.
+2. Report the result:
    - **FAILURE**: Run `jkit diagnose URL` for failure analysis
    - **UNSTABLE**: Run `jkit test URL --failed` for test failures
    - **SUCCESS**: Report success
    - **ABORTED**: Report aborted
-4. Present concise summary: status, duration, root cause (if failed)
+3. Present concise summary: status, duration (`.durationMillis`), root cause (if failed)

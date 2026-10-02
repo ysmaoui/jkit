@@ -17,8 +17,8 @@ var stagesCmd = &cobra.Command{
 	Short: "List pipeline stages with IDs and qualified paths",
 	Long: `List the stages of a pipeline build, including each stage's node ID and a
 qualified path that disambiguates duplicate names across parallel branches
-(e.g. "RemoteExec/Run Bazel Build"). Feed a path to "jkit log --stage" or an
-ID to "jkit log --stage-id".`,
+(e.g. "RemoteExec/Run Bazel Build"). Feed a path or an ID to "jkit log --stage"
+or "jkit wait --stage". The DURATION of a running stage is the time so far.`,
 	Example: `  jkit stages my-app
   jkit stages my-app 42
   jkit stages my-app 42 --json`,

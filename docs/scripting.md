@@ -67,6 +67,9 @@ Same codes as `jkit run --wait`, for the build or for the `--stage`, plus one:
 | 4 | Unknown result, or the stage never ran |
 | 5 | `--max-wait` expired |
 
+Errors (job not found, authentication, Ctrl+C) also exit 1. Only a result
+prints to stdout, so test for output before reading exit 1 as `FAILURE`.
+
 ### Other commands
 
 | Command | Exit 0 | Exit 1 |
@@ -138,6 +141,27 @@ else
     echo "Build failed (exit $?)"
     exit 1
 fi
+```
+
+### Wait for a Running Build or Stage
+
+`jkit wait` replaces a `jkit status` poll loop. It polls every 5 seconds and
+exits with the result.
+
+```bash
+# Gate on one stage while the rest of the build runs. stdout carries a result
+# only when there is one, so empty output means jkit failed, not the stage.
+out=$(jkit wait my-app 42 --stage Deploy --max-wait 30m --json); rc=$?
+if [ -z "$out" ]; then
+    [ "$rc" -eq 5 ] && echo "gave up waiting" || echo "jkit error (exit $rc)"
+    exit 2
+fi
+result=$(echo "$out" | jq -r .result)
+[ "$rc" -eq 0 ] || { echo "Deploy: $result"; exit 1; }
+
+# Wait for the latest build and keep the JSON
+result=$(jkit wait my-app --json) || true
+echo "$result" | jq -r .result
 ```
 
 ### Check Latest Build Status
