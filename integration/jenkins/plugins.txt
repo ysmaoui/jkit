@@ -5,3 +5,4 @@ pipeline-rest-api
 blueocean-rest
 blueocean-pipeline-api-impl
 cloudbees-folder
+pipeline-graph-view

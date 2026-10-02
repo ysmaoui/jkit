@@ -4,12 +4,14 @@ package jenkins
 // FirstParent wired to mimic the Blue Ocean /nodes/ model: sequential siblings
 // chain via previous-id, and children of a PARALLEL_BLOCK all point back to
 // the block id. Downstream code (NonContainerStages, BuildStageTree) then
-// works unchanged.
+// works unchanged. PGV's pipeline start node is left out.
 func FlattenPGVTree(stages []PGVStage) []Stage {
 	var out []Stage
 	walkPGV(stages, "", "", &out)
 	return out
 }
+
+const pgvPipelineStart = "PIPELINE_START"
 
 func walkPGV(stages []PGVStage, parentID, parentType string, out *[]Stage) {
 	// Branches inside a PARALLEL_BLOCK all point back to the block id — no
@@ -18,6 +20,13 @@ func walkPGV(stages []PGVStage, parentID, parentType string, out *[]Stage) {
 	fanOut := parentType == "PARALLEL_BLOCK"
 	var prevSiblingID string
 	for _, s := range stages {
+		// PGV lists the start node, named "System Generated" (localized),
+		// when no real stage exists yet, so that its UI can show the log. It
+		// is no stage: listed, it reads as a running stage before the first
+		// one starts.
+		if s.Type == pgvPipelineStart {
+			continue
+		}
 		var fp string
 		if fanOut || prevSiblingID == "" {
 			fp = parentID
@@ -25,13 +34,14 @@ func walkPGV(stages []PGVStage, parentID, parentType string, out *[]Stage) {
 			fp = prevSiblingID
 		}
 		*out = append(*out, Stage{
-			ID:             s.ID,
-			Name:           s.Name,
-			Status:         MapPGVState(s.State),
-			DurationMillis: s.TotalDurationMillis,
-			FirstParent:    fp,
-			Type:           s.Type,
-			Agent:          s.Agent,
+			ID:              s.ID,
+			Name:            s.Name,
+			Status:          MapPGVState(s.State),
+			DurationMillis:  s.TotalDurationMillis,
+			StartTimeMillis: s.StartTimeMillis,
+			FirstParent:     fp,
+			Type:            s.Type,
+			Agent:           s.Agent,
 		})
 		if len(s.Children) > 0 {
 			walkPGV(s.Children, s.ID, s.Type, out)

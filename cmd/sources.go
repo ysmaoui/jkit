@@ -106,7 +106,7 @@ func resolveLibrariesFromLog(client *api.Client, src *jenkins.BuildSources) {
 		return true
 	}); err != nil {
 		src.Warnings = append(src.Warnings, fmt.Sprintf(
-			"could not read the console to resolve the remaining libraries: %v", err))
+			"could not read the console to resolve the remaining libraries: %v", withConsoleTimeoutHint(err)))
 		return
 	}
 

@@ -3,6 +3,7 @@ package jenkins
 import (
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 type Job struct {
@@ -13,7 +14,10 @@ type Job struct {
 	Color     string `json:"color"`
 	LastBuild *Build `json:"lastBuild"`
 	InQueue   bool   `json:"inQueue"`
-	Jobs      []Job  `json:"jobs,omitempty"`
+	// NextBuildNumber is the number the next build to leave the queue gets.
+	// Jenkins numbers a build only then, not when it is queued.
+	NextBuildNumber int   `json:"nextBuildNumber,omitempty"`
+	Jobs            []Job `json:"jobs,omitempty"`
 }
 
 // IsFolder returns true if the job is a folder-type container.
@@ -25,6 +29,20 @@ func (j Job) IsFolder() bool {
 // Such a job has no builds of its own — only its branch child-jobs do.
 func (j Job) IsMultibranch() bool {
 	return strings.Contains(j.Class, "MultiBranch")
+}
+
+// IsBranchSource returns true if the job discovers branches by indexing or
+// scanning: a multibranch pipeline or an organization folder. Triggering one
+// starts a scan rather than a build.
+func (j Job) IsBranchSource() bool {
+	return j.IsMultibranch() || j.IsOrgFolder()
+}
+
+// IsOrgFolder returns true if the job is an organization folder (GitHub,
+// Bitbucket, ...). Its children are repositories, each a multibranch project,
+// so branch jobs sit at <org>/<repo>/<branch>.
+func (j Job) IsOrgFolder() bool {
+	return strings.Contains(j.Class, "OrganizationFolder")
 }
 
 // IsContainer returns true if the job holds child jobs rather than builds
@@ -154,6 +172,20 @@ type Build struct {
 	URL        string        `json:"url"`
 	Actions    []BuildAction `json:"actions,omitempty"`
 	ChangeSets []ChangeSet   `json:"changeSets,omitempty"`
+	// Queued marks a build that has no data yet: still in the queue, or
+	// numbered but not readable. Jenkins never sends it.
+	Queued bool `json:"queued,omitempty"`
+}
+
+// Elapsed returns the build duration. Jenkins reports duration=0 while a build
+// runs, so a running build with a start timestamp yields now minus that start.
+func (b Build) Elapsed(now time.Time) time.Duration {
+	if b.Building && b.Timestamp > 0 {
+		if ms := now.UnixMilli() - b.Timestamp; ms > 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return time.Duration(b.Duration) * time.Millisecond
 }
 
 // Parameters returns build parameters from the actions list.
@@ -217,6 +249,46 @@ type Stage struct {
 	// Ocean's /nodes/ has no equivalent field, so an empty value means either
 	// "no node block" or "the fallback source cannot say".
 	Agent string `json:"agent,omitempty"`
+	// StartTimeMillis is only set from the PGV tree. Blue Ocean's startTime is
+	// left undecoded: its durationInMillis for a running node already runs up
+	// to the request. Excluded from JSON to keep output stable.
+	StartTimeMillis int64 `json:"-"`
+}
+
+// Elapsed returns the stage duration. PGV reports no duration for a running,
+// paused or queued stage, so one with a known start yields now minus that
+// start. A started stage waiting for an executor is QUEUED with a real start.
+func (s Stage) Elapsed(now time.Time) time.Duration {
+	switch s.Status {
+	case "IN_PROGRESS", "PAUSED_PENDING_INPUT", "QUEUED":
+		if ms := now.UnixMilli() - s.StartTimeMillis; s.StartTimeMillis > 0 && ms > 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return time.Duration(s.DurationMillis) * time.Millisecond
+}
+
+// RunningElapsed returns the time so far of a running, paused or queued stage
+// and whether it is known. Blue Ocean reports a running node's result as
+// UNKNOWN with durationInMillis already counting up; PGV maps "unknown" to an
+// empty status, so UNKNOWN here is never a PGV stage.
+func (s Stage) RunningElapsed(now time.Time) (time.Duration, bool) {
+	switch s.Status {
+	case "IN_PROGRESS", "PAUSED_PENDING_INPUT", "QUEUED", "UNKNOWN":
+		d := s.Elapsed(now)
+		return d, d > 0
+	}
+	return 0, false
+}
+
+// RunningElapsed returns the time so far of a running build and whether it is
+// known.
+func (b Build) RunningElapsed(now time.Time) (time.Duration, bool) {
+	if !b.Building {
+		return 0, false
+	}
+	d := b.Elapsed(now)
+	return d, d > 0
 }
 
 // PGVResponse is the envelope returned by Pipeline Graph View endpoints.
@@ -273,12 +345,6 @@ type QueueItem struct {
 		Number int    `json:"number"`
 		URL    string `json:"url"`
 	} `json:"executable"`
-}
-
-type LogChunk struct {
-	Text    string
-	Offset  int64
-	HasMore bool
 }
 
 type TestReport struct {

@@ -75,6 +75,8 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	registerScanFlags(scanCmd)
 	registerInputFlags(inputCmd)
 	registerSourcesFlags(sourcesCmd)
+	registerWaitFlags(waitCmd)
+	registerRebuildFlags(rebuildCmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()
@@ -266,6 +268,10 @@ func TestRunCommandTrigger(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound) // CSRF disabled
 			return
 		}
+		if r.URL.Path == "/job/my-app/api/json" {
+			_, _ = w.Write([]byte(`{"property":[]}`))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/build") && r.Method == "POST" {
 			w.Header().Set("Location", srvURL+"/queue/item/42/")
 			w.WriteHeader(http.StatusCreated)
@@ -289,6 +295,10 @@ func TestRunCommandWait(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/crumbIssuer/api/json" {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Path == "/job/my-app/api/json" {
+			_, _ = w.Write([]byte(`{"property":[]}`))
 			return
 		}
 		if strings.HasSuffix(r.URL.Path, "/build") && r.Method == "POST" {
@@ -335,6 +345,10 @@ func TestRunCommandWithParams(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if r.URL.Path == "/job/my-app/api/json" {
+			_, _ = w.Write([]byte(`{"property":[]}`))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/buildWithParameters") && r.Method == "POST" {
 			gotPath = r.URL.Path
 			b, _ := io.ReadAll(r.Body)
@@ -354,6 +368,100 @@ func TestRunCommandWithParams(t *testing.T) {
 	assert.Contains(t, gotPath, "buildWithParameters")
 	assert.Contains(t, gotBody, "BRANCH=main")
 	assert.Contains(t, gotBody, "ENV=staging")
+}
+
+// multibranchRunServer fakes a multibranch container: POST /build starts
+// indexing and returns no Location header. posts collects POST paths.
+func multibranchRunServer(t *testing.T, posts *[]string) *httptest.Server {
+	t.Helper()
+	return branchSourceRunServer(t, "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject", posts)
+}
+
+// branchSourceRunServer fakes a branch-source container of the given class
+// named my-app.
+func branchSourceRunServer(t *testing.T, class string, posts *[]string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/crumbIssuer/api/json":
+			w.WriteHeader(http.StatusNotFound)
+		case r.URL.Path == "/job/my-app/api/json":
+			_, _ = w.Write([]byte(`{"_class":"` + class + `","property":[]}`))
+		case r.URL.Path == "/job/my-app/buildWithParameters":
+			w.WriteHeader(http.StatusNotFound) // containers have no such action
+		case r.Method == "POST":
+			*posts = append(*posts, r.URL.Path)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	setupTestConfig(t, srv.URL)
+	return srv
+}
+
+func TestRunCommandMultibranchTriggersIndexing(t *testing.T) {
+	var posts []string
+	srv := multibranchRunServer(t, &posts)
+	defer srv.Close()
+
+	var err error
+	stderr := captureStderr(t, func() { _, err = executeCmd(t, "run", "my-app") })
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/job/my-app/build"}, posts)
+	assert.Contains(t, stderr, "Scan triggered for my-app. Pass --branch <name> to build a branch; see 'jkit scan my-app' for the scan result.")
+	assert.NotContains(t, stderr, "does not apply")
+}
+
+func TestRunCommandOrgFolderTriggersIndexing(t *testing.T) {
+	var posts []string
+	srv := branchSourceRunServer(t, "jenkins.branch.OrganizationFolder", &posts)
+	defer srv.Close()
+
+	var err error
+	stderr := captureStderr(t, func() { _, err = executeCmd(t, "run", "my-app") })
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/job/my-app/build"}, posts)
+	assert.Contains(t, stderr, "Scan triggered for my-app. Pick a repository and branch: jkit run my-app/<repo> --branch <name>; see 'jkit scan my-app' for the scan result.")
+}
+
+func TestRunCommandOrgFolderRejectsParams(t *testing.T) {
+	var posts []string
+	srv := branchSourceRunServer(t, "jenkins.branch.OrganizationFolder", &posts)
+	defer srv.Close()
+
+	_, err := executeCmd(t, "run", "my-app", "-p", "ENV=prod")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target a branch job (my-app/<repo>/<branch>)")
+	assert.NotContains(t, err.Error(), "--")
+	assert.Empty(t, posts)
+}
+
+func TestRunCommandMultibranchWaitNote(t *testing.T) {
+	var posts []string
+	srv := multibranchRunServer(t, &posts)
+	defer srv.Close()
+
+	for _, flag := range []string{"--wait", "--log"} {
+		posts = nil
+		var err error
+		stderr := captureStderr(t, func() { _, err = executeCmd(t, "run", "my-app", flag) })
+		require.NoError(t, err, flag)
+		assert.Equal(t, []string{"/job/my-app/build"}, posts, flag)
+		assert.Contains(t, stderr, "Scan triggered for my-app.", flag)
+		assert.Contains(t, stderr, "--wait and --log do not apply to a scan", flag)
+	}
+}
+
+func TestRunCommandMultibranchRejectsParams(t *testing.T) {
+	var posts []string
+	srv := multibranchRunServer(t, &posts)
+	defer srv.Close()
+
+	_, err := executeCmd(t, "run", "my-app", "-p", "ENV=prod")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "takes no parameters")
+	assert.Empty(t, posts)
 }
 
 func TestRunCommandExitError(t *testing.T) {
@@ -440,6 +548,10 @@ func TestLogCommand(t *testing.T) {
 			_, _ = fmt.Fprint(w, "hello world")
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/consoleText") {
+			_, _ = fmt.Fprint(w, "hello world")
+			return
+		}
 	}))
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)
@@ -485,6 +597,9 @@ func parallelStagesServer(t *testing.T, execState, cacheState string) *httptest.
 			default:
 				w.WriteHeader(http.StatusNotFound)
 			}
+		case r.URL.Path == "/job/my-app/5/api/json":
+			building := execState == "running" || cacheState == "running"
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": building, "result": "SUCCESS"})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -504,6 +619,7 @@ func TestLogStageAmbiguousName(t *testing.T) {
 	assert.Contains(t, err.Error(), "RemoteCache/Run Bazel Build")
 	assert.Contains(t, err.Error(), "id=4")
 	assert.Contains(t, err.Error(), "id=5")
+	assert.Contains(t, err.Error(), `pass a qualified path (e.g. "RemoteExec/Run Bazel Build") or --stage-id <id>`)
 }
 
 func TestLogStageQualifiedPath(t *testing.T) {
@@ -547,6 +663,58 @@ func TestLogStageNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 	assert.Contains(t, err.Error(), "RemoteExec/Run Bazel Build")
+	assert.Contains(t, err.Error(), "use --stage-id <id> for an exact node ID")
+}
+
+// PGV answers any node ID with its no-logs placeholder, so only the stage list
+// tells a stage without output from a node that does not exist. A step ID is
+// in no stage list, and its log is served as is.
+func TestLogStageIDValidatedOnPlaceholder(t *testing.T) {
+	var stageReads int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/job/my-app/5/stages/tree":
+			stageReads++
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{
+				map[string]any{"id": "6", "name": "X", "type": "STAGE", "state": "running"},
+			}}})
+		case "/job/my-app/7/stages/tree":
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{
+				map[string]any{"id": "2", "name": "System Generated", "type": "PIPELINE_START", "state": "running"},
+			}}})
+		case "/job/my-app/5/stages/log", "/job/my-app/7/stages/log":
+			if r.URL.Query().Get("nodeId") == "11" {
+				_, _ = fmt.Fprint(w, "step output\n")
+				return
+			}
+			_, _ = fmt.Fprint(w, "No logs found\n")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	for _, args := range [][]string{{"--stage-id", "99"}, {"--stage-id", "99", "--tail", "2"}, {"--stage-id", "99", "--grep", "x"}} {
+		out, err := executeCmd(t, append([]string{"log", "my-app", "5"}, args...)...)
+		require.Error(t, err, args)
+		assert.Equal(t, `node "99" not found — available stages: X (6)`, err.Error(), args)
+		assert.Empty(t, out, args)
+	}
+
+	_, err := executeCmd(t, "log", "my-app", "7", "--stage-id", "99")
+	require.Error(t, err)
+	assert.Equal(t, `node "99" not found`, err.Error(), "no stages yet, so no list")
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "6")
+	require.NoError(t, err)
+	assert.Equal(t, "No logs found\n", out)
+
+	stageReads = 0
+	out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "11")
+	require.NoError(t, err)
+	assert.Equal(t, "step output\n", out)
+	assert.Zero(t, stageReads, "a log that is not the placeholder needs no stage list")
 }
 
 func TestLogStageFollow(t *testing.T) {
@@ -562,6 +730,567 @@ func TestLogStageFollow(t *testing.T) {
 	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
 	require.NoError(t, err)
 	assert.Contains(t, out, "remote exec branch log")
+}
+
+// A running stage with -f --grep is read once and filtered, not followed. The
+// stage stops reporting running after a few polls so a following regression
+// fails the call count instead of hanging.
+func TestLogStageFollowGrepReadsOnce(t *testing.T) {
+	var logCalls int
+	srv := stageLogServer(t, func(n int) string {
+		logCalls = n
+		return "alpha\nBETA one\ngamma\nbeta two\n"
+	}, func(n int) bool { return n <= 3 })
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() {
+		out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f", "--grep", "beta")
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "beta two\n", out)
+	assert.Contains(t, stderr, "note: --follow is ignored with --grep; searched the log as it is now")
+
+	out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f", "--grep", "beta", "-i")
+	require.NoError(t, err)
+	assert.Equal(t, "BETA one\nbeta two\n", out)
+	assert.Equal(t, 2, logCalls)
+}
+
+// bigStageLogBody is a stage log well past the 64-byte cap the tests set,
+// ending in a Bazel-style summary.
+var bigStageLogBody = "first line\n" + strings.Repeat("filler line\n", 50) +
+	"Build did NOT complete successfully\nsummary last line\n"
+
+// stageLogServer serves stage 4 of build 5 through PGV. log returns the stage
+// log for the n-th log request; running reports the stage and build state as of
+// the n-th tree request.
+func stageLogServer(t *testing.T, log func(n int) string, running func(n int) bool) *httptest.Server {
+	t.Helper()
+	var logCalls, treeCalls int
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
+			treeCalls++
+			state := "failure"
+			if running(treeCalls) {
+				state = "running"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data": map[string]any{
+					"complete": !running(treeCalls),
+					"stages":   []map[string]any{{"id": "4", "name": "Build", "type": "STAGE", "state": state}},
+				},
+			})
+		case strings.Contains(r.URL.Path, "/stages/log"):
+			logCalls++
+			_, _ = fmt.Fprint(w, log(logCalls))
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": running(treeCalls)})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func shrinkStageLogCap(t *testing.T) {
+	t.Helper()
+	old := stageLogCap
+	stageLogCap = 64
+	t.Cleanup(func() { stageLogCap = old })
+}
+
+func bigStageLogServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	shrinkStageLogCap(t)
+	return stageLogServer(t, func(int) string { return bigStageLogBody }, func(int) bool { return false })
+}
+
+func TestLogStagePastCapWarns(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4") })
+	require.NoError(t, err)
+	assert.Equal(t, bigStageLogBody[:64]+"\n", out, "a log cut mid-line still ends in a newline")
+	assert.Contains(t, stderr, "stage 4 log exceeds")
+	assert.Contains(t, stderr, "use --tail N to read the end")
+}
+
+// Unterminated output with no warning after it is left byte-exact.
+func TestLogStageUnterminatedWithoutWarningStaysExact(t *testing.T) {
+	srv := stageLogServer(t, func(int) string { return "a\nlast" }, func(int) bool { return false })
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4")
+	require.NoError(t, err)
+	assert.Equal(t, "a\nlast", out)
+}
+
+// The warning names the stage as the user addressed it.
+func TestLogStageWarningUsesStageName(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	stderr := captureStderr(t, func() {
+		_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Build")
+		require.NoError(t, err)
+	})
+	assert.Contains(t, stderr, `stage "Build" log exceeds`)
+	assert.NotContains(t, stderr, "stage 4")
+
+	stderr = captureStderr(t, func() {
+		_, err := executeCmd(t, "log", "my-app", "5", "--stage", "Build", "--tail", "100", "--grep", "line")
+		require.NoError(t, err)
+	})
+	assert.Contains(t, stderr, `stage "Build" log exceeds`)
+}
+
+func TestLogStageHeadWithinCapDoesNotWarn(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--head", "1") })
+	require.NoError(t, err)
+	assert.Equal(t, "first line\n", out)
+	assert.Empty(t, stderr)
+}
+
+func TestLogStageTailPastCap(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "2") })
+	require.NoError(t, err)
+	assert.Equal(t, "Build did NOT complete successfully\nsummary last line\n", out)
+	assert.Empty(t, stderr)
+}
+
+func TestLogStageTailMoreLinesThanWindowWarns(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "100") })
+	require.NoError(t, err)
+	assert.True(t, strings.HasSuffix(out, "summary last line\n"))
+	assert.Contains(t, stderr, "only 2 of 100 lines fit")
+}
+
+func TestLogStageTailGrepPastCap(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var err error
+	stderr := captureStderr(t, func() {
+		_, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "5", "--grep", "line")
+	})
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "--grep searched only the last")
+
+	// Enough matches for --tail: nothing was missed that the output needed.
+	stderr = captureStderr(t, func() {
+		_, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "1", "--grep", "summary")
+	})
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+}
+
+// stepsOnlyStageServer serves stage 4 only step by step: the PGV log endpoint
+// is absent and Blue Ocean answers the node log with 500. Each step log is
+// bigStageLogBody. running sets the stage state PGV's tree reports.
+func stepsOnlyStageServer(t *testing.T, running bool) *httptest.Server {
+	t.Helper()
+	shrinkStageLogCap(t)
+	state := "failure"
+	if running {
+		state = "running"
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch p := r.URL.Path; {
+		case strings.HasSuffix(p, "/stages/tree"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data": map[string]any{
+					"complete": !running,
+					"stages":   []map[string]any{{"id": "4", "name": "Build", "type": "STAGE", "state": state}},
+				},
+			})
+		case strings.HasSuffix(p, "/5/api/json"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": running})
+		case strings.HasSuffix(p, "/nodes/4/log/"):
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasSuffix(p, "/nodes/4/steps/"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "7"}, {"id": "8"}})
+		case strings.HasSuffix(p, "/steps/7/log/"), strings.HasSuffix(p, "/steps/8/log/"):
+			_, _ = fmt.Fprint(w, bigStageLogBody)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestLogStageStepsFallbackPastCapWarns(t *testing.T) {
+	srv := stepsOnlyStageServer(t, false)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4") })
+	require.NoError(t, err)
+	assert.Equal(t, bigStageLogBody[:64]+"\n", out)
+	assert.Contains(t, stderr, "stage 4 log exceeds")
+
+	stderr = captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "2") })
+	require.NoError(t, err)
+	assert.Equal(t, "Build did NOT complete successfully\nsummary last line\n", out)
+	assert.Empty(t, stderr)
+}
+
+func TestLogStageStepsFallbackFollowRefusesRunningStage(t *testing.T) {
+	srv := stepsOnlyStageServer(t, true)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.Error(t, err)
+	assert.Empty(t, out)
+	assert.Contains(t, err.Error(), "only available per step")
+	assert.Contains(t, err.Error(), "use --tail after the stage finishes")
+}
+
+func TestLogStageStepsFallbackFollowPrintsFinishedStage(t *testing.T) {
+	srv := stepsOnlyStageServer(t, false)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, bigStageLogBody[:64]+"\n", out)
+	assert.Contains(t, stderr, "stage 4 log exceeds")
+}
+
+func TestLogStageTimeoutHintsAtFlag(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "partial\n")
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+	setupTestConfig(t, srv.URL)
+
+	_, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "--tail", "1", "--timeout", "100ms")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--timeout")
+}
+
+func TestLogStageFollowStopsAtCap(t *testing.T) {
+	srv := bigStageLogServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, bigStageLogBody[:64]+"\n", out, "the cut line is ended before the warning")
+	assert.Contains(t, stderr, "stopped following")
+	assert.Contains(t, stderr, "--tail N")
+}
+
+func TestLogStageFollowPrintsLinesWrittenAsStageFinishes(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	// The second log read already carries the final line, but the tree request
+	// between the reads reports the stage finished.
+	srv := stageLogServer(t,
+		func(n int) string {
+			if n == 1 {
+				return "building\n"
+			}
+			return "building\nfinal line\n"
+		},
+		func(int) bool { return false })
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	assert.Equal(t, "building\nfinal line\n", out)
+}
+
+func TestLogStageFollowSkipsPGVPlaceholder(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	// A stage with no step logs yet gets PGV's placeholder; it must not shift
+	// the offset of the real log that follows.
+	srv := stageLogServer(t,
+		func(n int) string {
+			if n == 1 {
+				return "No logs found\n"
+			}
+			return "step output\n"
+		},
+		func(n int) bool { return n == 1 })
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	assert.Equal(t, "step output\n", out)
+}
+
+// blueOceanFollowServer serves stage 4 through Blue Ocean only, which reports
+// a running stage as UNKNOWN. The build is building for the first two build
+// lookups; each log request returns one more line.
+func blueOceanFollowServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	var logCalls, buildCalls int
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/nodes/"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "4", "displayName": "Build", "result": "UNKNOWN", "state": "RUNNING"}})
+		case strings.HasSuffix(r.URL.Path, "/nodes/4/log/"):
+			logCalls++
+			for i := 1; i <= logCalls; i++ {
+				_, _ = fmt.Fprintf(w, "line %d\n", i)
+			}
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			buildCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": buildCalls <= 2})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestLogStageFollowBlueOceanUnknownKeepsFollowing(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	srv := blueOceanFollowServer(t)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	// Three polls while building, then the final read after the build ends.
+	assert.Equal(t, "line 1\nline 2\nline 3\nline 4\n", out)
+}
+
+// stageStateServer serves stage 4 of build 5 through PGV with a one-line log.
+// states[n] is the PGV state for tree request n+1, the last one repeating.
+// building is the build's flag throughout; buildCalls counts the build lookups.
+func stageStateServer(t *testing.T, states []string, building bool, buildCalls *int) *httptest.Server {
+	t.Helper()
+	var treeCalls int
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
+			state := states[min(treeCalls, len(states)-1)]
+			treeCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data": map[string]any{
+					"stages": []map[string]any{{"id": "4", "name": "Deploy", "type": "STAGE", "state": state}},
+				},
+			})
+		case strings.Contains(r.URL.Path, "/stages/log"):
+			_, _ = fmt.Fprint(w, "deploy log\n")
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			*buildCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "building": building})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestLogStageFollowStopsWhenBuildEndsUnderRunningStage(t *testing.T) {
+	oldInterval, oldCheck := stagePollInterval, stuckStageCheckPolls
+	stagePollInterval, stuckStageCheckPolls = time.Millisecond, 3
+	defer func() { stagePollInterval, stuckStageCheckPolls = oldInterval, oldCheck }()
+
+	var buildCalls int
+	srv := stageStateServer(t, []string{"running"}, false, &buildCalls)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, "deploy log\n", out)
+	assert.Contains(t, stderr, "build #5 has finished but stage 4 still reports IN_PROGRESS; stopped following")
+	assert.Equal(t, 1, buildCalls, "only the third poll checks the build")
+}
+
+func TestLogStageFollowRunningSkipsBuildLookup(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	var buildCalls int
+	srv := stageStateServer(t, []string{"running", "paused", "queued", "success"}, true, &buildCalls)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f")
+	require.NoError(t, err)
+	assert.Equal(t, "deploy log\n", out)
+	assert.Zero(t, buildCalls)
+}
+
+func TestLogStageFollowNotBuiltNotesOnce(t *testing.T) {
+	old := stagePollInterval
+	stagePollInterval = time.Millisecond
+	defer func() { stagePollInterval = old }()
+
+	var buildCalls int
+	srv := stageStateServer(t, []string{"skipped", "skipped", "success"}, true, &buildCalls)
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	var err error
+	stderr := captureStderr(t, func() { _, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(stderr, "stage 4 has not run (NOT_BUILT); following until it starts or the build ends"))
+	assert.Equal(t, 2, buildCalls)
+}
+
+// stallingDiagnoseServer serves failed build 5 with one failed stage 4 whose
+// log sends firstChunk, then stalls until release is closed.
+func stallingDiagnoseServer(t *testing.T, release chan struct{}, firstChunk string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/5/api/json"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "result": "FAILURE"})
+		case strings.HasSuffix(r.URL.Path, "/stages/tree"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data":   map[string]any{"stages": []map[string]any{{"id": "4", "name": "Compile", "type": "STAGE", "state": "failure"}}},
+			})
+		case strings.Contains(r.URL.Path, "/stages/log"):
+			_, _ = fmt.Fprint(w, firstChunk)
+			w.(http.Flusher).Flush()
+			<-release
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestDiagnoseHintsAtTimeoutWhenStageLogStalls(t *testing.T) {
+	shrinkStageLogCap(t)
+	release := make(chan struct{})
+	srv := stallingDiagnoseServer(t, release, strings.Repeat("progress\n", 20)+"ERROR: late failure\n")
+	defer srv.Close()
+	defer close(release)
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "diagnose", "my-app", "5", "--timeout", "200ms") })
+	require.NoError(t, err)
+	assert.Contains(t, out, "ERROR: late failure")
+	assert.Contains(t, stderr, "warning: stage Compile: could not read the whole stage log")
+	assert.Contains(t, stderr, "errors come from the part received before the read failed")
+	assert.Contains(t, stderr, "--timeout")
+}
+
+func TestDiagnoseHintsAtTimeoutWhenBothStageLogReadsStall(t *testing.T) {
+	release := make(chan struct{})
+	srv := stallingDiagnoseServer(t, release, "")
+	defer srv.Close()
+	defer close(release)
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "diagnose", "my-app", "5", "--timeout", "200ms") })
+	require.NoError(t, err)
+	assert.Contains(t, out, "Compile")
+	assert.Contains(t, stderr, "warning: stage Compile: could not read the stage log: ")
+	assert.Contains(t, stderr, "--timeout")
+}
+
+// A pipeline that declares no stage has only PGV's start node, which jkit
+// does not list, so its errors come from the console, which --stage cannot read.
+func TestDiagnoseStagelessPipelinePointsAtConsole(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/job/my-app/5/api/json":
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 5, "result": "FAILURE", "building": false})
+		case "/job/my-app/5/stages/tree":
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": map[string]any{"stages": []any{
+				map[string]any{"id": "2", "name": "System Generated", "type": "PIPELINE_START", "state": "failure"},
+			}}})
+		case "/job/my-app/5/logText/progressiveText":
+			w.Header().Set("X-Text-Size", "100")
+			_, _ = fmt.Fprint(w, "ERROR: boom\n")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	out, err := executeCmd(t, "diagnose", "my-app", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "ERROR: boom")
+	assert.Contains(t, out, "Use 'jkit log <job> 5 --tail 200' for the end of the console")
+	assert.NotContains(t, out, "--stage")
+}
+
+func TestSanitizingLineWriterStripsSplitAnnotation(t *testing.T) {
+	var out strings.Builder
+	lw := &sanitizingLineWriter{w: &out}
+	line := "a \x1b[8mha:AAAABBBB\x1b[0mb\nc"
+	for i := 0; i < len(line); i += 3 {
+		_, _ = lw.Write([]byte(line[i:min(i+3, len(line))]))
+	}
+	lw.Flush()
+	assert.Equal(t, "a b\nc", out.String())
+}
+
+func TestSanitizingLineWriterBoundsUnterminatedLine(t *testing.T) {
+	var out strings.Builder
+	lw := &sanitizingLineWriter{w: &out}
+	chunk := strings.Repeat("x", 4096)
+	for i := 0; i < 32; i++ {
+		_, _ = lw.Write([]byte(chunk))
+	}
+	assert.LessOrEqual(t, len(lw.pending), maxPendingLine)
+	lw.Flush()
+	assert.Equal(t, 32*4096, out.Len())
 }
 
 // --- stages command ---
@@ -872,6 +1601,14 @@ func TestBranchAppliesToAURLTarget(t *testing.T) {
 			"/job/team/job/svc/", "main",
 			"/job/team/job/svc/job/main/api/json",
 		},
+		"branch given as its job name": {
+			"/job/team/job/svc/", "feature%2Fx",
+			"/job/team/job/svc/job/feature%2Fx/api/json",
+		},
+		"branch with hash given as its job name": {
+			"/job/team/job/svc/", "feature%2Fx%234",
+			"/job/team/job/svc/job/feature%2Fx%234/api/json",
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -890,6 +1627,49 @@ func TestBranchAppliesToAURLTarget(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, paths, tt.wantPath)
 		})
+	}
+}
+
+// Every way of naming a multibranch branch must reach the job branch-api
+// created for it. Its name escapes # % / ? [ ] \ once, and the wire escapes it
+// again, so the double-encoded classic URL spells the exact request path.
+func TestBranchTargetsReachTheEncodedBranchJob(t *testing.T) {
+	const project = "/job/INT/job/bsw-MPCI-BladeMain-stub"
+	branches := map[string]struct{ raw, once, twice string }{
+		"hash": {
+			"feature/OVAPI_for_TIF_PI26.2BF#4",
+			"feature%2FOVAPI_for_TIF_PI26.2BF%234",
+			"feature%252FOVAPI_for_TIF_PI26.2BF%25234",
+		},
+		"question mark and percent": {"fix/50%?", "fix%2F50%25%3F", "fix%252F50%2525%253F"},
+		"brackets and backslash":    {`a[1]\b`, "a%5B1%5D%5Cb", "a%255B1%255D%255Cb"},
+		"space":                     {"my branch", "my%20branch", "my%20branch"},
+	}
+	for name, br := range branches {
+		targets := map[string][]string{
+			"blue ocean":             {"/blue/organizations/jenkins/INT%2Fbsw-MPCI-BladeMain-stub/detail/" + br.once + "/20/pipeline/"},
+			"classic single-encoded": {project + "/job/" + br.once + "/20/"},
+			"classic double-encoded": {project + "/job/" + br.twice + "/20/"},
+			"branch flag":            {"INT/bsw-MPCI-BladeMain-stub", "20", "--branch", br.raw},
+		}
+		for form, args := range targets {
+			t.Run(name+"/"+form, func(t *testing.T) {
+				var paths []string
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					paths = append(paths, r.URL.EscapedPath())
+					_ = json.NewEncoder(w).Encode(map[string]any{"number": 20, "result": "SUCCESS"})
+				}))
+				defer srv.Close()
+				setupTestConfig(t, srv.URL)
+
+				if strings.HasPrefix(args[0], "/") {
+					args = []string{srv.URL + args[0]}
+				}
+				_, err := executeCmd(t, append([]string{"status"}, args...)...)
+				require.NoError(t, err)
+				assert.Contains(t, paths, project+"/job/"+br.twice+"/20/api/json")
+			})
+		}
 	}
 }
 

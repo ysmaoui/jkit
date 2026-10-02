@@ -147,3 +147,14 @@ func TestFlattenPGVTreeCarriesAgent(t *testing.T) {
 		t.Errorf("branch head agent = %q, want empty", got)
 	}
 }
+
+func TestFlattenPGVTreeDropsPipelineStart(t *testing.T) {
+	start := PGVStage{ID: "2", Name: "System Generated", Type: "PIPELINE_START", State: "running", Synthetic: true}
+	if flat := FlattenPGVTree([]PGVStage{start}); len(flat) != 0 {
+		t.Errorf("start node listed as a stage: %+v", flat)
+	}
+	flat := FlattenPGVTree([]PGVStage{start, {ID: "6", Name: "X", Type: "STAGE", State: "running"}})
+	if len(flat) != 1 || flat[0].ID != "6" || flat[0].FirstParent != "" {
+		t.Errorf("want only stage 6 as root, got %+v", flat)
+	}
+}

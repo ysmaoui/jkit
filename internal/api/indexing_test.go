@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -63,9 +64,11 @@ func TestScanTargetMultibranchUsesIndexing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "multibranch pipeline", target.Kind)
 
-	chunk, err := client.GetScanLog(target, 0)
+	var out strings.Builder
+	more, err := client.ScanLog(target).Read(context.Background(), &out)
 	require.NoError(t, err)
-	assert.Equal(t, "Started by timer\n", chunk.Text)
+	assert.False(t, more)
+	assert.Equal(t, "Started by timer\n", out.String())
 }
 
 // An organization folder is a plain ComputedFolder: its run is published as
@@ -83,9 +86,11 @@ func TestScanTargetOrganizationFolderUsesComputation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "organization folder", target.Kind)
 
-	chunk, err := client.GetScanLog(target, 0)
+	var out strings.Builder
+	more, err := client.ScanLog(target).Read(context.Background(), &out)
 	require.NoError(t, err)
-	assert.Equal(t, "Starting organization scan\n", chunk.Text)
+	assert.False(t, more)
+	assert.Equal(t, "Starting organization scan\n", out.String())
 }
 
 // A folder is the most likely wrong target, because it is the prefix of the
@@ -121,18 +126,26 @@ func TestScanTargetEmptyFolderSaysSo(t *testing.T) {
 
 // A branch child is created by indexing and never runs it. The error resolves
 // the parent and hands back the command that does work.
+// The suggested --branch is the raw branch name, as the scan log prints it.
 func TestScanTargetBranchChildPointsAtParent(t *testing.T) {
-	srv := jobServer(t, map[string]string{
-		"/job/team/job/svc/job/feature%2Fx/api/json": classJSON(pipelineClass),
-		"/job/team/job/svc/api/json":                 classJSON(multibranchClass),
-	}, nil)
-	defer srv.Close()
-	client := NewClient(srv.URL, "admin", "secret")
+	for jobName, branch := range map[string]string{
+		"feature%2Fx":     "feature/x",
+		"feature%2Fx%234": "feature/x#4",
+	} {
+		t.Run(jobName, func(t *testing.T) {
+			srv := jobServer(t, map[string]string{
+				"/job/team/job/svc/job/" + jobName + "/api/json": classJSON(pipelineClass),
+				"/job/team/job/svc/api/json":                     classJSON(multibranchClass),
+			}, nil)
+			defer srv.Close()
+			client := NewClient(srv.URL, "admin", "secret")
 
-	_, err := client.ScanTarget("team/svc/feature%2Fx")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "is a branch of team/svc")
-	assert.Contains(t, err.Error(), "jkit scan team/svc --branch feature/x")
+			_, err := client.ScanTarget("team/svc/" + jobName)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is a branch of team/svc")
+			assert.Contains(t, err.Error(), "jkit scan team/svc --branch "+branch)
+		})
+	}
 }
 
 func TestScanTargetPlainJobSaysThereIsNoScan(t *testing.T) {
@@ -172,7 +185,7 @@ func TestScanLogNeverScannedIsNotAMissingJob(t *testing.T) {
 	target, err := client.ScanTarget("team/svc")
 	require.NoError(t, err)
 
-	_, err = client.GetScanLog(target, 0)
+	_, err = client.ScanLog(target).Read(context.Background(), &strings.Builder{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "never been scanned")
 	assert.NotContains(t, err.Error(), "not found")

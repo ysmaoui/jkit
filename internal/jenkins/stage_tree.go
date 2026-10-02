@@ -1,6 +1,9 @@
 package jenkins
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // NonContainerStages filters out fan-out stages (parallel containers) that have
 // multiple children. Sequential predecessors (single child) are kept since they
@@ -142,4 +145,77 @@ func BuildStageTree(stages []Stage) []FlatStage {
 		walk(ri, 0, false)
 	}
 	return out
+}
+
+// ResolveStageID maps a user-supplied stage name, qualified path or node ID to
+// a unique node ID. It matches qualified paths first (e.g. "RemoteExec/Run
+// Bazel Build"), then bare stage names, then exact IDs, so a stage literally
+// named "3366" wins over the stage with ID 3366. An ambiguous bare name returns an error listing every
+// candidate's qualified path and ID so the caller can pick one.
+func ResolveStageID(stages []Stage, input string) (string, error) {
+	paths := QualifiedStagePaths(stages)
+
+	var pathMatches, nameMatches []Stage
+	for _, s := range stages {
+		if strings.EqualFold(paths[s.ID], input) {
+			pathMatches = append(pathMatches, s)
+		}
+		if strings.EqualFold(s.Name, input) {
+			nameMatches = append(nameMatches, s)
+		}
+	}
+
+	if len(pathMatches) == 1 {
+		return pathMatches[0].ID, nil
+	}
+	if len(pathMatches) == 0 && len(nameMatches) == 1 {
+		return nameMatches[0].ID, nil
+	}
+
+	if len(pathMatches) == 0 && len(nameMatches) == 0 {
+		for _, s := range stages {
+			if s.ID == input {
+				return s.ID, nil
+			}
+		}
+	}
+
+	// Determine candidate set for messaging.
+	candidates := pathMatches
+	if len(candidates) == 0 {
+		candidates = nameMatches
+	}
+	if len(candidates) == 0 {
+		return "", stageNotFound(stages, paths, input)
+	}
+
+	matches := make([]string, 0, len(candidates))
+	for _, s := range candidates {
+		status := s.Status
+		if status == "" {
+			status = "?"
+		}
+		matches = append(matches, fmt.Sprintf("%s  (id=%s, %s)", paths[s.ID], s.ID, status))
+	}
+	return "", &StageAmbiguousError{Input: input, Matches: matches, Example: paths[candidates[0].ID]}
+}
+
+// RequireStageID returns a StageNotFoundError unless a stage has node ID id.
+func RequireStageID(stages []Stage, id string) error {
+	for _, s := range stages {
+		if s.ID == id {
+			return nil
+		}
+	}
+	nf := stageNotFound(stages, QualifiedStagePaths(stages), id)
+	nf.ByID = true
+	return nf
+}
+
+func stageNotFound(stages []Stage, paths map[string]string, input string) *StageNotFoundError {
+	available := make([]string, 0, len(stages))
+	for _, s := range stages {
+		available = append(available, fmt.Sprintf("%s (%s)", paths[s.ID], s.ID))
+	}
+	return &StageNotFoundError{Input: input, Available: available}
 }

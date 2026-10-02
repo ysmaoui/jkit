@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
@@ -45,6 +48,16 @@ type Client struct {
 	crumbs         *crumbIssuer
 	verbose        bool
 	pipelineSource PipelineSource
+	stageLogCap    int
+	// consoleTailWindow is the largest window ConsoleTailLines reads.
+	consoleTailWindow int
+
+	versionMu    sync.Mutex
+	version      string
+	versionKnown bool
+	// plainProgressive is set once the server has answered progressiveText
+	// without multipart.
+	plainProgressive atomic.Bool
 }
 
 type authTransport struct {
@@ -84,6 +97,28 @@ func WithPipelineSource(src PipelineSource) ClientOption {
 	}
 }
 
+// WithStageLogCap overrides how many bytes of a stage log one read keeps.
+func WithStageLogCap(n int) ClientOption {
+	return func(c *Client) {
+		c.stageLogCap = n
+	}
+}
+
+// StageLogCap returns how many bytes of a stage log one read keeps.
+func (c *Client) StageLogCap() int { return c.stageLogCap }
+
+// WithConsoleTailWindow overrides the largest tail window, in bytes, that
+// ConsoleTailLines reads.
+func WithConsoleTailWindow(n int) ClientOption {
+	return func(c *Client) {
+		c.consoleTailWindow = n
+	}
+}
+
+// ConsoleTailWindow returns the largest tail window, in bytes, that
+// ConsoleTailLines reads.
+func (c *Client) ConsoleTailWindow() int { return c.consoleTailWindow }
+
 // PipelineSource returns the configured backend selector.
 func (c *Client) PipelineSource() PipelineSource { return c.pipelineSource }
 
@@ -122,6 +157,8 @@ func NewClient(host, user, token string, opts ...ClientOption) *Client {
 		token: token,
 	}
 	c.crumbs = newCrumbIssuer(c)
+	c.stageLogCap = defaultStageLogCap
+	c.consoleTailWindow = defaultTailWindow
 	c.pipelineSource = parsePipelineSource(os.Getenv("JKIT_PIPELINE_SOURCE"))
 	for _, opt := range opts {
 		opt(c)
@@ -140,6 +177,16 @@ func (c *Client) Get(path string, query url.Values) (*http.Response, error) {
 		u += "?" + query.Encode()
 	}
 	return c.doWithRetry("GET", u, nil, "", nil)
+}
+
+// getContext is Get bound to ctx, with extra request headers. Cancelling ctx
+// aborts the request, a retry wait, or reading the body.
+func (c *Client) getContext(ctx context.Context, path string, query url.Values, header http.Header) (*http.Response, error) {
+	u := c.host + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	return c.do(ctx, "GET", u, nil, header)
 }
 
 // CloseBody is a convenience helper to discard and close a response body.
@@ -192,6 +239,17 @@ func (c *Client) Post(path string, body io.Reader, contentType string) (*http.Re
 }
 
 func (c *Client) doWithRetry(method, rawURL string, bodyFn func() io.Reader, contentType string, crumb *crumbInfo) (*http.Response, error) {
+	header := http.Header{}
+	if contentType != "" {
+		header.Set("Content-Type", contentType)
+	}
+	if crumb != nil {
+		header.Set(crumb.CrumbRequestField, crumb.Crumb)
+	}
+	return c.do(context.Background(), method, rawURL, bodyFn, header)
+}
+
+func (c *Client) do(ctx context.Context, method, rawURL string, bodyFn func() io.Reader, header http.Header) (*http.Response, error) {
 	// Only retry idempotent methods (GET, HEAD, OPTIONS)
 	maxRetries := 3
 	if method != "GET" && method != "HEAD" && method != "OPTIONS" {
@@ -202,29 +260,37 @@ func (c *Client) doWithRetry(method, rawURL string, bodyFn func() io.Reader, con
 		if bodyFn != nil {
 			body = bodyFn()
 		}
-		req, err := http.NewRequest(method, rawURL, body)
+		req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 		if err != nil {
 			return nil, fmt.Errorf("creating request: %w", err)
 		}
-		if contentType != "" {
-			req.Header.Set("Content-Type", contentType)
-		}
-		if crumb != nil {
-			req.Header.Set(crumb.CrumbRequestField, crumb.Crumb)
+		for k, v := range header {
+			req.Header[k] = v
 		}
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			if attempt < maxRetries {
-				time.Sleep(backoff(attempt))
+				if err := sleepCtx(ctx, backoff(attempt)); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			return nil, &jenkins.UnreachableError{Host: c.host, Cause: err}
 		}
 
+		if v := resp.Header.Get("X-Jenkins"); v != "" {
+			c.setVersion(v)
+		}
+
 		if resp.StatusCode == http.StatusServiceUnavailable && attempt < maxRetries {
 			CloseBody(resp)
-			time.Sleep(backoff(attempt))
+			if err := sleepCtx(ctx, backoff(attempt)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 
@@ -234,6 +300,51 @@ func (c *Client) doWithRetry(method, rawURL string, bodyFn func() io.Reader, con
 		return resp, nil
 	}
 	return nil, fmt.Errorf("max retries exceeded for %s", rawURL)
+}
+
+func (c *Client) setVersion(v string) {
+	c.versionMu.Lock()
+	defer c.versionMu.Unlock()
+	c.version, c.versionKnown = v, true
+}
+
+// serverVersion returns the Jenkins version from X-Jenkins, "" when the server
+// does not say. Jenkins sets the header on api/json and pages but not on every
+// route, progressiveText included, so when no answer has carried it yet the
+// root api/json is asked once.
+func (c *Client) serverVersion(ctx context.Context) string {
+	c.versionMu.Lock()
+	v, known := c.version, c.versionKnown
+	c.versionMu.Unlock()
+	if known {
+		return v
+	}
+	resp, err := c.getContext(ctx, "/api/json", url.Values{"tree": {"_class"}}, nil)
+	if err == nil {
+		CloseBody(resp)
+	}
+	// Only an answer settles the version: a network failure or a server
+	// error is asked again next time.
+	var unreachable *jenkins.UnreachableError
+	var se *jenkins.ServerError
+	if ctx.Err() != nil || errors.As(err, &unreachable) || errors.As(err, &se) && se.StatusCode >= 500 {
+		return ""
+	}
+	c.versionMu.Lock()
+	defer c.versionMu.Unlock()
+	c.versionKnown = true
+	return c.version
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 func backoff(attempt int) time.Duration {

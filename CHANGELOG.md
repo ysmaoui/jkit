@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `jkit wait [job] [build#] [--stage X] [--max-wait D]` blocks until a build or
+  stage has a result. Exit 0 SUCCESS, 1 FAILURE, 2 UNSTABLE, 3 ABORTED,
+  4 unknown result or stage never ran, 5 `--max-wait` expired, 6 error,
+  130 Ctrl+C.
+- `jkit log --stage` accepts the node IDs `jkit stages` prints.
+- Stage logs over 10 MB print a warning naming what was left out.
+- `jkit log --tail N` on the console warns when even the last 64 MB holds fewer
+  than N lines.
+- `jkit status --json` and `jkit stages --json` add `elapsedMillis` to a
+  running build and to a running, paused or queued stage. `duration` and
+  `durationMillis` stay raw.
+- Queued builds: `jkit wait` and `jkit log -f` (console or `--stage X`) wait
+  for a build still in the queue, and `log --stage X -f` waits for a stage that
+  has not started. `jkit status`, `jkit stages` and non-follow `jkit log` report
+  `build #N is queued` and exit 0; `status --json` prints an object with
+  `"queued": true`.
+
+### Changed
+- `jkit run --wait` and `jkit rebuild --wait` exit 5 when the queue or build
+  timeout expires, 6 on a jkit error (not found, auth, network, bad arguments)
+  and 130 on Ctrl+C. 0.8.0 exited 1 for these, the same as a `FAILURE` result.
+  `jkit wait` uses the same codes.
+- `jkit log --stage X --tail N` returns the true end of the stage log. It
+  downloads the whole stage log and keeps the last 10 MB.
+- `jkit log --stage X -f` follows step by step from each step's offset, with no
+  size cap.
+- Running builds and stages show the time so far instead of `< 1s`.
+- `jkit run` on a multibranch project or organization folder without `--branch`
+  starts a scan and says how to build a branch. A parameterized job run without
+  `-p` uses its defaults. A rejected trigger (HTTP 400) says what to check.
+- `jkit diagnose` reads the end of each failed stage's log, falls back to its
+  head when that download fails, and warns when errors come from part of it.
+- A timed-out console or stage log read suggests raising `--timeout`.
+- `jkit log --stage X -f --grep P` reads the stage log once and filters it, as
+  for the console, instead of ignoring `--grep`.
+- The error for a server with no stage log endpoint names both the Pipeline
+  Graph View and Blue Ocean plugins.
+
+### Fixed
+- `jkit log -f`, `--tail`, `--grep`, `--head` and the full dump print the
+  console exactly on current Jenkins. 0.8.0 duplicated or dropped text.
+  `--tail` on Jenkins 2.534 and later is one request per window.
+- Branch names with `#` and the other characters branch-api escapes work in
+  URLs and `--branch`.
+- `stages`, `log --stage` and `--stage-id` report a missing build as not found
+  instead of asking for a plugin.
+- The Blue Ocean steps fallback reads full step logs, up to the 10 MB stage
+  log cap.
+- `jkit stages` no longer lists Pipeline Graph View's "System Generated"
+  placeholder before the first stage starts; it reports `no stages yet`.
+- `jkit log --stage-id` with an unknown node reports `node "ID" not found`
+  instead of printing Jenkins' `No logs found` placeholder.
+
 ## [0.8.0] - 2026-09-14
 
 ### Changed
