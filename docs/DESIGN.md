@@ -394,6 +394,23 @@ download, or a partial answer falls back to the pool, with the reason on
 stderr. A running run always uses the pool: its annotated console can stop at
 the line cap or, on 2.527+, end mid-line.
 
+The snapshot's `failureNodeId` names the stage that failed the build. The first
+stage in state FAILURE is often the wrong answer: `catchError` marks a stage
+failed and goes on. While the annotated console splits, each node's last
+`ERROR:` line is kept, and the `pipeline-new-node` spans' `startId` and
+`enclosingId` trace that node up to its stage. The node is often no step at
+all, such as a `catchError` body's closing `}`. The latest such line whose
+stage is in state FAILURE wins, so a green step echoing `ERROR:` does not, and
+`failureMessage` is that line. The build's own text can override it: an
+`ERROR:` line, a qualified exception header such as
+`groovy.lang.MissingPropertyException: ...`, or an `Also:` line written after
+it means the build itself threw, since an uncaught exception other than
+`AbortException` prints a stack trace and no `ERROR:` line. `failureMessage`
+is then the first of those lines. `failureNodeId` falls back to the failed
+leaf stage that started last when the build threw, when no node's `ERROR:`
+line traces to a failed stage (the message is then empty), and when the pool
+read the logs: `consoleText` carries no node to trace.
+
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its
 `PendingInputActionsExt` carries no `submitter` field, so a refusal read through

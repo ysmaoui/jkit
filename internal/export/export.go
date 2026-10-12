@@ -42,6 +42,14 @@ type Snapshot struct {
 	// holds what arrived, marked Partial. It sits here rather than on Log
 	// because Step.Error is the same kind of note and Log is only text.
 	ConsoleError string `json:"consoleError"`
+	// FailureNodeID is the stage or branch that failed the build, empty when
+	// the build did not fail or no stage did. A catchError stage marked
+	// FAILURE is not it when a later error stopped the build.
+	FailureNodeID string `json:"failureNodeId"`
+	// FailureMessage is the "ERROR:" line or exception header that named
+	// FailureNodeID, or the build's own when the build threw. It is read only
+	// with the annotated console.
+	FailureMessage string `json:"failureMessage"`
 }
 
 // Node is a stage or parallel branch. A parallel wrapper is a STAGE whose
@@ -215,6 +223,8 @@ func collectLogs(ctx context.Context, client *api.Client, jobPath string, number
 	if err := fillStepLogs(ctx, client, jobPath, number, opts, snap.spools, snap.Stages); err != nil {
 		return err
 	}
+	// The plain console has no node attribution to trace an error line by.
+	snap.markFailure(nil)
 	if opts.Progress != nil {
 		opts.Progress(0, 0, nil, nil)
 	}

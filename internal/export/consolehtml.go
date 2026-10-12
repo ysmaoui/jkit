@@ -49,6 +49,9 @@ const (
 // wrote it, and must not keep the slice.
 type consoleSplitter struct {
 	emit func(node string, text []byte) error
+	// newNode, when set, gets the attributes of each pipeline-new-node span,
+	// which opens every flow node's [Pipeline] line.
+	newNode func(id, start, enclosing string)
 
 	state splitState
 	held  []byte
@@ -229,6 +232,9 @@ func (s *consoleSplitter) tag(t []byte) error {
 		if class == "timestamp" {
 			mark = dropSpan
 		}
+		if class == "pipeline-new-node" && s.newNode != nil {
+			s.newNode(attr(attrs, "nodeId"), attr(attrs, "startId"), attr(attrs, "enclosingId"))
+		}
 	}
 	s.spans = append(s.spans, mark)
 	switch mark {
@@ -343,14 +349,18 @@ func collectFromConsole(ctx context.Context, client *api.Client, jobPath string,
 	}()
 
 	notice(opts, "reading step logs from the annotated console")
-	err = stepLogsFromConsole(workCtx, client, jobPath, number, opts, workers[0], snap.Stages)
+	find := newFailureFinder()
+	err = stepLogsFromConsole(workCtx, client, jobPath, number, opts, workers[0], snap.Stages, find)
 	var fb *fallbackError
 	if errors.As(err, &fb) {
 		notice(opts, fmt.Sprintf("annotated console unusable, reading step logs one by one: %v", fb.err))
+		find = nil
 		err = fillStepLogs(workCtx, client, jobPath, number, opts, workers, snap.Stages)
 	}
 	if err != nil {
 		fail(err)
+	} else {
+		snap.markFailure(find)
 	}
 	<-consoleDone
 	return cmp.Or(fatal, ctx.Err())
@@ -374,8 +384,9 @@ type textRun struct{ off, n int64 }
 // log onto sp. The split text waits in a raw spool file, with only where
 // each step's runs lie held in memory, because parallel branches interleave
 // and a step's log is whole only once the download ends. Steps without
-// output get an empty log and no request.
-func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, nodes []Node) error {
+// output get an empty log and no request. find sees all the split text,
+// the build's own and that of nodes that are not steps.
+func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, nodes []Node, find *failureFinder) error {
 	raw, err := newSpool(opts.SpoolDir)
 	if err != nil {
 		return err
@@ -389,6 +400,7 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 		}
 	})
 	split := newConsoleSplitter(func(node string, text []byte) error {
+		find.text(node, text)
 		rs, ok := runs[node]
 		if !ok {
 			return nil
@@ -402,6 +414,7 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 		_, _ = raw.Write(text)
 		return nil
 	})
+	split.newNode = find.newNode
 	_, partial, err := client.CopyConsoleHTML(ctx, jobPath, number, split)
 	if err == nil {
 		err = split.Close()
