@@ -63,10 +63,19 @@ button:hover { border-color: var(--accent); }
 .c-ok { color: var(--ok); } .c-fail { color: var(--fail); } .c-unstable { color: var(--unstable); }
 .c-aborted, .c-unknown, .c-skipped { color: var(--muted); } .c-running, .c-paused, .c-queued { color: var(--running); }
 section { margin-top: 1rem; }
+#steps { max-height: 75vh; overflow: auto; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
 .graph-scroll {
-  position: relative; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; padding: .75rem;
+  position: relative; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: .75rem;
+  height: var(--graph-h, auto); max-height: var(--graph-h, 18rem);
 }
+.splitter { touch-action: none; user-select: none; display: grid; place-items: center; }
+.splitter::after { content: ""; border-radius: 2px; background: var(--line); }
+.splitter:hover::after, .splitter:focus-visible::after, .splitter.drag::after { background: var(--accent); }
+.splitter.h { height: 14px; margin: 2px 0; cursor: row-resize; }
+.splitter.h::after { width: 3rem; height: 4px; }
+.splitter.v { display: none; cursor: col-resize; }
+.splitter.v::after { width: 4px; height: 3rem; }
 .graph, .seq { display: flex; align-items: flex-start; gap: 2rem; }
 .graph { width: max-content; }
 .stage { display: flex; flex-direction: column; gap: .5rem; position: relative; }
@@ -108,7 +117,10 @@ section { margin-top: 1rem; }
 @keyframes pulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .icon.st-running { animation: none; } }
 .panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-@media (min-width: 900px) { .panels { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); } }
+@media (min-width: 900px) {
+  .panels { grid-template-columns: minmax(0, var(--steps-w, 40%)) 14px minmax(0, 1fr); gap: 0; }
+  .splitter.v { display: grid; }
+}
 .panel { border: 1px solid var(--border); border-radius: 8px; padding: .75rem; min-width: 0; }
 .hint { color: var(--muted); margin: .5rem 0; }
 .steps { list-style: none; margin: 0; padding: 0; }
@@ -168,13 +180,17 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
 <main>
   <section aria-labelledby="graph-h">
     <div class="bar"><h2 id="graph-h">Stages</h2><button type="button" id="console-btn" aria-pressed="false">Full console log</button></div>
-    <div class="graph-scroll"><div id="graph" class="graph"></div></div>
+    <div class="graph-scroll" id="graph-scroll"><div id="graph" class="graph"></div></div>
   </section>
+  <div id="graph-split" class="splitter h" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="graph-scroll"
+    aria-label="Resize stages pane" title="Resize stages pane (drag or arrow keys; double-click resets)"></div>
   <div class="panels">
-    <section class="panel" aria-labelledby="steps-h">
+    <section class="panel" id="steps-panel" aria-labelledby="steps-h">
       <h2 id="steps-h">Steps</h2>
       <div id="steps"><p class="hint">Select a stage to list its steps.</p></div>
     </section>
+    <div id="panels-split" class="splitter v" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="steps-panel"
+      aria-label="Resize steps and log columns" title="Resize steps and log columns (drag or arrow keys; double-click resets)"></div>
     <section class="panel" id="log-panel" aria-labelledby="log-h">
       <h2 id="log-h">Log</h2>
       <pre id="log-name" class="log-name" hidden></pre>
@@ -741,8 +757,10 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     var b = id && document.querySelector('.node[aria-pressed="true"]');
     if (!b) return;
     var box = b.closest(".graph-scroll");
-    var left = b.getBoundingClientRect().left - box.getBoundingClientRect().left;
-    if (left < 0 || left + b.offsetWidth > box.clientWidth) box.scrollLeft += left - 16;
+    var r = b.getBoundingClientRect(), g = box.getBoundingClientRect();
+    var left = r.left - g.left, top = r.top - g.top;
+    if (left < 0 || left + r.width > box.clientWidth) box.scrollLeft += left - 16;
+    if (top < 0 || top + r.height > box.clientHeight) box.scrollTop += top - 16;
   }
   function fromHash() {
     var p = new URLSearchParams(location.hash.slice(1));
@@ -759,6 +777,117 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     return found || (S.stages && S.stages[0]) || null;
   }
 
+  var LAYOUT_KEY = "jkit.export.layout";
+  var KEY_STEP = 32;
+  var MIN_PANE = 80;
+  var root = document.documentElement;
+  
+  function loadLayout() {
+    try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function saveLayout(patch) {
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(Object.assign(loadLayout(), patch))); } catch (e) {   }
+  }
+  
+  
+  
+  function splitter(sep, dir, get, set, reset, persist) {
+    var start = 0, startSize = 0, moved = false;
+    function syncValue() { sep.setAttribute("aria-valuenow", Math.round(get())); }
+    sep.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0) return;
+      sep.setPointerCapture(e.pointerId);
+      sep.classList.add("drag");
+      start = dir === "y" ? e.clientY : e.clientX;
+      startSize = get();
+      moved = false;
+      
+      e.preventDefault();
+      sep.focus();
+    });
+    sep.addEventListener("pointermove", function (e) {
+      if (!sep.hasPointerCapture(e.pointerId)) return;
+      set(startSize + (dir === "y" ? e.clientY : e.clientX) - start);
+      moved = true;
+      syncValue();
+    });
+    sep.addEventListener("lostpointercapture", function () {
+      sep.classList.remove("drag");
+      if (moved) persist(get());
+    });
+    sep.addEventListener("keydown", function (e) {
+      var back = dir === "y" ? "ArrowUp" : "ArrowLeft", fwd = dir === "y" ? "ArrowDown" : "ArrowRight";
+      var to = e.key === back ? get() - KEY_STEP : e.key === fwd ? get() + KEY_STEP :
+        e.key === "Home" ? 0 : e.key === "End" ? Infinity : null;
+      if (to === null) return;
+      e.preventDefault();
+      persist(set(to));
+      syncValue();
+    });
+    sep.addEventListener("dblclick", function () {
+      reset();
+      persist(null);
+      syncValue();
+    });
+    syncValue();
+    return syncValue;
+  }
+  function setupLayout() {
+    var gs = $("graph-scroll"), panels = document.querySelector(".panels"), steps = $("steps-panel");
+    var gsep = $("graph-split"), psep = $("panels-split");
+    
+    
+    var saved = loadLayout();
+    var wantGraph = saved.graphH > 0 ? saved.graphH : null;
+    var wantPct = saved.stepsPct > 0 ? saved.stepsPct : null;
+    function clamp(v, max) { return Math.max(MIN_PANE, Math.min(v, Math.max(MIN_PANE, max))); }
+    function graphMax() { return window.innerHeight - 120; }
+    function stepsMax() { return panels.clientWidth - 120; }
+    function sideBySide() { return getComputedStyle(psep).display !== "none"; }
+    function apply() {
+      if (wantGraph) root.style.setProperty("--graph-h", Math.round(clamp(wantGraph, graphMax())) + "px");
+      
+      
+      if (wantPct && sideBySide()) {
+        var w = panels.clientWidth;
+        root.style.setProperty("--steps-w", (clamp(wantPct / 100 * w, stepsMax()) / w * 100).toFixed(2) + "%");
+      }
+      gsep.setAttribute("aria-valuemax", Math.round(Math.max(MIN_PANE, graphMax())));
+      psep.setAttribute("aria-valuemax", Math.round(Math.max(MIN_PANE, stepsMax())));
+    }
+    function setGraph(px) {
+      wantGraph = Math.round(clamp(px, graphMax()));
+      apply();
+      return wantGraph;
+    }
+    
+    function setSteps(px) {
+      px = clamp(px, stepsMax());
+      wantPct = px / panels.clientWidth * 100;
+      apply();
+      return px;
+    }
+    gsep.setAttribute("aria-valuemin", MIN_PANE);
+    psep.setAttribute("aria-valuemin", MIN_PANE);
+    apply();
+    var syncGraph = splitter(gsep, "y", function () { return gs.getBoundingClientRect().height; }, setGraph,
+      function () { wantGraph = null; root.style.removeProperty("--graph-h"); },
+      function (px) { saveLayout({ graphH: px && Math.round(px) }); });
+    var syncSteps = splitter(psep, "x", function () { return steps.getBoundingClientRect().width; }, setSteps,
+      function () { wantPct = null; root.style.removeProperty("--steps-w"); },
+      function (px) { saveLayout({ stepsPct: px && +(px / panels.clientWidth * 100).toFixed(2) }); });
+    var pending = 0;
+    window.addEventListener("resize", function () {
+      if (pending) return;
+      pending = requestAnimationFrame(function () {
+        pending = 0;
+        apply();
+        syncGraph();
+        syncSteps();
+      });
+    });
+  }
+
   $("console-btn").addEventListener("click", function () {
     select({ node: current.node, console: true }, true);
   });
@@ -766,6 +895,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
 
   renderHeader();
   renderGraph();
+  setupLayout();
   var initial = fromHash();
   if (!initial.node && !initial.step && !initial.console) {
     var d = defaultNode();
