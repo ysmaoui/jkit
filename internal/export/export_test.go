@@ -143,18 +143,41 @@ func (f *fakeRun) serve(t *testing.T, opts ...api.ClientOption) *api.Client {
 	return api.NewClient(srv.URL, "u", "t", opts...)
 }
 
+func testSpool(t *testing.T) *spool {
+	t.Helper()
+	sp, err := newSpool(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.close() })
+	return sp
+}
+
+func collect(t *testing.T, client *api.Client, job string, opts Options) (*Snapshot, error) {
+	t.Helper()
+	snap, err := Collect(context.Background(), client, job, 1, opts)
+	if snap != nil {
+		t.Cleanup(func() { _ = snap.Close() })
+	}
+	return snap, err
+}
+
+func content(t *testing.T, l Log) string {
+	t.Helper()
+	b, err := io.ReadAll(l.content())
+	require.NoError(t, err)
+	return string(b)
+}
+
 func decode(t *testing.T, l Log) string {
 	t.Helper()
-	if l.GzipBase64 == "" {
+	text := content(t, l)
+	if text == "" {
 		return ""
 	}
-	raw, err := base64.StdEncoding.DecodeString(l.GzipBase64)
+	zr, err := gzip.NewReader(base64.NewDecoder(base64.StdEncoding, strings.NewReader(text)))
 	require.NoError(t, err)
-	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	raw, err := io.ReadAll(zr)
 	require.NoError(t, err)
-	text, err := io.ReadAll(zr)
-	require.NoError(t, err)
-	return string(text)
+	return string(raw)
 }
 
 func find(nodes []Node, id string) *Node {
@@ -184,7 +207,7 @@ func TestCollectFinishedScripted(t *testing.T) {
 	run.exceptions["21"] = "script returned exit code 3"
 	run.console = "Started by user admin\n" + note + "[Pipeline] node\nRunning on Jenkins\nERROR: script returned exit code 3\n"
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t), run.job, Options{})
 	require.NoError(t, err)
 
 	assert.True(t, snap.Complete)
@@ -231,7 +254,7 @@ func TestCollectDeclarative(t *testing.T) {
 	run.stepLogs["7"] = "building\n"
 	run.exceptions["14"] = "boom from error step"
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t), run.job, Options{})
 	require.NoError(t, err)
 
 	fail := find(snap.Stages, "11")
@@ -262,7 +285,7 @@ func TestCollectRunning(t *testing.T) {
 	run.open["53"] = true
 	run.console = "Started\n[Pipeline] stage\nslow 1\nunterm"
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t), run.job, Options{})
 	require.NoError(t, err)
 
 	assert.False(t, snap.Complete)
@@ -287,7 +310,7 @@ func TestCollectStripsNotesAndEscapes(t *testing.T) {
 	run.mode = staplertest.Counted
 	run.stepLogs["7"] = note + "[Pipeline] echo\n\x1b[31mred\x1b[0m\tcol\n"
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t), run.job, Options{})
 	require.NoError(t, err)
 	assert.Equal(t, "[Pipeline] echo\nred\tcol\n", decode(t, find(snap.Stages, "6").Steps[0].Log))
 }
@@ -297,7 +320,7 @@ func TestCollectRecordsStepLogFailure(t *testing.T) {
 	run.failLog["7"] = http.StatusInternalServerError
 	run.stepLogs["31"] = "pa\n"
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t), run.job, Options{})
 	require.NoError(t, err)
 	assert.Contains(t, find(snap.Stages, "6").Steps[0].Error, "500")
 	assert.True(t, find(snap.Stages, "6").Steps[0].Log.Partial, "a failed read marks the log partial")
@@ -308,7 +331,7 @@ func TestCollectStopsOnAuthFailure(t *testing.T) {
 	run := loadRun(t, "done", "declarative")
 	run.failLog["7"] = http.StatusUnauthorized
 
-	_, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	_, err := collect(t, run.serve(t), run.job, Options{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "auth login")
 }
@@ -317,7 +340,7 @@ func TestCollectStopsOnConsoleAuthFailure(t *testing.T) {
 	run := loadRun(t, "done", "declarative")
 	run.failLog["console"] = http.StatusUnauthorized
 
-	_, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	_, err := collect(t, run.serve(t), run.job, Options{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "auth login")
 }
@@ -327,7 +350,7 @@ func TestCollectTimeoutSaysRaiseTimeout(t *testing.T) {
 		run := loadRun(t, "done", "declarative")
 		run.stall["console"] = true
 		run.stepLogs["51"] = "kept\n"
-		snap, err := Collect(context.Background(), run.serve(t, api.WithTimeout(300*time.Millisecond)), run.job, 1, Options{})
+		snap, err := collect(t, run.serve(t, api.WithTimeout(300*time.Millisecond)), run.job, Options{})
 		require.NoError(t, err)
 		assert.Contains(t, snap.ConsoleError, "raise it with --timeout")
 		assert.True(t, snap.Console.Partial)
@@ -337,7 +360,7 @@ func TestCollectTimeoutSaysRaiseTimeout(t *testing.T) {
 	t.Run("step log is recorded", func(t *testing.T) {
 		run := loadRun(t, "done", "declarative")
 		run.stall["51"] = true
-		snap, err := Collect(context.Background(), run.serve(t, api.WithTimeout(300*time.Millisecond)), run.job, 1, Options{})
+		snap, err := collect(t, run.serve(t, api.WithTimeout(300*time.Millisecond)), run.job, Options{})
 		require.NoError(t, err)
 		step := find(snap.Stages, "50").Steps[0]
 		assert.Contains(t, step.Error, "raise it with --timeout")
@@ -350,7 +373,7 @@ func TestCollectRecordsHeaderTimeoutOnStep(t *testing.T) {
 	run.holdHeaders["51"] = true
 	run.stepLogs["56"] = "post always\n"
 
-	snap, err := Collect(context.Background(), run.serve(t, api.WithTimeout(100*time.Millisecond)), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t, api.WithTimeout(100*time.Millisecond)), run.job, Options{})
 	require.NoError(t, err)
 	assert.Contains(t, find(snap.Stages, "50").Steps[0].Error, "raise it with --timeout")
 	assert.Equal(t, "post always\n", decode(t, find(snap.Stages, "55").Steps[0].Log))
@@ -361,7 +384,7 @@ func TestCollectRecordsExceptionFailure(t *testing.T) {
 	run.failException["14"] = http.StatusInternalServerError
 	run.stepLogs["56"] = "post always\n"
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t), run.job, Options{})
 	require.NoError(t, err)
 	step := find(snap.Stages, "11").Steps[0]
 	assert.Contains(t, step.Error, "500")
@@ -373,7 +396,7 @@ func TestCollectStopsWhenPluginMissing(t *testing.T) {
 	run := loadRun(t, "done", "declarative")
 	run.failException["14"] = http.StatusNotFound
 
-	_, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	_, err := collect(t, run.serve(t), run.job, Options{})
 	var pme *jenkins.PluginMissingError
 	require.ErrorAs(t, err, &pme)
 	assert.Equal(t, "stages/exceptionText", pme.Route)
@@ -388,7 +411,7 @@ func TestCollectCapsLogs(t *testing.T) {
 	run.stepLogs["51"] = long.String()
 	run.console = long.String()
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{MaxLogBytes: 100})
+	snap, err := collect(t, run.serve(t), run.job, Options{MaxLogBytes: 100})
 	require.NoError(t, err)
 	for _, l := range []Log{find(snap.Stages, "50").Steps[0].Log, snap.Console} {
 		text := decode(t, l)
@@ -404,7 +427,7 @@ func TestCollectUnlistedStage(t *testing.T) {
 	run := loadRun(t, "done", "declarative")
 	run.allSteps = strings.Replace(run.allSteps, `"stageId":"55"`, `"stageId":"99"`, 1)
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t), run.job, Options{})
 	require.NoError(t, err)
 	last := snap.Stages[len(snap.Stages)-1]
 	assert.Equal(t, UnlistedType, last.Type)
@@ -418,7 +441,7 @@ func TestCollectDropsPipelineStart(t *testing.T) {
 	run.tree = `{"status":"ok","data":{"complete":false,"stages":[{"id":"2","name":"System Generated","type":"PIPELINE_START","state":"running","children":[]}]}}`
 	run.allSteps = `{"status":"ok","data":{"runIsComplete":false,"steps":[]}}`
 
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	snap, err := collect(t, run.serve(t), run.job, Options{})
 	require.NoError(t, err)
 	assert.Empty(t, snap.Stages)
 	assert.NotNil(t, snap.Stages, "encodes as [] for the template")
@@ -439,7 +462,7 @@ func TestEncodeLogCap(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Writing one byte at a time exercises the ring wrapping.
-			l, err := encodeLog(tc.max, func(w io.Writer) error {
+			l, err := encodeLog(testSpool(t), tc.max, func(w io.Writer) error {
 				for i := range len(tc.in) {
 					if _, err := w.Write([]byte{tc.in[i]}); err != nil {
 						return err
@@ -459,7 +482,7 @@ func TestEncodeLogCapKeepsRunesWhole(t *testing.T) {
 	in := strings.Repeat("日", 20) // 3 bytes each, no line ends
 	for _, max := range []int64{7, 8, 9, 10, 11} {
 		t.Run(fmt.Sprint(max), func(t *testing.T) {
-			l, err := encodeLog(max, func(w io.Writer) error {
+			l, err := encodeLog(testSpool(t), max, func(w io.Writer) error {
 				_, err := io.WriteString(w, in)
 				return err
 			})
@@ -505,7 +528,7 @@ func TestSanitizerCRLF(t *testing.T) {
 }
 
 func TestEncodeLogKeepsWhatArrivedOnError(t *testing.T) {
-	l, err := encodeLog(0, func(w io.Writer) error {
+	l, err := encodeLog(testSpool(t), 0, func(w io.Writer) error {
 		_, _ = io.WriteString(w, "first\nsec")
 		return io.ErrUnexpectedEOF
 	})
@@ -521,4 +544,26 @@ func TestSanitizerSplitsOverlongLine(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.flush())
 	assert.Equal(t, in, out.String())
+}
+
+func TestEncodeLogSpoolFailureStopsExport(t *testing.T) {
+	sp := testSpool(t)
+	require.NoError(t, sp.f.Close())
+	_, err := encodeLog(sp, 0, func(w io.Writer) error {
+		_, err := io.WriteString(w, strings.Repeat("x\n", 1<<16))
+		return err
+	})
+	require.ErrorIs(t, err, errSpool)
+	assert.True(t, stopsExport(context.Background(), err))
+}
+
+func TestCollectLeavesNoSpoolFile(t *testing.T) {
+	run := loadRun(t, "done", "declarative")
+	dir := t.TempDir()
+	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{SpoolDir: dir})
+	require.NoError(t, err)
+	require.NoError(t, snap.Close())
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
 }

@@ -363,9 +363,13 @@ with `DecompressionStream`, so a 200 MB log does not become a 200 MB DOM string 
 front. The page makes no network request and the export needs PGV only; there is
 no Blue Ocean fallback. The full console is stored as well, because
 `allSteps` omits steps outside any stage and block steps such as `node` and
-`catchError`, so their output exists nowhere else. Peak memory is about 5 times
-the file size: logs are already gzip and base64 in the snapshot, and `json.Encoder`
-buffers the full JSON on top of it.
+`catchError`, so their output exists nowhere else. Memory stays flat whatever
+the file size: `Collect` streams each encoded log into one spool file (beside
+the output, or in `TMPDIR` for `-o -`; unlinked at creation on Unix), and
+`Render` encodes the snapshot with a random placeholder per log, then copies the
+logs from the spool in place of the placeholders. Base64 needs no JSON escaping,
+so the bytes match a plain `json.Encoder` run. A 320 MB export peaks at about
+20 MB RSS. The cost is disk: the spool is about the size of the output.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its

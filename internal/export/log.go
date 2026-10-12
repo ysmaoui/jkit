@@ -1,11 +1,16 @@
 package export
 
 import (
+	"bufio"
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"strings"
 	"unicode/utf8"
 
@@ -18,27 +23,89 @@ import (
 const maxLineBytes = 1 << 20
 
 // encodeLog runs what fill writes through sanitizing, the head/tail cap and
-// gzip into base64. The Log holds whatever arrived even when fill fails.
-func encodeLog(maxBytes int64, fill func(io.Writer) error) (Log, error) {
-	var out strings.Builder
-	b64 := base64.NewEncoder(base64.StdEncoding, &out)
+// gzip into base64 on sp. The Log holds whatever arrived even when fill fails.
+// A failed spool write is returned instead of fill's error, wrapping errSpool.
+func encodeLog(sp *spool, maxBytes int64, fill func(io.Writer) error) (Log, error) {
+	start := sp.size
+	b64 := base64.NewEncoder(base64.StdEncoding, sp)
 	gz := gzip.NewWriter(b64)
 	ht := &headTail{w: gz, max: maxBytes}
 	san := &sanitizer{w: ht}
 
 	fillErr := fill(san)
-	// The writers below only fail when the one beneath them does, and the
-	// bottom one is a strings.Builder.
+	// The spool never fails a write, so neither do the writers above it.
 	_ = san.flush()
 	_ = ht.close()
 	_ = gz.Close()
 	_ = b64.Close()
+	if err := sp.flush(); err != nil {
+		return Log{}, fmt.Errorf("%w: %w\n%s", errSpool, err, spoolHint)
+	}
 
 	l := Log{Bytes: ht.total, CutBytes: ht.cut}
 	if ht.total > 0 {
-		l.GzipBase64 = out.String()
+		l.spool, l.off, l.n = sp, start, sp.size-start
 	}
 	return l, fillErr
+}
+
+var errSpool = errors.New("writing log spool")
+
+const spoolHint = "the spool needs about as much free disk as the HTML file; free disk space or choose another -o directory (or TMPDIR with -o -)"
+
+// spool keeps encoded logs on disk until Render copies them out, so memory
+// does not grow with the export. One append-only file holds them all.
+type spool struct {
+	f    *os.File
+	buf  *bufio.Writer
+	size int64
+	err  error
+}
+
+// newSpool creates the spool file in dir, or in os.TempDir when dir is "".
+// It is unlinked at once where the OS allows that on an open file, so not
+// even SIGKILL leaves it behind.
+func newSpool(dir string) (*spool, error) {
+	f, err := os.CreateTemp(dir, ".jkit-spool-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating log spool: %w", err)
+	}
+	_ = os.Remove(f.Name())
+	return &spool{f: f, buf: bufio.NewWriterSize(f, 1<<16)}, nil
+}
+
+// Write always reports success and keeps the first error in sp.err: a full
+// disk must stop the export, not pass as a failed read of the source.
+func (sp *spool) Write(p []byte) (int, error) {
+	if sp.err == nil {
+		n, err := sp.buf.Write(p)
+		sp.size += int64(n)
+		sp.err = err
+	}
+	return len(p), nil
+}
+
+func (sp *spool) flush() error {
+	if sp.err == nil {
+		sp.err = sp.buf.Flush()
+	}
+	return sp.err
+}
+
+func (sp *spool) close() error {
+	err := sp.f.Close()
+	if rerr := os.Remove(sp.f.Name()); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+		err = cmp.Or(err, rerr)
+	}
+	return err
+}
+
+// content is the log's base64 text.
+func (l *Log) content() io.Reader {
+	if l.spool == nil {
+		return strings.NewReader(l.GzipBase64)
+	}
+	return io.NewSectionReader(l.spool.f, l.off, l.n)
 }
 
 // sanitizer drops console notes, escape sequences and control characters

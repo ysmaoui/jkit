@@ -36,6 +36,7 @@ type Snapshot struct {
 	// steps outside any stage and of block steps such as node, which the step
 	// listing leaves out.
 	Console Log `json:"console"`
+	spool   *spool
 	// ConsoleError is why the console could not be read in full. Console then
 	// holds what arrived, marked Partial. It sits here rather than on Log
 	// because Step.Error is the same kind of note and Log is only text.
@@ -85,6 +86,8 @@ type Step struct {
 
 // Log is sanitized text, gzipped then base64-encoded, empty when the text is.
 type Log struct {
+	// GzipBase64 is empty on a Log from Collect, which keeps the text in the
+	// Snapshot's spool file; Render writes it here in the JSON either way.
 	GzipBase64 string `json:"gzipBase64"`
 	// Bytes is the sanitized length before any cut.
 	Bytes int64 `json:"bytes"`
@@ -95,6 +98,10 @@ type Log struct {
 	// read error cut it short, or, on Jenkins 2.509 to 2.533, a running
 	// step's log is read only to the 10000-line cap.
 	Partial bool `json:"partial"`
+
+	// The text is n bytes at off in spool, when spool is set.
+	spool  *spool
+	off, n int64
 }
 
 // Options tunes Collect.
@@ -106,6 +113,9 @@ type Options struct {
 	// total with the node holding it, then the console with node and step
 	// nil.
 	Progress func(i, total int, node *Node, step *Step)
+	// SpoolDir is where the encoded logs wait for Render, os.TempDir when
+	// empty. It needs about as much free space as the HTML file.
+	SpoolDir string
 }
 
 // timeoutHint is added to a log read that timed out: one log is one HTTP
@@ -113,7 +123,8 @@ type Options struct {
 const timeoutHint = "the whole log has to download within the HTTP timeout; raise it with --timeout (e.g. --timeout 5m)"
 
 // Collect reads a build's metadata, PGV stage tree, steps, step logs and
-// console. It works on a running build, giving what exists so far.
+// console. It works on a running build, giving what exists so far. The caller
+// must Close the Snapshot.
 func Collect(ctx context.Context, client *api.Client, jobPath string, number int, opts Options) (*Snapshot, error) {
 	snap := &Snapshot{Job: jobPath, Number: number, ExportedAtMillis: time.Now().UnixMilli()}
 
@@ -140,14 +151,35 @@ func Collect(ctx context.Context, client *api.Client, jobPath string, number int
 	snap.Complete = treeComplete && runComplete && !build.Building
 	snap.Stages = buildTree(tree, steps)
 
-	if err := fillStepLogs(ctx, client, jobPath, number, opts, snap.Stages); err != nil {
+	if snap.spool, err = newSpool(opts.SpoolDir); err != nil {
 		return nil, err
+	}
+	if err := collectLogs(ctx, client, jobPath, number, opts, snap); err != nil {
+		_ = snap.Close()
+		return nil, err
+	}
+	return snap, nil
+}
+
+// Close removes the spool file that holds the logs. The Snapshot cannot be
+// rendered after.
+func (s *Snapshot) Close() error {
+	if s.spool == nil {
+		return nil
+	}
+	return s.spool.close()
+}
+
+func collectLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, snap *Snapshot) error {
+	if err := fillStepLogs(ctx, client, jobPath, number, opts, snap.spool, snap.Stages); err != nil {
+		return err
 	}
 
 	if opts.Progress != nil {
 		opts.Progress(0, 0, nil, nil)
 	}
-	snap.Console, err = encodeLog(opts.MaxLogBytes, func(w io.Writer) error {
+	var err error
+	snap.Console, err = encodeLog(snap.spool, opts.MaxLogBytes, func(w io.Writer) error {
 		body, err := client.OpenConsoleText(jobPath, number)
 		if err != nil {
 			return err
@@ -161,12 +193,12 @@ func Collect(ctx context.Context, client *api.Client, jobPath string, number int
 	if err != nil {
 		err = withTimeoutHint(err)
 		if stopsExport(ctx, err) {
-			return nil, err
+			return err
 		}
 		snap.Console.Partial = true
 		snap.ConsoleError = err.Error()
 	}
-	return snap, nil
+	return nil
 }
 
 // buildTree converts the PGV tree, drops its start node and hangs each step
@@ -269,7 +301,7 @@ func (s *Snapshot) EachStep(fn func(*Node, *Step)) {
 	})
 }
 
-func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, nodes []Node) error {
+func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, nodes []Node) error {
 	total, done := 0, 0
 	walk(nodes, func(n *Node) { total += len(n.Steps) })
 	var fatal error
@@ -282,7 +314,7 @@ func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, numbe
 			if opts.Progress != nil {
 				opts.Progress(done, total, n, &n.Steps[i])
 			}
-			fatal = fillStep(ctx, client, jobPath, number, opts, &n.Steps[i])
+			fatal = fillStep(ctx, client, jobPath, number, opts, sp, &n.Steps[i])
 		}
 	})
 	return fatal
@@ -290,9 +322,9 @@ func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, numbe
 
 // fillStep reads one step's log and exception text. A failure that would
 // repeat for every step is returned; any other is recorded on the step.
-func fillStep(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, s *Step) error {
+func fillStep(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, s *Step) error {
 	var partial bool
-	log, err := encodeLog(opts.MaxLogBytes, func(w io.Writer) error {
+	log, err := encodeLog(sp, opts.MaxLogBytes, func(w io.Writer) error {
 		var err error
 		_, partial, err = client.CopyStepLog(ctx, jobPath, number, s.ID, w)
 		return err
@@ -329,7 +361,7 @@ func fillStep(ctx context.Context, client *api.Client, jobPath string, number in
 // not one, even when the client gave up on it as unreachable: a large log can
 // be slow to start while the next one is not.
 func stopsExport(ctx context.Context, err error) bool {
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || errors.Is(err, errSpool) {
 		return true
 	}
 	var pme *jenkins.PluginMissingError

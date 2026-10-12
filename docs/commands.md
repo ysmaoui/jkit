@@ -1403,7 +1403,7 @@ jkit export html my-app 42 --max-log-bytes 20000000
 
 Logs are stored gzip-compressed inside the page. The console repeats the step output and is stored too. In one measured export, 229 MB of step logs plus the same amount of console gave a 70 MB file: about 30% of the step logs' size, or about 15% of everything embedded. Random or binary-like content does not compress, so such a log costs close to its full size.
 
-Peak memory is about 5 times the size of the HTML file. Logs are already gzip and base64 encoded in the snapshot, and the JSON encoder buffers the whole page's JSON on top of it. A file over 250 MB gets a warning that browsers are slow to open it (over 25s), and over 500 MB that browsers cannot open it. Re-export with `--max-log-bytes` to shrink it.
+Memory does not grow with the file: logs wait in a temporary file beside the output (in `TMPDIR` with `-o -`) until the page is written, so a 320 MB export peaks at about 20 MB. While exporting, the output directory needs about twice the HTML size free: the log spool plus the temporary output file, renamed onto the destination at the end. Both are removed if the export fails or is interrupted. With `-o -` the spool, about the HTML size, goes to `TMPDIR` instead. A file over 250 MB gets a warning that browsers are slow to open it (over 25s), and over 500 MB that browsers cannot open it. Re-export with `--max-log-bytes` to shrink it.
 
 ### `--json` output
 

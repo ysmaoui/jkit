@@ -135,7 +135,16 @@ func runExportHTML(cmd *cobra.Command, args []string) error {
 		}
 		_, _ = fmt.Fprintf(os.Stderr, "fetching step %d/%d: %s\n", i, total, stepLabel(n, s))
 	}
-	snap, err := export.Collect(ctx, client, jobPath, buildNum, export.Options{MaxLogBytes: maxLog, Progress: progress})
+	// The spool goes beside the output, where the output needs room anyway.
+	// TMPDIR may be a small tmpfs, which the spool would fill or keep in RAM.
+	spoolDir := ""
+	if out != nil {
+		spoolDir = filepath.Dir(dest)
+	}
+	snap, err := export.Collect(ctx, client, jobPath, buildNum, export.Options{MaxLogBytes: maxLog, Progress: progress, SpoolDir: spoolDir})
+	if snap != nil {
+		defer func() { _ = snap.Close() }()
+	}
 	if ctx.Err() != nil {
 		return &jenkins.ExitError{Code: 130, Message: errInterrupted.Error()}
 	}

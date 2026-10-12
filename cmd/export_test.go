@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -277,8 +278,12 @@ func TestExportHTMLInterruptLeavesNoFile(t *testing.T) {
 
 	_, _, dir, err := runHTMLExport(t, "export", "html", "my-app", "7")
 	assert.Equal(t, 130, exitCode(t, err))
-	require.Len(t, *during, 1, "temp file exists while downloading")
-	assert.True(t, strings.HasSuffix((*during)[0], ".tmp"), *during)
+	// Where the OS cannot unlink an open file, the log spool shows here too.
+	tmp := slices.DeleteFunc(slices.Clone(*during), func(name string) bool {
+		return strings.HasPrefix(name, ".jkit-spool-")
+	})
+	require.Len(t, tmp, 1, "temp file exists while downloading: %v", *during)
+	assert.True(t, strings.HasSuffix(tmp[0], ".tmp"), *during)
 	assert.Empty(t, dirNames(t, dir))
 }
 
