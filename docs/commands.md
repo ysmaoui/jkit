@@ -1370,7 +1370,7 @@ jkit export html [job] [build#] [-o FILE] [--max-log-bytes N] [--concurrency N]
 |------|-------------|
 | `-o, --output FILE` | File to write. Default `<job>-<build#>.html` in the current directory, with `/` in the job path written as `_`. `-` writes the page to stdout |
 | `--max-log-bytes N` | Keep at most `N` bytes of each log (plain bytes), half from the head and half from the tail, with a marker line where the middle was cut. `0` (default) keeps every log whole. Shrinks the file, not the download: each log is still read in full |
-| `--concurrency N` | Step logs to download at once when they are read one by one (running builds, or after the fallback below), default `4`. Values below `1` count as `1`, above `8` as `8`. The page is the same whatever `N` is |
+| `--concurrency N` | Downloads to run at once: step logs when they are read one by one (running builds, or after the fallback below), and error texts of failed steps. Default `4`. Values below `1` count as `1`, above `8` as `8`. The page is the same whatever `N` is |
 
 Defaults to the latest build. With no arguments and `BUILD_URL` set, as inside a Jenkins build, it exports that build; arguments win over `BUILD_URL`. The host is the longest configured host or `JENKINS_URL` (also set by Jenkins, and including any context path such as `/jenkins`) that `BUILD_URL` lies under, else the scheme and host of `BUILD_URL`; `--host` overrides either.
 
@@ -1380,7 +1380,7 @@ Unless `--timeout` is given, the HTTP timeout is `10m` instead of `30s`: each lo
 
 The file is written beside its destination under a temporary name and renamed when complete, so a failed or interrupted export leaves no partial file (with `-o -`, stdout may hold a partial page).
 
-A finished build's step logs come from one download of the annotated console (`logText/progressiveHtml`), which marks each line with the step that wrote it. The plain console downloads beside it. Only failed and aborted steps cost another request each, for their error text. On a 3142-step build this takes the export from 47s to 2s. A running build is read step by step instead, one request per step log, since its annotated console can stop short or end mid-line. When the annotated console marks no steps (log storage other than Jenkins' own files, such as a cloud log plugin), fails to download, times out or comes back cut short, the export says why in one line on stderr and reads the steps one by one. The page is the same either way.
+For a finished build that the Pipeline Graph View plugin reports complete, step logs come from one download of the annotated console (`logText/progressiveHtml`), which marks each line with the step that wrote it. The plain console downloads beside it. Only failed and aborted steps cost another request each, for their error text. Measured on finished builds: 1733 steps took 70s read one at a time and 1.65s this way. 3142 steps took 163s one at a time, 51s four at a time (the default for step-by-step reads), and 2.3s this way. A running build is read step by step instead, one request per step log, since its annotated console can stop short or end mid-line. When the annotated console marks no steps (log storage other than Jenkins' own files, such as a cloud log plugin), fails to download, times out or comes back cut short, the export says why in one line on stderr and reads the steps one by one. Authentication, permission, missing-plugin and unreachable-host errors stop the export instead. The page is the same either way.
 
 stderr gets `fetching console log` and then `reading step logs from the annotated console` for a finished build. Read step by step, it gets one line per log as its download starts, in step order (`fetching step 12/58: Build › make all`), then `fetching console log`. After a fallback from the annotated console, `fetching console log` comes first, because the plain console already downloads beside it, and the step lines follow. Both end with a total. With `--concurrency` above 1, several steps download at once, so a line can appear before the steps above it finish. stdout gets the written path; `--json` prints `{"path", "bytes", "complete", "stepErrors", "consoleError"}` instead, and `--format` takes a template over the same fields (neither with `-o -`).
 
@@ -1401,6 +1401,16 @@ jkit export html                                  # in a pipeline step: this bui
 jkit export html my-app 42 -o - > run.html        # page on stdout, progress on stderr
 jkit export html my-app 42 --max-log-bytes 20000000
 ```
+
+### Viewer
+
+The page works offline and has no server side.
+
+- **Panes.** Drag the bars between the stage graph, the steps and the log, or use the arrow keys on a focused bar. Double-click resets. Sizes, and the Graph or List choice, are remembered per browser.
+- **Graph and List.** Graph draws the stage graph. List shows the same stages as a collapsible tree, with a filter box and a Failed only checkbox. A narrow window opens in List.
+- **Parallel branches.** Each branch collapses to a row of squares, one per nested stage, so a failure inside stays visible. Branches start collapsed when the graph is more than three times wider than its pane. Collapse branches and Expand branches act on all of them. Selecting a stage opens its branch.
+- **Failures.** The header shows `N failed` with up and down buttons that step through the failed stages. The page opens on the stage that failed the build, not the first stage in state FAILURE, since `catchError` marks a stage failed and goes on. When the build itself threw, its error shows in the header. Otherwise the stage's error line shows above its steps.
+- **History.** Each selection of a stage, step or the full console log is a history entry, so Back undoes it. The address fragment names the selection, so a link reopens it.
 
 ### Size
 

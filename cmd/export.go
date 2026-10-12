@@ -70,7 +70,7 @@ func init() {
 func registerExportHTMLFlags(c *cobra.Command) {
 	c.Flags().StringP("output", "o", "", "File to write (default <job>-<build#>.html in the current directory, / in the job path as _); - for stdout")
 	c.Flags().Int64("max-log-bytes", 0, "Keep at most this many bytes of each log, half from the head and half from the tail (plain bytes, 0 = no limit). Shrinks the file, not the download")
-	c.Flags().Int("concurrency", defaultExportConcurrency, fmt.Sprintf("Step logs to download at once, 1 to %d", maxExportConcurrency))
+	c.Flags().Int("concurrency", defaultExportConcurrency, fmt.Sprintf("Downloads to run at once (step logs, error texts), 1 to %d", maxExportConcurrency))
 	// Hidden: for comparing the two sources, not for daily use.
 	c.Flags().String("log-source", "auto", "Where step logs come from: auto, console (the annotated console) or steps (one request per step)")
 	_ = c.Flags().MarkHidden("log-source")
