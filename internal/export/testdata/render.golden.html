@@ -91,6 +91,46 @@ section { margin-top: 1rem; }
 .dot.st-unstable { background: var(--unstable); }
 .dot.st-running, .dot.st-paused, .dot.st-queued { background: var(--running); }
 .dot.st-skipped, .dot.st-unknown { background: transparent; border: 2px solid var(--skipped); }
+.seg { display: inline-flex; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button + button { margin-left: -1px; border-radius: 0 6px 6px 0; }
+.seg button[aria-pressed="true"] { position: relative; background: var(--sel); border-color: var(--accent); }
+ 
+.graph-scroll.list { height: var(--graph-h, 18rem); min-height: 9rem; padding-top: 0; }
+ 
+#stage-list { max-width: 60rem; }
+#sl-empty:empty { margin: 0; }
+.sl-tools {
+  position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: .4rem .75rem; align-items: center;
+  padding: .75rem 0 .5rem; background: var(--bg);
+}
+.sl-tools input[type="search"] {
+  font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: .3rem .5rem; flex: 1 1 12rem; min-width: 0;
+}
+.sl-tools label { display: flex; gap: .3rem; align-items: center; white-space: nowrap; }
+.sl-tree, .sl-tree ul { list-style: none; margin: 0; padding: 0; }
+.sl-tree ul { padding-left: 1.1rem; }
+.sl-item.collapsed > ul, .sl-item.out { display: none; }
+.sl-row { display: flex; align-items: center; gap: .15rem; }
+.sl-chev { flex: none; width: 1.4rem; height: 1.4rem; padding: 0; border-color: transparent; background: transparent; font-size: .7rem; line-height: 1; }
+.sl-sel {
+  flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center; gap: .5rem; text-align: left; padding: .15rem .4rem; background: transparent; border-color: transparent;
+}
+.sl-sel:hover { background: var(--panel); }
+.sl-sel[aria-pressed="true"] { background: var(--sel); border-color: var(--accent); }
+.sl-sel.synthetic .sl-name { font-style: italic; }
+.sl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-sum { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; max-width: 12rem; }
+.sl-sum .dot { width: 8px; height: 8px; border-radius: 2px; }
+.sl-sum .dot.st-skipped, .sl-sum .dot.st-unknown { border-width: 1.5px; }
+.sl-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+ 
+@media (max-width: 599px) {
+  .sl-sum { max-width: 5rem; }
+  .sl-item:not(.collapsed) > .sl-row .sl-sum { display: none; }
+}
 .splitter { touch-action: none; user-select: none; display: grid; place-items: center; }
 .splitter::after { content: ""; border-radius: 2px; background: var(--line); }
 .splitter:hover::after, .splitter:focus-visible::after, .splitter.drag::after { background: var(--accent); }
@@ -207,6 +247,8 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
 <main>
   <section aria-labelledby="graph-h">
     <div class="bar"><h2 id="graph-h">Stages</h2><div class="tools">
+      <span id="mode" class="seg" role="group" aria-label="Stage view" hidden><button type="button" id="mode-graph" aria-pressed="true">Graph</button><button
+        type="button" id="mode-list" aria-pressed="false">List</button></span>
       <span id="failnav" class="failnav" hidden><span id="fail-pos" aria-live="polite"></span>
         <button type="button" id="fail-prev" aria-label="Previous failed stage" title="Previous failed stage">&#8593;</button>
         <button type="button" id="fail-next" aria-label="Next failed stage" title="Next failed stage">&#8595;</button></span>
@@ -214,7 +256,11 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
         <button type="button" id="expand-all">Expand branches</button></span>
       <button type="button" id="console-btn" aria-pressed="false">Full console log</button>
     </div></div>
-    <div class="graph-scroll" id="graph-scroll"><div id="graph" class="graph"></div></div>
+    <div class="graph-scroll" id="graph-scroll"><div id="graph" class="graph"></div>
+      <div id="stage-list" hidden><div id="sl-tools" class="sl-tools">
+        <input type="search" id="sl-filter" placeholder="Filter stages" aria-label="Filter stages">
+        <label><input type="checkbox" id="sl-failed"> Failed only</label></div>
+        <ul id="sl-tree" class="sl-tree"></ul><p id="sl-empty" class="hint" aria-live="polite"></p></div></div>
   </section>
   <div id="graph-split" class="splitter h" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="graph-scroll"
     aria-label="Resize stages pane" title="Resize stages pane (drag or arrow keys; double-click resets)"></div>
@@ -371,6 +417,14 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     }
   }
 
+  function nodeSub(n) {
+    var sub = [];
+    if (n.startTimeMillis > 0) sub.push(fmtDur(elapsed(n)) + (n.running ? " so far" : ""));
+    else if (n.state === "NOT_BUILT") sub.push("skipped");
+    if (n.type === "UNLISTED") sub.push("not in stage graph");
+    else if (n.synthetic) sub.push("implicit");
+    return sub.join(" · ") || "–";
+  }
   function nodeButton(n) {
     var st = stateOf(n.state);
     var b = el("button", "node" + (n.synthetic ? " synthetic" : ""));
@@ -380,12 +434,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     b.append(icon(n.state));
     var t = el("span", "node-text");
     t.append(el("span", "node-name", n.name));
-    var sub = [];
-    if (n.startTimeMillis > 0) sub.push(fmtDur(elapsed(n)) + (n.running ? " so far" : ""));
-    else if (n.state === "NOT_BUILT") sub.push("skipped");
-    if (n.type === "UNLISTED") sub.push("not in stage graph");
-    else if (n.synthetic) sub.push("implicit");
-    t.append(el("span", "node-sub", sub.join(" · ") || "–"));
+    t.append(el("span", "node-sub", nodeSub(n)));
     b.append(t);
     b.title = n.name + " (" + st[2] + ")";
     b.addEventListener("click", function () { select({ node: n.id }, true); });
@@ -470,6 +519,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     ancestorIds(id).forEach(function (a) {
       var d = branchEls.get(a);
       if (d && d.classList.contains("collapsed")) setCollapsed(d, false);
+      if (listItems.has(a)) setListCollapsed(listItems.get(a), false);
     });
   }
   function renderGraph() {
@@ -479,6 +529,121 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       return;
     }
     S.stages.forEach(function (n) { g.append(renderStage(n)); });
+  }
+
+  
+  var listItems = new Map();
+  function renderList() {
+    (function add(list, ul) {
+      list.forEach(function (n) {
+        var st = stateOf(n.state), kids = n.children || [];
+        var li = el("li", "sl-item"), row = el("div", "sl-row");
+        var chev = el(kids.length ? "button" : "span", "sl-chev");
+        var b = el("button", "sl-sel" + (n.synthetic ? " synthetic" : ""));
+        b.type = "button";
+        b.dataset.id = n.id;
+        b.setAttribute("aria-pressed", "false");
+        b.title = n.name + " (" + st[2] + ")";
+        b.append(icon(n.state), el("span", "sl-name", n.name));
+        
+        var sum = el("span", "sl-sum");
+        sum.setAttribute("aria-hidden", "true");
+        kids.forEach(function (c) {
+          var cs = stateOf(c.state), d = el("span", "dot st-" + cs[0]);
+          d.title = c.name + " (" + cs[2] + ")";
+          sum.append(d);
+        });
+        b.append(sum, el("span", "sl-dur", nodeSub(n)));
+        b.addEventListener("click", function () { select({ node: n.id }, true); });
+        row.append(chev, b);
+        li.append(row);
+        listItems.set(n.id, li);
+        if (kids.length) {
+          var sub = el("ul");
+          sub.id = "sl-kids-" + listItems.size;
+          chev.type = "button";
+          chev.setAttribute("aria-controls", sub.id);
+          chev.setAttribute("aria-label", "Nested stages of " + n.name);
+          chev.addEventListener("click", function () { setListCollapsed(li, !li.classList.contains("collapsed")); });
+          add(kids, sub);
+          li.append(sub);
+          setListCollapsed(li, false);
+        }
+        ul.append(li);
+      });
+    })(S.stages || [], $("sl-tree"));
+    $("sl-filter").addEventListener("input", applyFilter);
+    $("sl-failed").addEventListener("change", applyFilter);
+  }
+  function setListCollapsed(li, c) {
+    li.classList.toggle("collapsed", c);
+    var t = li.firstChild.firstChild;
+    t.textContent = c ? "▸" : "▾";
+    t.setAttribute("aria-expanded", String(!c));
+  }
+  function listCollapseAll(c) {
+    var keep = c && current.node ? ancestorIds(current.node) : new Set();
+    listItems.forEach(function (li, id) { if (li.lastChild.tagName === "UL") setListCollapsed(li, c && !keep.has(id)); });
+    revealNode(current.node);
+  }
+  function filterActive() { return !!$("sl-filter").value.trim() || $("sl-failed").checked; }
+  
+  var preFilter = null;
+  
+  
+  function applyFilter() {
+    var q = $("sl-filter").value.trim().toLowerCase(), failedOnly = $("sl-failed").checked;
+    var keep = null, matches = 0;
+    function show(id) {
+      keep.add(id);
+      ancestorIds(id).forEach(function (a) {
+        keep.add(a);
+        setListCollapsed(listItems.get(a), false);
+      });
+    }
+    
+    function textMatch(id) {
+      if (!q) return true;
+      if (nodesById.get(id).node.name.toLowerCase().indexOf(q) >= 0) return true;
+      if (!failedOnly) return false;
+      return Array.from(ancestorIds(id)).some(function (a) { return nodesById.get(a).node.name.toLowerCase().indexOf(q) >= 0; });
+    }
+    if (q || failedOnly) {
+      if (!preFilter) {
+        preFilter = new Set();
+        listItems.forEach(function (li, id) { if (li.classList.contains("collapsed")) preFilter.add(id); });
+      }
+      keep = new Set();
+      nodesById.forEach(function (e, id) {
+        if (failedOnly && failedLeaves.indexOf(e.node) < 0) return;
+        if (!textMatch(id)) return;
+        matches++;
+        show(id);
+      });
+      if (current.node && listItems.has(current.node)) show(current.node);
+    } else if (preFilter) {
+      var was = preFilter;
+      preFilter = null;
+      listItems.forEach(function (li, id) { if (li.lastChild.tagName === "UL") setListCollapsed(li, was.has(id)); });
+      if (current.node) ancestorIds(current.node).forEach(function (a) { setListCollapsed(listItems.get(a), false); });
+    }
+    listItems.forEach(function (li, id) { li.classList.toggle("out", !!keep && !keep.has(id)); });
+    
+    $("sl-empty").textContent = keep && !matches ? "No stages match." : "";
+    revealNode(current.node);
+  }
+  var mode = "graph";
+  function setMode(m, user) {
+    mode = m;
+    var list = m === "list";
+    $("graph").hidden = list;
+    $("stage-list").hidden = !list;
+    $("graph-scroll").classList.toggle("list", list);
+    $("mode-graph").setAttribute("aria-pressed", String(!list));
+    $("mode-list").setAttribute("aria-pressed", String(list));
+    if (user) saveLayout({ mode: m });
+    relayout();
+    revealNode(current.node);
   }
 
   function stepItem(s, node) {
@@ -843,11 +1008,13 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     if (sel.node !== current.node && sel.node) renderSteps(nodesById.get(sel.node).node);
     if (sel.node) expandTo(sel.node);
     setPressed(".node", "id", sel.node);
+    setPressed(".sl-sel", "id", sel.node);
     revealNode(sel.node);
     setPressed(".step-btn", "step", sel.step);
     $("console-btn").setAttribute("aria-pressed", String(!!sel.console));
     var logChanged = sel.step !== current.step || !!sel.console !== !!current.console;
     current = sel;
+    if (filterActive()) applyFilter();
     if (logChanged) {
       if (sel.console) {
         openLog(S.console, "Full console log", "", null);
@@ -871,13 +1038,16 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
   
   function revealNode(id) {
-    var b = id && document.querySelector('.node[aria-pressed="true"]');
-    if (!b) return;
-    var box = b.closest(".graph-scroll");
+    var b = id && document.querySelector((mode === "list" ? ".sl-sel" : ".node") + '[aria-pressed="true"]');
+    
+    if (!b || !b.getClientRects().length) return;
+    var box = $("graph-scroll");
+    
+    var inset = mode === "list" ? $("sl-tools").offsetHeight : 0;
     var r = b.getBoundingClientRect(), g = box.getBoundingClientRect();
     var left = r.left - g.left, top = r.top - g.top;
     if (left < 0 || left + r.width > box.clientWidth) box.scrollLeft += left - 16;
-    if (top < 0 || top + r.height > box.clientHeight) box.scrollTop += top - 16;
+    if (top < inset || top + r.height > box.clientHeight) box.scrollTop += top - inset - 16;
   }
   function openConsole(q) {
     if (current.console && view) {
@@ -905,9 +1075,12 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     var len = failedLeaves.length;
     var j = i < 0 ? (dir > 0 ? 0 : len - 1) : (i + dir + len) % len;
     var wasCollapsed = !!document.querySelector(".branch.collapsed");
+    
+    var listWasCollapsed = mode === "list" && !filterActive() && !!document.querySelector(".sl-item.collapsed");
     select({ node: failedLeaves[j].id }, true);
     
     if (wasCollapsed) collapseAll(true);
+    if (listWasCollapsed) listCollapseAll(true);
     $("fail-pos").textContent = (j + 1) + " of " + len + " failed";
   }
   function setupTools() {
@@ -917,10 +1090,15 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       $("fail-prev").addEventListener("click", function () { stepFail(-1); });
       $("fail-next").addEventListener("click", function () { stepFail(1); });
     }
+    if (listItems.size) {
+      $("mode").hidden = false;
+      $("mode-graph").addEventListener("click", function () { setMode("graph", true); });
+      $("mode-list").addEventListener("click", function () { setMode("list", true); });
+    }
     if (!branchEls.size) return;
     $("branch-tools").hidden = false;
-    $("collapse-all").addEventListener("click", function () { collapseAll(true); });
-    $("expand-all").addEventListener("click", function () { collapseAll(false); });
+    $("collapse-all").addEventListener("click", function () { (mode === "list" ? listCollapseAll : collapseAll)(true); });
+    $("expand-all").addEventListener("click", function () { (mode === "list" ? listCollapseAll : collapseAll)(false); });
   }
 
   function fromHash() {
@@ -941,6 +1119,9 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   var LAYOUT_KEY = "jkit.export.layout";
   var KEY_STEP = 32;
   var MIN_PANE = 80;
+  
+  var MIN_LIST_PANE = 144;
+  var relayout = function () {};
   var root = document.documentElement;
   
   function loadLayout() {
@@ -1001,23 +1182,29 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     var saved = loadLayout();
     var wantGraph = saved.graphH > 0 ? saved.graphH : null;
     var wantPct = saved.stepsPct > 0 ? saved.stepsPct : null;
-    function clamp(v, max) { return Math.max(MIN_PANE, Math.min(v, Math.max(MIN_PANE, max))); }
+    function clamp(v, max, min) {
+      min = min || MIN_PANE;
+      return Math.max(min, Math.min(v, Math.max(min, max)));
+    }
+    
+    function graphMin() { return mode === "list" ? MIN_LIST_PANE : MIN_PANE; }
     function graphMax() { return window.innerHeight - 120; }
     function stepsMax() { return panels.clientWidth - 120; }
     function sideBySide() { return getComputedStyle(psep).display !== "none"; }
     function apply() {
-      if (wantGraph) root.style.setProperty("--graph-h", Math.round(clamp(wantGraph, graphMax())) + "px");
+      if (wantGraph) root.style.setProperty("--graph-h", Math.round(clamp(wantGraph, graphMax(), graphMin())) + "px");
       
       
       if (wantPct && sideBySide()) {
         var w = panels.clientWidth;
         root.style.setProperty("--steps-w", (clamp(wantPct / 100 * w, stepsMax()) / w * 100).toFixed(2) + "%");
       }
-      gsep.setAttribute("aria-valuemax", Math.round(Math.max(MIN_PANE, graphMax())));
+      gsep.setAttribute("aria-valuemin", graphMin());
+      gsep.setAttribute("aria-valuemax", Math.round(Math.max(graphMin(), graphMax())));
       psep.setAttribute("aria-valuemax", Math.round(Math.max(MIN_PANE, stepsMax())));
     }
     function setGraph(px) {
-      wantGraph = Math.round(clamp(px, graphMax()));
+      wantGraph = Math.round(clamp(px, graphMax(), graphMin()));
       apply();
       return wantGraph;
     }
@@ -1028,7 +1215,6 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       apply();
       return px;
     }
-    gsep.setAttribute("aria-valuemin", MIN_PANE);
     psep.setAttribute("aria-valuemin", MIN_PANE);
     apply();
     var syncGraph = splitter(gsep, "y", function () { return gs.getBoundingClientRect().height; }, setGraph,
@@ -1037,6 +1223,10 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     var syncSteps = splitter(psep, "x", function () { return steps.getBoundingClientRect().width; }, setSteps,
       function () { wantPct = null; root.style.removeProperty("--steps-w"); },
       function (px) { saveLayout({ stepsPct: px && +(px / panels.clientWidth * 100).toFixed(2) }); });
+    relayout = function () {
+      apply();
+      syncGraph();
+    };
     var pending = 0;
     window.addEventListener("resize", function () {
       if (pending) return;
@@ -1056,12 +1246,16 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
 
   renderHeader();
   renderGraph();
+  renderList();
   setupLayout();
   setupTools();
   
   
   var gs = $("graph-scroll");
   if ($("graph").scrollWidth > 3 * gs.clientWidth) collapseAll(true);
+  
+  var savedMode = loadLayout().mode;
+  if (listItems.size) setMode(savedMode === "list" || savedMode === "graph" ? savedMode : window.innerWidth < 600 ? "list" : "graph", false);
   var initial = fromHash();
   if (!initial.node && !initial.step && !initial.console) {
     var d = nodesById.has(S.failureNodeId) ? nodesById.get(S.failureNodeId).node : defaultNode();
