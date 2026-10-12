@@ -299,9 +299,21 @@ func TestExportHTMLBuildURLUnderContextPathWithoutJenkinsURL(t *testing.T) {
 	host := h.serve(t)
 	t.Setenv("BUILD_URL", host+"/jenkins/job/my-app/5/")
 
+	out, _, _, err := runHTMLExport(t, "export", "html")
+	require.NoError(t, err)
+	assert.Equal(t, "my-app-5.html\n", out)
+	assert.Equal(t, []int{5}, h.requested())
+}
+
+func TestExportHTMLBuildURLUnknownHostNamesJenkinsURLRoot(t *testing.T) {
+	h := &htmlRun{prefix: "/jenkins"}
+	h.serve(t)
+	t.Setenv("BUILD_URL", "http://ci.internal:8080/ci/job/my-app/5/")
+	t.Setenv("JENKINS_URL", "http://ci.internal:8080/ci/")
+
 	_, _, _, err := runHTMLExport(t, "export", "html")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no credentials for")
+	assert.Contains(t, err.Error(), `no credentials for "http://ci.internal:8080/ci"`)
 }
 
 func TestExportHTMLBuildURLWithHost(t *testing.T) {
@@ -317,16 +329,22 @@ func TestExportHTMLBuildURLWithHost(t *testing.T) {
 }
 
 func TestParseBuildURL(t *testing.T) {
-	for _, tc := range []struct{ buildURL, jenkinsURL, host, job string }{
-		{"https://x/jenkins/job/a/1/", "https://x/jenkins/", "https://x/jenkins", "a"},
-		{"https://x/jenkins/job/a/1/", "https://x/jenkins", "https://x/jenkins", "a"},
-		{"https://x/job/job/a/1/", "https://x/job/", "https://x/job", "a"},
-		{"https://x/job/a/1/", "", "https://x", "a"},
-		{"https://x/job/a/1/", "https://other/", "https://x", "a"},
+	for _, tc := range []struct {
+		buildURL, jenkinsURL string
+		hosts                []string
+		host, job            string
+	}{
+		{"https://x/jenkins/job/a/1/", "https://x/jenkins/", nil, "https://x/jenkins", "a"},
+		{"https://x/jenkins/job/a/1/", "https://x/jenkins", nil, "https://x/jenkins", "a"},
+		{"https://x/job/job/a/1/", "https://x/job/", nil, "https://x/job", "a"},
+		{"https://x/job/a/1/", "", nil, "https://x", "a"},
+		{"https://x/job/a/1/", "https://other/", nil, "https://x", "a"},
+		{"https://x/jenkins/job/a/1/", "", []string{"https://x/jenkins/"}, "https://x/jenkins", "a"},
+		{"https://x/jenkins/job/a/1/", "https://x/", []string{"https://x/jenkins"}, "https://x/jenkins", "a"},
 	} {
-		host, parsed, err := parseBuildURL(tc.buildURL, tc.jenkinsURL)
+		parsed, err := parseBuildURL(tc.buildURL, tc.jenkinsURL, tc.hosts)
 		require.NoError(t, err, tc.buildURL)
-		assert.Equal(t, tc.host, host, tc.buildURL)
+		assert.Equal(t, tc.host, parsed.Host, tc.buildURL)
 		assert.Equal(t, tc.job, parsed.JobPath, tc.buildURL)
 		assert.Equal(t, 1, parsed.BuildNumber, tc.buildURL)
 	}

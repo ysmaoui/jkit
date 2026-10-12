@@ -27,6 +27,11 @@ Commands documented below as `[job] [build#]` also take a full Jenkins URL in
 place of the job path. The build number may sit in the URL or follow it as a
 separate argument; passing both with different numbers is an error.
 
+The URL's host is the longest configured host that holds it, so a Jenkins
+served under a context path (`https://x/jenkins/view/all/job/a/12/` with
+`https://x/jenkins` logged in) uses that host's credentials and routes. With no
+configured host holding it, the host is the URL's scheme and host.
+
 ```bash
 jkit status my-app 47
 jkit status https://jenkins.company.com/job/my-app/47/
@@ -1366,7 +1371,7 @@ jkit export html [job] [build#] [-o FILE] [--max-log-bytes N]
 | `-o, --output FILE` | File to write. Default `<job>-<build#>.html` in the current directory, with `/` in the job path written as `_`. `-` writes the page to stdout |
 | `--max-log-bytes N` | Keep at most `N` bytes of each log (plain bytes), half from the head and half from the tail, with a marker line where the middle was cut. `0` (default) keeps every log whole. Shrinks the file, not the download: each log is still read in full |
 
-Defaults to the latest build. With no arguments and `BUILD_URL` set, as inside a Jenkins build, it exports that build; arguments win over `BUILD_URL`. The host is `JENKINS_URL` (also set by Jenkins, and including any context path such as `/jenkins`) when `BUILD_URL` starts with it, else the scheme and host of `BUILD_URL`; `--host` overrides either.
+Defaults to the latest build. With no arguments and `BUILD_URL` set, as inside a Jenkins build, it exports that build; arguments win over `BUILD_URL`. The host is the longest configured host or `JENKINS_URL` (also set by Jenkins, and including any context path such as `/jenkins`) that `BUILD_URL` lies under, else the scheme and host of `BUILD_URL`; `--host` overrides either.
 
 On a running build the file is a snapshot of what exists at call time, and a warning on stderr says so.
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -192,18 +191,23 @@ var exportSignalContext = func() (context.Context, context.CancelFunc) {
 // resolveExportTarget is resolveJobArgs, except that with no args it targets
 // the build that BUILD_URL names: Jenkins sets it inside every build.
 //
-// The host is JENKINS_URL when BUILD_URL starts with it. A Jenkins served
-// under a context path (https://x/jenkins/) has its credentials keyed by that
-// root, which ParseJenkinsURL cannot tell from the job URL: a classic URL may
-// also carry /view/<name>/ before /job/. --host overrides the host either way,
-// for a Jenkins whose own URL differs from the one jkit knows it by.
+// The host is the longest configured host or JENKINS_URL that BUILD_URL lies
+// under, as for a pasted URL. JENKINS_URL still counts when no configured host
+// matches: it names the context path (https://x/jenkins/), so the missing
+// credentials are reported for the root they must be stored under, not for
+// https://x. --host overrides the host either way, for a Jenkins whose own URL
+// differs from the one jkit knows it by.
 func resolveExportTarget(cmd *cobra.Command, args []string) (*api.Client, string, int, error) {
 	buildURL := os.Getenv("BUILD_URL")
 	if len(args) > 0 || buildURL == "" {
 		return resolveJobArgs(cmd, args, false)
 	}
 
-	host, parsed, err := parseBuildURL(buildURL, os.Getenv("JENKINS_URL"))
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, "", 0, err
+	}
+	parsed, err := parseBuildURL(buildURL, os.Getenv("JENKINS_URL"), cfg.HostURLs())
 	if err != nil {
 		return nil, "", 0, err
 	}
@@ -211,36 +215,22 @@ func resolveExportTarget(cmd *cobra.Command, args []string) (*api.Client, string
 	if h, _ := cmd.Flags().GetString("host"); h != "" {
 		return resolveJobArgs(cmd, []string{parsed.JobPath, strconv.Itoa(parsed.BuildNumber)}, false)
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, "", 0, err
-	}
-	client, err := clientFromURL(cfg, host, clientOpts(cmd)...)
+	client, err := clientFromURL(cfg, parsed.Host, clientOpts(cmd)...)
 	if err != nil {
 		return nil, "", 0, err
 	}
 	return client, withBranch(cmd, parsed.JobPath, true), parsed.BuildNumber, nil
 }
 
-// parseBuildURL splits buildURL into its Jenkins root and the job and build it
-// names. The root is jenkinsURL when buildURL lies under it, else the URL's
-// scheme and host.
-func parseBuildURL(buildURL, jenkinsURL string) (string, *appctx.ParsedURL, error) {
-	root := strings.TrimRight(jenkinsURL, "/")
-	if root != "" && strings.HasPrefix(buildURL, root+"/") {
-		if u, err := url.Parse(root); err == nil && u.Host != "" {
-			parsed, err := appctx.ParseJenkinsURL(u.Scheme + "://" + u.Host + strings.TrimPrefix(buildURL, root))
-			if err != nil {
-				return "", nil, fmt.Errorf("BUILD_URL %q: %w", buildURL, err)
-			}
-			return root, parsed, nil
-		}
-	}
-	parsed, err := appctx.ParseJenkinsURL(buildURL)
+// parseBuildURL parses buildURL, taking its Jenkins root from hosts and
+// jenkinsURL.
+func parseBuildURL(buildURL, jenkinsURL string, hosts []string) (*appctx.ParsedURL, error) {
+	roots := append([]string{jenkinsURL}, hosts...)
+	parsed, err := appctx.ParseJenkinsURLUnder(buildURL, roots)
 	if err != nil {
-		return "", nil, fmt.Errorf("BUILD_URL %q: %w", buildURL, err)
+		return nil, fmt.Errorf("BUILD_URL %q: %w", buildURL, err)
 	}
-	return parsed.Host, parsed, nil
+	return parsed, nil
 }
 
 func warnExport(w io.Writer, snap *export.Snapshot, size int64) {

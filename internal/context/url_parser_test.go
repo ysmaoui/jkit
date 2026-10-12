@@ -260,3 +260,40 @@ func TestParseJenkinsURL(t *testing.T) {
 		})
 	}
 }
+
+func TestParseJenkinsURLUnder(t *testing.T) {
+	roots := []string{"https://x", "https://x/jenkins/", "https://y/ci", "jenkins.company.com"}
+	tests := []struct {
+		name      string
+		url       string
+		roots     []string
+		wantHost  string
+		wantJob   string
+		wantBuild int
+	}{
+		{"context path classic", "https://x/jenkins/job/a/job/b/12/", roots, "https://x/jenkins", "a/b", 12},
+		{"context path view", "https://x/jenkins/view/all/job/a/12/console", roots, "https://x/jenkins", "a", 12},
+		{"context path nested views", "https://x/jenkins/view/team/view/nightly/job/a/job/b/3/", roots, "https://x/jenkins", "a/b", 3},
+		{"context path blue ocean", "https://x/jenkins/blue/organizations/jenkins/a%2Fb/detail/main/7/pipeline", roots, "https://x/jenkins", "a/b/main", 7},
+		{"shorter root still matches", "https://x/job/a/5/", roots, "https://x", "a", 5},
+		{"prefix on segment boundary", "https://y/cifoo/job/a/5/", roots, "https://y", "a", 5},
+		{"no matching root", "https://z/jenkins/job/a/5/", roots, "https://z", "a", 5},
+		{"no roots", "https://x/jenkins/job/a/5/", nil, "https://x", "a", 5},
+		{"host case-insensitive", "https://X/jenkins/job/a/5/", roots, "https://x/jenkins", "a", 5},
+		{"root named job", "https://w/job/job/a/5/", []string{"https://w/job/"}, "https://w/job", "a", 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseJenkinsURLUnder(tt.url, tt.roots)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHost, got.Host)
+			assert.Equal(t, tt.wantJob, got.JobPath)
+			assert.Equal(t, tt.wantBuild, got.BuildNumber)
+		})
+	}
+}
+
+func TestParseJenkinsURLUnderBlueOceanWithoutRoot(t *testing.T) {
+	_, err := ParseJenkinsURLUnder("https://x/jenkins/blue/organizations/jenkins/a/activity", nil)
+	assert.Error(t, err)
+}

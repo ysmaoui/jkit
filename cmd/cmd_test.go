@@ -243,6 +243,31 @@ func TestStatusURLTargetBuildNumber(t *testing.T) {
 	}
 }
 
+// A URL pasted from a Jenkins served under a context path takes the configured
+// host holding it, so its credentials apply and its routes keep the prefix.
+func TestStatusURLTargetUnderContextPath(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/jenkins/job/a/job/b/12/api/json" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"number": 12, "result": "SUCCESS", "building": false,
+				"duration": 45000, "timestamp": 1700000000000,
+				"url": "http://jenkins/jenkins/job/a/job/b/12/",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL+"/jenkins")
+
+	out, err := executeCmd(t, "status", srv.URL+"/jenkins/view/all/job/a/job/b/12/")
+	require.NoError(t, err)
+	assert.Contains(t, paths, "/jenkins/job/a/job/b/12/api/json")
+	assert.Contains(t, out, "#12")
+}
+
 func TestStatusURLTargetBadBuildNumber(t *testing.T) {
 	tests := map[string]struct {
 		args    []string
