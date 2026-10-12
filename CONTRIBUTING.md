@@ -45,6 +45,7 @@ cmd/
   diff.go                   # jkit diff
   queue.go                  # jkit queue / jkit queue cancel
   wait.go                   # jkit wait
+  export.go                 # jkit export html
   config.go                 # jkit config list/set-default/remove/set-alias
   completion.go             # jkit completion
   factory.go                # clientFromCmd — creates API client from cobra flags
@@ -63,6 +64,10 @@ internal/
     steplog.go              # StageStepFollower: --stage -f, each step read from its last offset
     progressive.go          # ProgressiveLog: progressiveText followed poll by poll
     consoletail.go          # GetBuildLogTail, ConsoleTailLines: console tail per Stapler version
+  export/
+    export.go               # Collect: run, stage tree, steps and logs into a Snapshot
+    log.go                  # per-log sanitize, head/tail cap, gzip + base64
+    render.go               # Render: Snapshot embedded in template.html
   config/
     config.go               # YAML config load/save, XDG path resolution
   context/

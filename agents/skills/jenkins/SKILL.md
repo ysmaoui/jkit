@@ -162,6 +162,11 @@ jkit inspect my-job --history --show-system   # include automated re-index write
 jkit inspect my-job --diff          # what the last config change actually did
 jkit inspect my-job --diff --diff-from 2026-07-24_13-06-30 --diff-to 2026-08-27_14-58-13
 
+# Save a run as one offline HTML file (stages, steps, every log); needs Pipeline Graph View
+jkit export html my-job 42          # writes my-job-42.html, prints the path
+jkit export html                    # inside a pipeline: this build; steps of the running build show unfinished
+jkit export html my-job 42 --max-log-bytes 20000000   # shrink huge logs (file only, download stays full)
+
 # Trigger build (omitted params take their defaults)
 jkit run my-job -p KEY=VAL --wait --log
 jkit run team/svc --branch main     # multibranch: without --branch, run starts a branch scan instead

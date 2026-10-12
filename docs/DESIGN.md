@@ -50,7 +50,8 @@ jkit/
 │   ├── input.go               # jkit input (list / --approve / --deny)
 │   ├── queue.go               # jkit queue
 │   ├── list.go                # jkit list [--folder]
-│   └── artifacts.go           # jkit artifacts <job> [build#]
+│   ├── artifacts.go           # jkit artifacts <job> [build#]
+│   └── export.go              # jkit export html [job] [build#] [-o FILE] [--max-log-bytes N]
 ├── internal/
 │   ├── api/
 │   │   ├── client.go          # Jenkins HTTP client (auth, retries, error handling)
@@ -67,6 +68,11 @@ jkit/
 │   ├── context/
 │   │   ├── resolver.go        # Git repo → Jenkins job resolution
 │   │   └── resolver_test.go
+│   ├── export/
+│   │   ├── export.go          # Collect: build, PGV stage tree, steps and logs into a Snapshot
+│   │   ├── log.go             # Per-log sanitize, head/tail cap, gzip + base64
+│   │   ├── render.go          # Render: Snapshot JSON embedded in the HTML page
+│   │   └── template.html      # Page markup, CSS and JS (no external requests)
 │   ├── output/
 │   │   ├── formatter.go       # Table, JSON, and template output
 │   │   ├── color.go           # Terminal color utilities
@@ -348,6 +354,18 @@ gives explicit `PARALLEL_BLOCK` typing for nested parallel stages — no
 client-side heuristics. On instances with neither plugin available,
 pipeline-detail commands degrade gracefully (basic build info still works via
 the classic `/api/json` endpoints).
+
+**`export html` is one file with the data inside it.** `Collect` reads the PGV
+stage tree, `stages/allSteps` and each step's `stages/log`, and `Render` embeds the
+resulting snapshot as a JSON block in a single HTML page. Each log is sanitized,
+optionally capped, gzipped and base64-encoded, and the page decodes it on demand
+with `DecompressionStream`, so a 200 MB log does not become a 200 MB DOM string up
+front. The page makes no network request and the export needs PGV only; there is
+no Blue Ocean fallback. The full console is stored as well, because
+`allSteps` omits steps outside any stage and block steps such as `node` and
+`catchError`, so their output exists nowhere else. Peak memory is about 5 times
+the file size: logs are already gzip and base64 in the snapshot, and `json.Encoder`
+buffers the full JSON on top of it.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its
@@ -831,7 +849,7 @@ thing. Getting this wrong scales with every elevated command added.
 - Jenkinsfile generation or scaffolding (beyond linting)
 - Job definition writes (create/update `config.xml`) — use jobDSL instead
 - Pipeline replay and anything requiring rights beyond a normal build user
-- Visual/TUI dashboard (keep it CLI-first, not a terminal UI app)
+- Visual/TUI dashboard (keep it CLI-first, not a terminal UI app). `jkit export html` is not this: it writes one static file, runs no server and no TUI, and the viewer is the user's browser.
 - Plugin system for `jkit` itself (premature — revisit after v1.0)
 - Groovy script execution
 - Credential management within Jenkins
