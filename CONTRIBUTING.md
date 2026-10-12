@@ -76,6 +76,7 @@ internal/
   export/
     export.go               # Collect: a run's PGV stage tree, steps, step logs and console as one Snapshot
     log.go                  # Log encoding: sanitize line-wise, head/tail cap, gzip, base64
+    render.go               # Render: Snapshot as one offline HTML page (template.html, embedded)
   output/
     formatter.go            # Table, JSON, Go template output
     color.go                # ANSI color for build statuses
