@@ -69,6 +69,10 @@ section { margin-top: 1rem; }
   position: relative; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: .75rem;
   height: var(--graph-h, auto); max-height: var(--graph-h, 18rem);
 }
+ 
+.gwrap { position: relative; }
+.gmore { position: absolute; top: .5rem; z-index: 3; font-size: .8rem; padding: .15rem .5rem; box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+#graph-left { left: .5rem; }
 .tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .tools > span { display: inline-flex; gap: .25rem; align-items: center; }
 .failnav { color: var(--err-fg); }
@@ -258,11 +262,12 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
         <button type="button" id="expand-all">Expand branches</button></span>
       <button type="button" id="console-btn" aria-pressed="false">Full console log</button>
     </div></div>
+    <div class="gwrap"><button type="button" id="graph-left" class="gmore" hidden></button><button type="button" id="graph-right" class="gmore" hidden></button>
     <div class="graph-scroll" id="graph-scroll"><div id="graph" class="graph"></div>
       <div id="stage-list" hidden><div id="sl-tools" class="sl-tools">
         <input type="search" id="sl-filter" placeholder="Filter stages" aria-label="Filter stages">
         <label><input type="checkbox" id="sl-failed"> Failed only</label></div>
-        <ul id="sl-tree" class="sl-tree"></ul><p id="sl-empty" class="hint" aria-live="polite"></p></div></div>
+        <ul id="sl-tree" class="sl-tree"></ul><p id="sl-empty" class="hint" aria-live="polite"></p></div></div></div>
   </section>
   <div id="graph-split" class="splitter h" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="graph-scroll"
     aria-label="Resize stages pane" title="Resize stages pane (drag or arrow keys; double-click resets)"></div>
@@ -1275,6 +1280,39 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   
   var gs = $("graph-scroll");
   if ($("graph").scrollWidth > 3 * gs.clientWidth) collapseAll(true);
+  
+  function markOverflow() {
+    var g = gs.getBoundingClientRect(), lo = g.left + gs.clientLeft, hi = lo + gs.clientWidth, before = 0, after = 0;
+    if (mode === "graph") document.querySelectorAll("#graph > .stage > .node").forEach(function (n) {
+      var r = n.getBoundingClientRect();
+      if (r.left < lo - 1) before++;
+      else if (r.right > hi + 1) after++;
+    });
+    var l = $("graph-left"), rt = $("graph-right"), had = document.activeElement;
+    l.hidden = mode !== "graph" || gs.scrollLeft <= 2;
+    rt.hidden = mode !== "graph" || gs.scrollLeft + gs.clientWidth >= gs.scrollWidth - 2;
+    
+    rt.style.right = (gs.offsetWidth - gs.clientWidth - gs.clientLeft + 8) + "px";
+    l.textContent = "← " + (before ? before + " more" : "More");
+    rt.textContent = (after ? after + " more" : "More") + " →";
+    
+    function name(n, dir) { return (n ? n + " more stage" + (n > 1 ? "s" : "") : "More stages") + ", scroll " + dir; }
+    l.setAttribute("aria-label", name(before, "left"));
+    rt.setAttribute("aria-label", name(after, "right"));
+    
+    if (rt.hidden && had === rt && !l.hidden) l.focus();
+    if (l.hidden && had === l && !rt.hidden) rt.focus();
+  }
+  $("graph-left").addEventListener("click", function () { gs.scrollBy({ left: -gs.clientWidth * .8, behavior: "smooth" }); });
+  $("graph-right").addEventListener("click", function () { gs.scrollBy({ left: gs.clientWidth * .8, behavior: "smooth" }); });
+  gs.addEventListener("scroll", markOverflow, { passive: true });
+  
+  if (window.ResizeObserver) {
+    var ro = new ResizeObserver(markOverflow);
+    ro.observe(gs);
+    ro.observe($("graph"));
+  }
+  markOverflow();
   
   var savedMode = loadLayout().mode;
   if (listItems.size) setMode(savedMode === "list" || savedMode === "graph" ? savedMode : window.innerWidth < 600 ? "list" : "graph", false);
