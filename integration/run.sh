@@ -217,6 +217,21 @@ assert_success "fetch PGV allSteps of export-pipeline 1" \
 assert_success "finished export holds every stage, step and log" \
     go -C "$PROJECT_DIR" run ./integration/exportcheck finished "$WORK_DIR/export.html" "$WORK_DIR/allSteps.json"
 
+assert_success "run console-pipeline --wait" \
+    "$JK" run console-pipeline --wait
+
+# Both log sources give the same page. The console export must not have
+# fallen back to steps, or the comparison proves nothing.
+for job in export-pipeline console-pipeline; do
+    assert_success "export html $job 1 from the annotated console, no fallback" \
+        sh -c '"$1" export html "$2" 1 --log-source=console -o "$3" 2>"$3.err" && grep -q "reading step logs from the annotated console" "$3.err" && ! grep -q unusable "$3.err"' \
+        _ "$JK" "$job" "$WORK_DIR/$job-console.html"
+    assert_success "export html $job 1 step by step" \
+        "$JK" export html "$job" 1 --log-source=steps -o "$WORK_DIR/$job-steps.html"
+    assert_success "$job: same step logs and console from both log sources" \
+        go -C "$PROJECT_DIR" run ./integration/exportcheck same "$WORK_DIR/$job-console.html" "$WORK_DIR/$job-steps.html"
+done
+
 assert_success "download in-pipeline snapshot artifact" \
     "$JK" artifacts export-pipeline 1 -d snapshot.html -o "$WORK_DIR/snapshot.html"
 

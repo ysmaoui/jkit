@@ -395,6 +395,22 @@ func TestExportHTMLConcurrency(t *testing.T) {
 	}
 }
 
+func TestExportHTMLLogSource(t *testing.T) {
+	h := &htmlRun{}
+	h.serve(t)
+	_, stderr, _, err := runHTMLExport(t, "export", "html", "my-app", "7", "--log-source", "steps")
+	require.NoError(t, err)
+	assert.NotContains(t, stderr, "annotated console")
+
+	_, stderr, _, err = runHTMLExport(t, "export", "html", "my-app", "7", "--log-source", "console")
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "annotated console unusable, reading step logs one by one: ")
+
+	_, _, _, err = runHTMLExport(t, "export", "html", "my-app", "7", "--log-source", "bogus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--log-source")
+}
+
 func TestExportHTMLDefaultTimeout(t *testing.T) {
 	old := exportTimeout
 	exportTimeout = 100 * time.Millisecond

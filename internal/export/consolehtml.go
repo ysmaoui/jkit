@@ -2,9 +2,16 @@ package export
 
 import (
 	"bytes"
+	"cmp"
+	"context"
 	"errors"
+	"fmt"
 	"html"
+	"io"
 	"strings"
+	"sync"
+
+	"github.com/ysmaoui/jkit/internal/api"
 )
 
 // errNoNodeSpans means the annotated console had no pipeline-node span, as
@@ -298,4 +305,140 @@ func attr(attrs, name string) string {
 		}
 	}
 	return ""
+}
+
+// collectFromConsole fills the step logs from one annotated-console download
+// while the plain console downloads beside it. When that download cannot
+// give every step's log, Notice says why and the steps are read one by one.
+func collectFromConsole(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, snap *Snapshot) error {
+	consoleSpool, err := newSpool(opts.SpoolDir)
+	if err != nil {
+		return err
+	}
+	workers := snap.spools
+	snap.spools = append(snap.spools, consoleSpool)
+
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		mu    sync.Mutex
+		fatal error
+	)
+	fail := func(err error) {
+		mu.Lock()
+		fatal = cmp.Or(fatal, err)
+		mu.Unlock()
+		cancel()
+	}
+
+	if opts.Progress != nil {
+		opts.Progress(0, 0, nil, nil)
+	}
+	consoleDone := make(chan struct{})
+	go func() {
+		defer close(consoleDone)
+		if err := readConsole(workCtx, client, jobPath, number, opts.MaxLogBytes, consoleSpool, snap); err != nil {
+			fail(err)
+		}
+	}()
+
+	notice(opts, "reading step logs from the annotated console")
+	err = stepLogsFromConsole(workCtx, client, jobPath, number, opts, workers[0], snap.Stages)
+	var fb *fallbackError
+	if errors.As(err, &fb) {
+		notice(opts, fmt.Sprintf("annotated console unusable, reading step logs one by one: %v", fb.err))
+		err = fillStepLogs(workCtx, client, jobPath, number, opts, workers, snap.Stages)
+	}
+	if err != nil {
+		fail(err)
+	}
+	<-consoleDone
+	return cmp.Or(fatal, ctx.Err())
+}
+
+func notice(opts Options, msg string) {
+	if opts.Notice != nil {
+		opts.Notice(msg)
+	}
+}
+
+// fallbackError is why the annotated console cannot give the step logs.
+type fallbackError struct{ err error }
+
+func (e *fallbackError) Error() string { return e.err.Error() }
+
+// textRun is n bytes of one node's text at off in the raw spool.
+type textRun struct{ off, n int64 }
+
+// stepLogsFromConsole downloads the annotated console and encodes each step's
+// log onto sp. The split text waits in a raw spool file, with only where
+// each step's runs lie held in memory, because parallel branches interleave
+// and a step's log is whole only once the download ends. Steps without
+// output get an empty log and no request.
+func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, nodes []Node) error {
+	raw, err := newSpool(opts.SpoolDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = raw.close() }()
+
+	runs := map[string][]textRun{}
+	walk(nodes, func(n *Node) {
+		for _, s := range n.Steps {
+			runs[s.ID] = nil
+		}
+	})
+	split := newConsoleSplitter(func(node string, text []byte) error {
+		rs, ok := runs[node]
+		if !ok {
+			return nil
+		}
+		if l := len(rs); l > 0 && rs[l-1].off+rs[l-1].n == raw.size {
+			rs[l-1].n += int64(len(text))
+		} else {
+			rs = append(rs, textRun{raw.size, int64(len(text))})
+		}
+		runs[node] = rs
+		_, _ = raw.Write(text)
+		return nil
+	})
+	_, partial, err := client.CopyConsoleHTML(ctx, jobPath, number, split)
+	if err == nil {
+		err = split.Close()
+	}
+	switch {
+	case err != nil && stopsExport(ctx, err):
+		return err
+	case err != nil:
+		return &fallbackError{withTimeoutHint(err)}
+	case partial:
+		return &fallbackError{errors.New("the console of a running build may stop short")}
+	}
+	if err := raw.flush(); err != nil {
+		return fmt.Errorf("%w: %w\n%s", errSpool, err, spoolHint)
+	}
+
+	var steps []*Step
+	walk(nodes, func(n *Node) {
+		for i := range n.Steps {
+			steps = append(steps, &n.Steps[i])
+		}
+	})
+	for _, s := range steps {
+		s.Log, err = encodeLog(sp, opts.MaxLogBytes, func(w io.Writer) error {
+			for _, r := range runs[s.ID] {
+				if _, err := io.Copy(w, io.NewSectionReader(raw.f, r.off, r.n)); err != nil {
+					return fmt.Errorf("%w: reading back: %w", errSpool, err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if err := fillException(ctx, client, jobPath, number, s); err != nil {
+			return err
+		}
+	}
+	return nil
 }

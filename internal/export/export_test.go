@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -47,6 +49,12 @@ type fakeRun struct {
 	failException map[string]int
 	// delay holds a step log's response back this long.
 	delay map[string]time.Duration
+	// consoleHTML is the progressiveHtml body, which 404s when empty.
+	// consoleHTMLMore sets X-More-Data, as for a running build.
+	consoleHTML     string
+	consoleHTMLMore bool
+	// htmlHits and stepLogHits count requests to those routes.
+	htmlHits, stepLogHits atomic.Int32
 }
 
 func loadRun(t *testing.T, phase, kind string) *fakeRun {
@@ -114,12 +122,29 @@ func (f *fakeRun) serve(t *testing.T, opts ...api.ClientOption) *api.Client {
 			w.WriteHeader(f.failLog["console"])
 		case p == prefix+"consoleText":
 			staplertest.ConsoleText(w, f.console)
+		case p == prefix+"logText/progressiveHtml":
+			f.htmlHits.Add(1)
+			switch {
+			case f.stall["html"]:
+				stallBody(w, r)
+			case f.failLog["html"] != 0:
+				w.WriteHeader(f.failLog["html"])
+			case f.consoleHTML == "":
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				w.Header().Set("X-Text-Size", strconv.Itoa(len(f.consoleHTML)))
+				if f.consoleHTMLMore {
+					w.Header().Set("X-More-Data", "true")
+				}
+				_, _ = io.WriteString(w, f.consoleHTML)
+			}
 		case strings.HasPrefix(p, prefix+"execution/node/"):
 			id, rest, _ := strings.Cut(strings.TrimPrefix(p, prefix+"execution/node/"), "/")
 			if rest == "" {
 				_, _ = io.WriteString(w, "<html>flow node</html>")
 				return
 			}
+			f.stepLogHits.Add(1)
 			if d := f.delay[id]; d > 0 {
 				select {
 				case <-r.Context().Done():

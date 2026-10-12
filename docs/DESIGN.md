@@ -384,6 +384,15 @@ Step logs download in a bounded pool (`--concurrency`, default 4, at most 8),
 since export time is per-request latency. Each worker owns one spool file, so
 no lock guards the writes; the console goes to the first after the pool ends.
 Progress lines follow step order, and the first fatal error cancels the rest.
+A finished run skips that pool: one `progressiveHtml` download is split into
+per-node text, while `consoleText` downloads beside it. The console is not
+derived from the annotated one, since nothing proves the two sanitize to the
+same bytes. Parallel branches interleave, so the split step text goes to an
+unlinked raw file and memory holds only each step's offset runs; each step is
+encoded from there once the download ends. No node span, a failed or timed-out
+download, or a partial answer falls back to the pool, with the reason on
+stderr. A running run always uses the pool: its annotated console can stop at
+the line cap or, on 2.527+, end mid-line.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its

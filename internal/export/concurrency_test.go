@@ -19,7 +19,7 @@ import (
 func scriptedRun(t *testing.T) *fakeRun {
 	t.Helper()
 	run := loadRun(t, "done", "scripted")
-	ids := []string{"8", "9", "14", "21", "24", "35", "42", "46", "36", "41", "53"}
+	ids := scriptedIDs
 	for i, id := range ids {
 		run.stepLogs[id] = strings.Repeat(fmt.Sprintf("out of step %s\n", id), 100*(i+1))
 		run.delay[id] = time.Duration(len(ids)-i) * 5 * time.Millisecond
@@ -51,7 +51,7 @@ func TestCollectConcurrentProgressInStepOrder(t *testing.T) {
 	run := scriptedRun(t)
 	var got, want []string
 	var seen []int
-	snap, err := collect(t, run.serve(t), run.job, Options{Concurrency: 4, Progress: func(i, total int, n *Node, s *Step) {
+	snap, err := collect(t, run.serve(t), run.job, Options{Concurrency: 4, LogSource: LogSourceSteps, Progress: func(i, total int, n *Node, s *Step) {
 		if s == nil {
 			got = append(got, "console")
 			return
@@ -140,7 +140,7 @@ func TestCollectConcurrentStopsOnCancel(t *testing.T) {
 func TestCollectConcurrentCloseRemovesEverySpool(t *testing.T) {
 	run := scriptedRun(t)
 	dir := t.TempDir()
-	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{Concurrency: 4, SpoolDir: dir})
+	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{Concurrency: 4, SpoolDir: dir, LogSource: LogSourceSteps})
 	require.NoError(t, err)
 	assert.Equal(t, 4, openSpools(t, dir))
 	require.NoError(t, snap.Close())

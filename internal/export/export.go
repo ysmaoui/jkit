@@ -120,7 +120,27 @@ type Options struct {
 	// Concurrency is how many step logs are read at once, 1 when below 1.
 	// Each reader writes its own spool file.
 	Concurrency int
+	// LogSource picks where step logs come from.
+	LogSource LogSource
+	// Notice, when set, gets one line naming the log source read, or why the
+	// annotated console was given up.
+	Notice func(msg string)
 }
+
+// LogSource is where Collect reads step logs from.
+type LogSource string
+
+const (
+	// LogSourceAuto is LogSourceConsole for a finished run, else
+	// LogSourceSteps: a running run's annotated console can stop short, or
+	// on newer Jenkins end mid-line.
+	LogSourceAuto LogSource = ""
+	// LogSourceConsole splits one annotated-console download into step
+	// logs, and falls back to LogSourceSteps when it cannot.
+	LogSourceConsole LogSource = "console"
+	// LogSourceSteps reads each step's log on its own, Concurrency at once.
+	LogSourceSteps LogSource = "steps"
+)
 
 // timeoutHint is added to a log read that timed out: one log is one HTTP
 // response, and the client timeout covers reading its body.
@@ -182,19 +202,37 @@ func (s *Snapshot) Close() error {
 }
 
 func collectLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, snap *Snapshot) error {
+	src := opts.LogSource
+	if src == LogSourceAuto {
+		src = LogSourceSteps
+		if snap.Complete {
+			src = LogSourceConsole
+		}
+	}
+	if src == LogSourceConsole {
+		return collectFromConsole(ctx, client, jobPath, number, opts, snap)
+	}
 	if err := fillStepLogs(ctx, client, jobPath, number, opts, snap.spools, snap.Stages); err != nil {
 		return err
 	}
-
 	if opts.Progress != nil {
 		opts.Progress(0, 0, nil, nil)
 	}
+	return readConsole(ctx, client, jobPath, number, opts.MaxLogBytes, snap.spools[0], snap)
+}
+
+// readConsole reads the plain console into snap.Console on sp. Only an error
+// that stops the export is returned.
+func readConsole(ctx context.Context, client *api.Client, jobPath string, number int, maxBytes int64, sp *spool, snap *Snapshot) error {
 	var err error
-	snap.Console, err = encodeLog(snap.spools[0], opts.MaxLogBytes, func(w io.Writer) error {
+	snap.Console, err = encodeLog(sp, maxBytes, func(w io.Writer) error {
 		body, err := client.OpenConsoleText(jobPath, number)
 		if err != nil {
 			return err
 		}
+		// OpenConsoleText takes no context, so a cancel closes the body.
+		stop := context.AfterFunc(ctx, func() { _ = body.Close() })
+		defer stop()
 		defer func() { _ = body.Close() }()
 		if _, err := io.Copy(w, body); err != nil {
 			return fmt.Errorf("reading console: %w", err)
@@ -384,7 +422,12 @@ func fillStep(ctx context.Context, client *api.Client, jobPath string, number in
 		s.Error = withTimeoutHint(err).Error()
 		s.Log.Partial = true
 	}
+	return fillException(ctx, client, jobPath, number, s)
+}
 
+// fillException reads the exception text of a failed or aborted step, the
+// only states that carry one.
+func fillException(ctx context.Context, client *api.Client, jobPath string, number int, s *Step) error {
 	if s.State != "FAILURE" && s.State != "ABORTED" {
 		return nil
 	}

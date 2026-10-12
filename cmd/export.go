@@ -71,6 +71,21 @@ func registerExportHTMLFlags(c *cobra.Command) {
 	c.Flags().StringP("output", "o", "", "File to write (default <job>-<build#>.html in the current directory, / in the job path as _); - for stdout")
 	c.Flags().Int64("max-log-bytes", 0, "Keep at most this many bytes of each log, half from the head and half from the tail (plain bytes, 0 = no limit). Shrinks the file, not the download")
 	c.Flags().Int("concurrency", defaultExportConcurrency, fmt.Sprintf("Step logs to download at once, 1 to %d", maxExportConcurrency))
+	// Hidden: for comparing the two sources, not for daily use.
+	c.Flags().String("log-source", "auto", "Where step logs come from: auto, console (the annotated console) or steps (one request per step)")
+	_ = c.Flags().MarkHidden("log-source")
+}
+
+func exportLogSource(s string) (export.LogSource, error) {
+	switch s {
+	case "auto":
+		return export.LogSourceAuto, nil
+	case "console":
+		return export.LogSourceConsole, nil
+	case "steps":
+		return export.LogSourceSteps, nil
+	}
+	return "", fmt.Errorf("--log-source must be auto, console or steps, got %q", s)
 }
 
 // Export time is mostly per-request latency. On a 3142-step build 8 readers
@@ -99,6 +114,11 @@ func runExportHTML(cmd *cobra.Command, args []string) error {
 	isJSON, _ := cmd.Flags().GetBool("json")
 	if maxLog < 0 {
 		return fmt.Errorf("--max-log-bytes must be 0 or more, got %d", maxLog)
+	}
+	sourceFlag, _ := cmd.Flags().GetString("log-source")
+	logSource, err := exportLogSource(sourceFlag)
+	if err != nil {
+		return err
 	}
 	tmpl, _ := cmd.Flags().GetString("format")
 	if dest == "-" && (isJSON || tmpl != "") {
@@ -160,6 +180,8 @@ func runExportHTML(cmd *cobra.Command, args []string) error {
 		Progress:    progress,
 		SpoolDir:    spoolDir,
 		Concurrency: exportConcurrency(concurrency),
+		LogSource:   logSource,
+		Notice:      func(msg string) { _, _ = fmt.Fprintln(os.Stderr, msg) },
 	})
 	if snap != nil {
 		defer func() { _ = snap.Close() }()
