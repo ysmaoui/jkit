@@ -31,7 +31,7 @@ func mustLog(t *testing.T, maxBytes int64, text string) Log {
 // renderFixture covers every shape the page draws: a parallel stage whose
 // branch nests stages, failed and error steps with exception text, a
 // synthetic Post Actions, an UNLISTED stand-in, a running step with a partial
-// log, a cut log, a step read error and a step name that tries to end the
+// log, a cut log, a step read error, a console read error and a step name that tries to end the
 // data block.
 func renderFixture(t *testing.T) *Snapshot {
 	t.Helper()
@@ -44,6 +44,8 @@ func renderFixture(t *testing.T) *Snapshot {
 	}
 	running := mustLog(t, 0, "starting integration run\nwaiting for service\n")
 	running.Partial = true
+	console := mustLog(t, 0, "Started by user admin\n[Pipeline] Start of Pipeline\nwarning: caught by catchError\n")
+	console.Partial = true
 	return &Snapshot{
 		Job:              "team/app/main",
 		Number:           42,
@@ -79,7 +81,8 @@ func renderFixture(t *testing.T) *Snapshot {
 				{ID: "61", Name: "cleanup", State: "SUCCESS", StartTimeMillis: t0 + 94_000, DurationMillis: 10, Log: mustLog(t, 0, "cleaned\n")},
 			}},
 		},
-		Console: mustLog(t, 0, "Started by user admin\n[Pipeline] Start of Pipeline\nwarning: caught by catchError\n"),
+		Console:      console,
+		ConsoleError: "reading console: context deadline exceeded; raise it with --timeout",
 	}
 }
 
@@ -139,4 +142,15 @@ func TestRenderHandlesUnparsableSnapshot(t *testing.T) {
 	assert.Contains(t, got, "could not be read by the browser")
 	assert.Contains(t, got, "--max-log-bytes")
 	assert.Contains(t, got, "S.consoleError")
+}
+
+func TestRenderEmbedsConsoleError(t *testing.T) {
+	s := renderFixture(t)
+	m := snapshotBlock.FindStringSubmatch(renderString(t, s))
+	require.NotNil(t, m)
+	var back Snapshot
+	require.NoError(t, json.Unmarshal([]byte(m[1]), &back))
+	assert.NotEmpty(t, s.ConsoleError)
+	assert.Equal(t, s.ConsoleError, back.ConsoleError)
+	assert.True(t, back.Console.Partial)
 }

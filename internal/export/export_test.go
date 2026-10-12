@@ -300,6 +300,7 @@ func TestCollectRecordsStepLogFailure(t *testing.T) {
 	snap, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
 	require.NoError(t, err)
 	assert.Contains(t, find(snap.Stages, "6").Steps[0].Error, "500")
+	assert.True(t, find(snap.Stages, "6").Steps[0].Log.Partial, "a failed read marks the log partial")
 	assert.Equal(t, "pa\n", decode(t, find(snap.Stages, "23").Steps[0].Log))
 }
 

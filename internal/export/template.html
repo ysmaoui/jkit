@@ -671,7 +671,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       info.append(save);
     }
     if (log.cutBytes > 0) info.append(el("span", null, log.cutBytes.toLocaleString() + " bytes cut by --max-log-bytes; a marker line shows where"));
-    if (log.partial) info.append(el("span", null, "the log may stop short of what the step wrote"));
+    if (log.partial) info.append(el("span", null, step ? "the log may stop short of what the step wrote" : "the console log may stop short"));
     var extra = [];
     if (step && step.error) extra.push(el("p", "err", step.error));
     if (!step && S.consoleError) extra.push(el("p", "err", S.consoleError));

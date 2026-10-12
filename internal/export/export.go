@@ -91,9 +91,9 @@ type Log struct {
 	// CutBytes is how much a MaxLogBytes cap dropped from the middle, where a
 	// marker line stands in for it.
 	CutBytes int64 `json:"cutBytes"`
-	// Partial means the log may stop short of what the step had written: on
-	// Jenkins 2.509 to 2.533 a running step's log is read only to the
-	// 10000-line cap.
+	// Partial means the log may stop short of what the source had written: a
+	// read error cut it short, or, on Jenkins 2.509 to 2.533, a running
+	// step's log is read only to the 10000-line cap.
 	Partial bool `json:"partial"`
 }
 
@@ -282,6 +282,7 @@ func fillStep(ctx context.Context, client *api.Client, jobPath string, number in
 			return withTimeoutHint(err)
 		}
 		s.Error = withTimeoutHint(err).Error()
+		s.Log.Partial = true
 	}
 
 	if s.State != "FAILURE" && s.State != "ABORTED" {
