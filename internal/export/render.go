@@ -12,8 +12,10 @@ import (
 var templateHTML string
 
 // page holds the two halves of template.html. The snapshot JSON goes between
-// them, written straight to the output: logs can total tens of MB, too much
-// to buffer for a template value. Each half ends in HTML text context, which
+// them, kept out of the template: logs can total tens of MB, too much to pass
+// through html/template as a value. json.Encoder marshals the whole snapshot
+// into one buffer before writing, so peak memory is about the JSON size on top
+// of the snapshot itself. Each half ends in HTML text context, which
 // html/template requires, so the data block's tags are written here.
 var page = template.Must(template.New("page").Parse(templateHTML))
 

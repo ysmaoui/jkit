@@ -36,6 +36,10 @@ type Snapshot struct {
 	// steps outside any stage and of block steps such as node, which the step
 	// listing leaves out.
 	Console Log `json:"console"`
+	// ConsoleError is why the console could not be read in full. Console then
+	// holds what arrived, marked Partial. It sits here rather than on Log
+	// because Step.Error is the same kind of note and Log is only text.
+	ConsoleError string `json:"consoleError"`
 }
 
 // Node is a stage or parallel branch. A parallel wrapper is a STAGE whose
@@ -148,7 +152,12 @@ func Collect(ctx context.Context, client *api.Client, jobPath string, number int
 		return nil
 	})
 	if err != nil {
-		return nil, withTimeoutHint(err)
+		err = withTimeoutHint(err)
+		if stopsExport(ctx, err) {
+			return nil, err
+		}
+		snap.Console.Partial = true
+		snap.ConsoleError = err.Error()
 	}
 	return snap, nil
 }

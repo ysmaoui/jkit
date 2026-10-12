@@ -133,3 +133,10 @@ func TestRenderEmbedsSnapshotSafely(t *testing.T) {
 	assert.Equal(t, s.Job, back.Job)
 	assert.Equal(t, *s, back)
 }
+
+func TestRenderHandlesUnparsableSnapshot(t *testing.T) {
+	got := renderString(t, renderFixture(t))
+	assert.Contains(t, got, "could not be read by the browser")
+	assert.Contains(t, got, "--max-log-bytes")
+	assert.Contains(t, got, "S.consoleError")
+}

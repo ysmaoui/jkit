@@ -213,7 +213,15 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
 
   var dataEl = $("snapshot");
-  var S = JSON.parse(dataEl.textContent);
+  var S;
+  try {
+    S = JSON.parse(dataEl.textContent);
+  } catch (e) {
+    // Chromium fails near 500 MB with "Unexpected end of JSON input"; Firefox
+    // may show an empty shell. Either way the page would be blank.
+    document.body.replaceChildren(el("p", "err", "This export could not be read by the browser. It may be too large (over about 500 MB); re-export with --max-log-bytes. (" + e.message + ")"));
+    return;
+  }
   // The parsed copy is all that is needed; drop the raw text, it can be tens of MB.
   dataEl.textContent = "";
 
@@ -666,6 +674,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     if (log.partial) info.append(el("span", null, "the log may stop short of what the step wrote"));
     var extra = [];
     if (step && step.error) extra.push(el("p", "err", step.error));
+    if (!step && S.consoleError) extra.push(el("p", "err", S.consoleError));
     if (step && step.exception) extra.push(el("pre", "exc", step.exception));
     extra.forEach(function (x) { info.append(x); });
     if (!log.gzipBase64) {

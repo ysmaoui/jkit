@@ -107,6 +107,8 @@ func (f *fakeRun) serve(t *testing.T, opts ...api.ClientOption) *api.Client {
 			_, _ = io.WriteString(w, f.exceptions[r.URL.Query().Get("nodeId")])
 		case p == prefix+"consoleText" && f.stall["console"]:
 			stallBody(w, r)
+		case p == prefix+"consoleText" && f.failLog["console"] != 0:
+			w.WriteHeader(f.failLog["console"])
 		case p == prefix+"consoleText":
 			staplertest.ConsoleText(w, f.console)
 		case strings.HasPrefix(p, prefix+"execution/node/"):
@@ -310,13 +312,26 @@ func TestCollectStopsOnAuthFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "auth login")
 }
 
+func TestCollectStopsOnConsoleAuthFailure(t *testing.T) {
+	run := loadRun(t, "done", "declarative")
+	run.failLog["console"] = http.StatusUnauthorized
+
+	_, err := Collect(context.Background(), run.serve(t), run.job, 1, Options{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "auth login")
+}
+
 func TestCollectTimeoutSaysRaiseTimeout(t *testing.T) {
-	t.Run("console fails the export", func(t *testing.T) {
+	t.Run("console is recorded", func(t *testing.T) {
 		run := loadRun(t, "done", "declarative")
 		run.stall["console"] = true
-		_, err := Collect(context.Background(), run.serve(t, api.WithTimeout(300*time.Millisecond)), run.job, 1, Options{})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "raise it with --timeout")
+		run.stepLogs["51"] = "kept\n"
+		snap, err := Collect(context.Background(), run.serve(t, api.WithTimeout(300*time.Millisecond)), run.job, 1, Options{})
+		require.NoError(t, err)
+		assert.Contains(t, snap.ConsoleError, "raise it with --timeout")
+		assert.True(t, snap.Console.Partial)
+		assert.Equal(t, "first line\n", decode(t, snap.Console), "what arrived is kept")
+		assert.Equal(t, "kept\n", decode(t, find(snap.Stages, "50").Steps[0].Log), "step logs survive")
 	})
 	t.Run("step log is recorded", func(t *testing.T) {
 		run := loadRun(t, "done", "declarative")
