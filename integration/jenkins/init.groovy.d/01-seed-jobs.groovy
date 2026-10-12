@@ -50,5 +50,78 @@ def envParam = new hudson.model.StringParameterDefinition('ENV', 'dev', 'Environ
 paramJob.addProperty(new hudson.model.ParametersDefinitionProperty(branchParam, envParam))
 paramJob.buildersList.add(new hudson.tasks.Shell('echo "BRANCH=$BRANCH ENV=$ENV"'))
 
+// 5. export-pipeline: the shapes `jkit export html` renders. Snapshot exports
+// this same run from inside it while After is still pending; run.sh copies
+// the jkit binary into the container before the first build.
+def exportPipeline = jenkins.createProject(WorkflowJob, 'export-pipeline')
+exportPipeline.setDefinition(new CpsFlowDefinition('''\
+pipeline {
+    agent any
+    stages {
+        stage('Build') {
+            steps {
+                echo 'Building...'
+                sh 'echo build-output'
+            }
+        }
+        stage('Long Log') {
+            steps {
+                sh 'seq 1 20000'
+            }
+        }
+        stage('Flaky') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh 'echo about to fail; exit 3'
+                }
+            }
+        }
+        stage('Fan Out') {
+            parallel {
+                stage('Branch A') {
+                    steps {
+                        echo 'in branch A'
+                    }
+                }
+                stage('Branch B') {
+                    stages {
+                        stage('B1') {
+                            steps {
+                                echo 'in B1'
+                            }
+                        }
+                        stage('B2') {
+                            steps {
+                                echo 'in B2'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stage('Snapshot') {
+            steps {
+                sh \'\'\'
+                    export JKIT_CONFIG_DIR="$WORKSPACE/.jkit"
+                    jkit auth login --host http://localhost:8080 --user admin --token admin
+                    jkit export html -o snapshot.html
+                \'\'\'
+                archiveArtifacts 'snapshot.html'
+            }
+        }
+        stage('After') {
+            steps {
+                echo 'after the snapshot'
+            }
+        }
+    }
+    post {
+        always {
+            echo 'post always'
+        }
+    }
+}
+''', true))
+
 jenkins.save()
 println '>>> Seed jobs created successfully'
