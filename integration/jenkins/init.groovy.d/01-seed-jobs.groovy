@@ -57,11 +57,15 @@ def exportPipeline = jenkins.createProject(WorkflowJob, 'export-pipeline')
 exportPipeline.setDefinition(new CpsFlowDefinition('''\
 pipeline {
     agent any
+    options { timestamps() }
     stages {
         stage('Build') {
             steps {
                 echo 'Building...'
                 sh 'echo build-output'
+                ansiColor('xterm') {
+                    echo '\u001B[31mred text\u001B[0m plain'
+                }
             }
         }
         stage('Long Log') {

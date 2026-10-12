@@ -32,7 +32,8 @@ const (
 var stagesBeforeSnapshot = []string{"Build", "Long Log", "Flaky", "Fan Out", "Branch A", "Branch B", "B1", "B2"}
 
 var (
-	numbered  = regexp.MustCompile(`^\d+$`)
+	// Timestamper prefixes plain step-log lines with [ISO-8601 UTC]
+	numbered  = regexp.MustCompile(`^(?:\[\d{4}-\d\d-\d\dT[\d:.]+Z\] )?\d+$`)
 	remoteRef = regexp.MustCompile(`(?i)(?:src|href)\s*=\s*["']?\s*https?:|url\(\s*["']?\s*https?:|@import\s+["']?https?:`)
 )
 
