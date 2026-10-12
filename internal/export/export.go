@@ -50,6 +50,10 @@ type Snapshot struct {
 	// FailureNodeID, or the build's own when the build threw. It is read only
 	// with the annotated console.
 	FailureMessage string `json:"failureMessage"`
+	// FailureMessageSource is "node" when FailureMessage came from
+	// FailureNodeID's own output, "build" when the build threw and
+	// FailureNodeID is only the fallback leaf, empty with no message.
+	FailureMessageSource string `json:"failureMessageSource"`
 }
 
 // Node is a stage or parallel branch. A parallel wrapper is a STAGE whose

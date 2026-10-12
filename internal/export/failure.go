@@ -190,6 +190,9 @@ func (s *Snapshot) markFailure(f *failureFinder) {
 	if f != nil {
 		id, msg := f.resolve(s.Stages)
 		s.FailureMessage = msg
+		if msg != "" {
+			s.FailureMessageSource = map[bool]string{true: "node", false: "build"}[id != ""]
+		}
 		if id != "" {
 			s.FailureNodeID = id
 			return

@@ -409,7 +409,9 @@ it means the build itself threw, since an uncaught exception other than
 is then the first of those lines. `failureNodeId` falls back to the failed
 leaf stage that started last when the build threw, when no node's `ERROR:`
 line traces to a failed stage (the message is then empty), and when the pool
-read the logs: `consoleText` carries no node to trace.
+read the logs: `consoleText` carries no node to trace. `failureMessageSource` says
+which: `node` for the stage's own line, `build` for the build's, so the page
+does not show a build exception under the fallback stage.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its

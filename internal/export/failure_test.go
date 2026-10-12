@@ -144,6 +144,7 @@ func TestFailureFinderUncaughtException(t *testing.T) {
 			s.markFailure(f)
 			assert.Equal(t, "71", s.FailureNodeID, "falls back to the last failed leaf")
 			assert.Equal(t, tc.msg, s.FailureMessage)
+			assert.Equal(t, map[bool]string{true: "build"}[tc.msg != ""], s.FailureMessageSource)
 		})
 	}
 }
@@ -216,11 +217,13 @@ func TestCollectFailureNode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "18", snap.FailureNodeID)
 	assert.Equal(t, "late", snap.FailureMessage)
+	assert.Equal(t, "node", snap.FailureMessageSource)
 
 	snap, err = collect(t, client, run.job, Options{LogSource: LogSourceSteps})
 	require.NoError(t, err)
 	assert.Equal(t, "18", snap.FailureNodeID)
 	assert.Empty(t, snap.FailureMessage)
+	assert.Empty(t, snap.FailureMessageSource)
 }
 
 func TestMarkFailure(t *testing.T) {
@@ -247,16 +250,17 @@ func TestMarkFailure(t *testing.T) {
 		building bool
 		find     *failureFinder
 		id, msg  string
+		src      string
 	}{
-		"attributed":                {"FAILURE", false, finder("12", "ERROR: in 9\n", "12", "9"), "9", "in 9"},
-		"stage not failed":          {"FAILURE", false, finder("12", "ERROR: in 10\n", "12", "10"), "8", ""},
-		"build level falls back":    {"FAILURE", false, finder("", "ERROR: uncaught\n"), "8", "uncaught"},
-		"outside stages falls back": {"FAILURE", false, finder("99", "ERROR: outside\n"), "8", ""},
-		"no error line":             {"FAILURE", false, newFailureFinder(), "8", ""},
-		"steps path":                {"FAILURE", false, nil, "8", ""},
-		"running":                   {"", true, nil, "8", ""},
-		"success":                   {"SUCCESS", false, finder("12", "ERROR: in 9\n", "12", "9"), "", ""},
-		"unstable":                  {"UNSTABLE", false, finder("12", "ERROR: in 9\n", "12", "9"), "", ""},
+		"attributed":                {"FAILURE", false, finder("12", "ERROR: in 9\n", "12", "9"), "9", "in 9", "node"},
+		"stage not failed":          {"FAILURE", false, finder("12", "ERROR: in 10\n", "12", "10"), "8", "", ""},
+		"build level falls back":    {"FAILURE", false, finder("", "ERROR: uncaught\n"), "8", "uncaught", "build"},
+		"outside stages falls back": {"FAILURE", false, finder("99", "ERROR: outside\n"), "8", "", ""},
+		"no error line":             {"FAILURE", false, newFailureFinder(), "8", "", ""},
+		"steps path":                {"FAILURE", false, nil, "8", "", ""},
+		"running":                   {"", true, nil, "8", "", ""},
+		"success":                   {"SUCCESS", false, finder("12", "ERROR: in 9\n", "12", "9"), "", "", ""},
+		"unstable":                  {"UNSTABLE", false, finder("12", "ERROR: in 9\n", "12", "9"), "", "", ""},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -264,6 +268,7 @@ func TestMarkFailure(t *testing.T) {
 			s.markFailure(tc.find)
 			assert.Equal(t, tc.id, s.FailureNodeID)
 			assert.Equal(t, tc.msg, s.FailureMessage)
+			assert.Equal(t, tc.src, s.FailureMessageSource)
 		})
 	}
 	s := &Snapshot{Result: "FAILURE", Stages: []Node{{ID: "1", State: "SUCCESS"}}}

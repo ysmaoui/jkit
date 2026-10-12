@@ -69,6 +69,28 @@ section { margin-top: 1rem; }
   position: relative; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: .75rem;
   height: var(--graph-h, auto); max-height: var(--graph-h, 18rem);
 }
+.tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.tools > span { display: inline-flex; gap: .25rem; align-items: center; }
+.failnav { color: var(--err-fg); }
+.tog {
+  flex: none; width: 1.4rem; height: 1.4rem; padding: 0; margin-top: .7rem; margin-right: -.75rem;
+  border-radius: 4px; font-size: .7rem; line-height: 1; z-index: 1;
+}
+.branch.collapsed > .seq, .branch.collapsed > .branches { display: none; }
+.strip {
+  display: none; align-self: center; gap: 3px; padding: 4px 6px; z-index: 1;
+  background: var(--panel); border-radius: 6px;
+}
+.branch.collapsed > .strip { display: inline-flex; }
+ 
+.branch.collapsed { display: grid; grid-template-columns: auto auto; justify-content: start; column-gap: 1.25rem; row-gap: .3rem; }
+.branch.collapsed > .strip { grid-column: 2; justify-self: start; flex-wrap: wrap; }
+.dot { flex: none; width: 12px; height: 12px; border-radius: 3px; padding: 0; border: 0; background: var(--aborted); }
+.dot.st-ok { background: var(--ok); }
+.dot.st-fail { background: var(--fail); }
+.dot.st-unstable { background: var(--unstable); }
+.dot.st-running, .dot.st-paused, .dot.st-queued { background: var(--running); }
+.dot.st-skipped, .dot.st-unknown { background: transparent; border: 2px solid var(--skipped); }
 .splitter { touch-action: none; user-select: none; display: grid; place-items: center; }
 .splitter::after { content: ""; border-radius: 2px; background: var(--line); }
 .splitter:hover::after, .splitter:focus-visible::after, .splitter.drag::after { background: var(--accent); }
@@ -98,6 +120,7 @@ section { margin-top: 1rem; }
   border-radius: 8px; padding: .3rem .65rem;
 }
 .node[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--sel); }
+.node.branch-node { max-width: 24rem; }
 .node.synthetic { border-style: dashed; }
 .node.synthetic .node-name { font-style: italic; }
 .node-text { display: flex; flex-direction: column; min-width: 0; }
@@ -140,6 +163,10 @@ section { margin-top: 1rem; }
 .step-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
 .step-badges { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: .25rem; }
 .step-badges:empty { display: none; }
+.fail-msg {
+  margin: .25rem 0 .5rem; padding: .2rem .5rem; border-left: 3px solid var(--fail); color: var(--muted);
+  white-space: pre-wrap; font-family: var(--mono); font-size: .75rem; max-height: 6rem; overflow: auto;
+}
 .err { color: var(--err-fg); margin: .25rem 0; white-space: pre-wrap; font-family: var(--mono); font-size: .8rem; }
 .exc {
   margin: .25rem 0; padding: .4rem .6rem; border-left: 3px solid var(--fail); background: var(--err-bg);
@@ -179,7 +206,14 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
 </header>
 <main>
   <section aria-labelledby="graph-h">
-    <div class="bar"><h2 id="graph-h">Stages</h2><button type="button" id="console-btn" aria-pressed="false">Full console log</button></div>
+    <div class="bar"><h2 id="graph-h">Stages</h2><div class="tools">
+      <span id="failnav" class="failnav" hidden><span id="fail-pos" aria-live="polite"></span>
+        <button type="button" id="fail-prev" aria-label="Previous failed stage" title="Previous failed stage">&#8593;</button>
+        <button type="button" id="fail-next" aria-label="Next failed stage" title="Next failed stage">&#8595;</button></span>
+      <span id="branch-tools" hidden><button type="button" id="collapse-all">Collapse branches</button>
+        <button type="button" id="expand-all">Expand branches</button></span>
+      <button type="button" id="console-btn" aria-pressed="false">Full console log</button>
+    </div></div>
     <div class="graph-scroll" id="graph-scroll"><div id="graph" class="graph"></div></div>
   </section>
   <div id="graph-split" class="splitter h" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="graph-scroll"
@@ -210,7 +244,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   </div>
 </main>
 <footer>Exported by jkit. Open offline; nothing is loaded from the network.</footer>
-<script type="application/json" id="snapshot">{"job":"team/app/main","number":42,"result":"","building":true,"startTimeMillis":1791791176000,"durationMillis":0,"url":"https://jenkins.example.com/job/team/job/app/job/main/42/","exportedAtMillis":1791791271000,"complete":false,"stages":[{"id":"6","name":"Build","type":"STAGE","state":"SUCCESS","synthetic":false,"running":false,"startTimeMillis":1791791176100,"durationMillis":12300,"agent":"linux-1","children":[],"steps":[{"id":"8","name":"make build\n./scripts/check.sh --all --verbose --with-a-very-long-argument-list-that-needs-truncation","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791176200,"durationMillis":12000,"log":{"gzipBase64":"H4sIAAAAAAAA/0rPV0gqzcxJUdDT19PT48rP5gIEAAD///KF5rASAAAA","bytes":18,"cutBytes":0,"partial":false},"exception":"","error":""},{"id":"9","name":"echo \"\u003c/script\u003e\u003c!-- \u003cb\u003ebold\u003c/b\u003e \u0026 'quotes'\"","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791188300,"durationMillis":20,"log":{"gzipBase64":"H4sIAAAAAAAA/7LRL04uyiwosbNR1NVVsEmyS8rPSbHRT7JTUFNQLyzNL0ktVucCBAAA//9lrDOsJQAAAA==","bytes":37,"cutBytes":0,"partial":false},"exception":"","error":""}]},{"id":"11","name":"Test","type":"STAGE","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791188500,"durationMillis":1000,"agent":"","children":[{"id":"14","name":"unit","type":"PARALLEL","state":"FAILURE","synthetic":false,"running":false,"startTimeMillis":1791791188600,"durationMillis":30000,"agent":"","children":[],"steps":[{"id":"16","name":"go test ./...","title":"","state":"FAILURE","running":false,"startTimeMillis":1791791188700,"durationMillis":29000,"log":{"gzipBase64":"H4sIAAAAAAAA/9LV1VVwc/T0sVIISS0uiVDQMNAzMCjW5AKJcQECAAD//xWBD8EdAAAA","bytes":29,"cutBytes":0,"partial":false},"exception":"script returned exit code 1","error":""},{"id":"17","name":"boom","title":"Error signal","state":"FAILURE","running":false,"startTimeMillis":1791791217800,"durationMillis":0,"log":{"gzipBase64":"","bytes":0,"cutBytes":0,"partial":false},"exception":"boom","error":""}]},{"id":"15","name":"integration","type":"PARALLEL","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791188600,"durationMillis":0,"agent":"","children":[{"id":"20","name":"Setup","type":"STAGE","state":"SUCCESS","synthetic":false,"running":false,"startTimeMillis":1791791188700,"durationMillis":3000,"agent":"","children":[],"steps":[{"id":"22","name":"docker compose up -d","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791188800,"durationMillis":2900,"log":{"gzipBase64":"H4sIAAAAAAAA/3LOzytJzMxLLVJISVIILkksKklN4QIEAAD//xRRXaoVAAAA","bytes":21,"cutBytes":0,"partial":false},"exception":"","error":""}]},{"id":"25","name":"Run","type":"STAGE","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791191800,"durationMillis":0,"agent":"","children":[],"steps":[{"id":"27","name":"./run-it.sh","title":"","state":"IN_PROGRESS","running":true,"startTimeMillis":1791791191900,"durationMillis":0,"log":{"gzipBase64":"H4sIAAAAAAAA/youSSwqycxLV8jMK0lNL0osyczPUygqzeMqT8wEi6flFykUpxaVZSancgECAAD//2OLB1gtAAAA","bytes":45,"cutBytes":0,"partial":true},"exception":"","error":""}]}],"steps":[]}],"steps":[]},{"id":"40","name":"Package","type":"STAGE","state":"NOT_BUILT","synthetic":false,"running":false,"startTimeMillis":0,"durationMillis":0,"agent":"","children":[],"steps":[]},{"id":"55","name":"Post Actions","type":"STAGE","state":"SUCCESS","synthetic":true,"running":false,"startTimeMillis":1791791266000,"durationMillis":4000,"agent":"","children":[],"steps":[{"id":"57","name":"**/*.log","title":"Archive the artifacts","state":"SUCCESS","running":false,"startTimeMillis":1791791266100,"durationMillis":3000,"log":{"gzipBase64":"H4sIAAAAAAAA/+zSOxLCQAwD0D6n8BWyJVdhKCATwMBQwMKE29ODP5LrlCs9NTveP6azvvV+kqPeZhl+3stfYCRWZGZ26KRe7OZ+ETRRFXZxmbRZnfY5AARCIIMhUKEMdjgkJEMpy2H8s7aXq/aNjK21UQ6fPj9levXdekfrHfGa5bTnB4VFZVLa1EbF1TJ8AwAA//8b4oFP1AcAAA==","bytes":14200,"cutBytes":12221,"partial":false},"exception":"","error":""},{"id":"58","name":"","title":"Delete workspace when build is done","state":"SUCCESS","running":false,"startTimeMillis":1791791269200,"durationMillis":100,"log":{"gzipBase64":"","bytes":0,"cutBytes":0,"partial":false},"exception":"","error":"Jenkins error HTTP 500 on /job/team/job/app/job/main/42/pipeline-overview/log"}]},{"id":"60","name":"Node 60","type":"UNLISTED","state":"","synthetic":true,"running":false,"startTimeMillis":0,"durationMillis":0,"agent":"","children":[],"steps":[{"id":"61","name":"cleanup","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791270000,"durationMillis":10,"log":{"gzipBase64":"H4sIAAAAAAAA/0rOSU3MS03hAgQAAP//8lCa/wgAAAA=","bytes":8,"cutBytes":0,"partial":false},"exception":"","error":""}]}],"console":{"gzipBase64":"H4sIAAAAAAAA/wouSSwqSU1RSKpUKC1OLVJITMnNzOOKDsgsSM3JzEuNVQArUMhPU4AJcZUnFuVl5qVbKSQnlqZnlIC0JieWJGe4FhXlF3EBAgAA//8gvHdVUQAAAA==","bytes":81,"cutBytes":0,"partial":true},"consoleError":"reading console: context deadline exceeded; raise it with --timeout","failureNodeId":"14","failureMessage":"script returned exit code 1"}
+<script type="application/json" id="snapshot">{"job":"team/app/main","number":42,"result":"","building":true,"startTimeMillis":1791791176000,"durationMillis":0,"url":"https://jenkins.example.com/job/team/job/app/job/main/42/","exportedAtMillis":1791791271000,"complete":false,"stages":[{"id":"6","name":"Build","type":"STAGE","state":"SUCCESS","synthetic":false,"running":false,"startTimeMillis":1791791176100,"durationMillis":12300,"agent":"linux-1","children":[],"steps":[{"id":"8","name":"make build\n./scripts/check.sh --all --verbose --with-a-very-long-argument-list-that-needs-truncation","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791176200,"durationMillis":12000,"log":{"gzipBase64":"H4sIAAAAAAAA/0rPV0gqzcxJUdDT19PT48rP5gIEAAD///KF5rASAAAA","bytes":18,"cutBytes":0,"partial":false},"exception":"","error":""},{"id":"9","name":"echo \"\u003c/script\u003e\u003c!-- \u003cb\u003ebold\u003c/b\u003e \u0026 'quotes'\"","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791188300,"durationMillis":20,"log":{"gzipBase64":"H4sIAAAAAAAA/7LRL04uyiwosbNR1NVVsEmyS8rPSbHRT7JTUFNQLyzNL0ktVucCBAAA//9lrDOsJQAAAA==","bytes":37,"cutBytes":0,"partial":false},"exception":"","error":""}]},{"id":"11","name":"Test","type":"STAGE","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791188500,"durationMillis":1000,"agent":"","children":[{"id":"14","name":"unit","type":"PARALLEL","state":"FAILURE","synthetic":false,"running":false,"startTimeMillis":1791791188600,"durationMillis":30000,"agent":"","children":[],"steps":[{"id":"16","name":"go test ./...","title":"","state":"FAILURE","running":false,"startTimeMillis":1791791188700,"durationMillis":29000,"log":{"gzipBase64":"H4sIAAAAAAAA/9LV1VVwc/T0sVIISS0uiVDQMNAzMCjW5AKJcQECAAD//xWBD8EdAAAA","bytes":29,"cutBytes":0,"partial":false},"exception":"script returned exit code 1","error":""},{"id":"17","name":"boom","title":"Error signal","state":"FAILURE","running":false,"startTimeMillis":1791791217800,"durationMillis":0,"log":{"gzipBase64":"","bytes":0,"cutBytes":0,"partial":false},"exception":"boom","error":""}]},{"id":"15","name":"integration","type":"PARALLEL","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791188600,"durationMillis":0,"agent":"","children":[{"id":"20","name":"Setup","type":"STAGE","state":"SUCCESS","synthetic":false,"running":false,"startTimeMillis":1791791188700,"durationMillis":3000,"agent":"","children":[],"steps":[{"id":"22","name":"docker compose up -d","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791188800,"durationMillis":2900,"log":{"gzipBase64":"H4sIAAAAAAAA/3LOzytJzMxLLVJISVIILkksKklN4QIEAAD//xRRXaoVAAAA","bytes":21,"cutBytes":0,"partial":false},"exception":"","error":""}]},{"id":"25","name":"Run","type":"STAGE","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791191800,"durationMillis":0,"agent":"","children":[],"steps":[{"id":"27","name":"./run-it.sh","title":"","state":"IN_PROGRESS","running":true,"startTimeMillis":1791791191900,"durationMillis":0,"log":{"gzipBase64":"H4sIAAAAAAAA/youSSwqycxLV8jMK0lNL0osyczPUygqzeMqT8wEi6flFykUpxaVZSancgECAAD//2OLB1gtAAAA","bytes":45,"cutBytes":0,"partial":true},"exception":"","error":""}]}],"steps":[]}],"steps":[]},{"id":"40","name":"Package","type":"STAGE","state":"NOT_BUILT","synthetic":false,"running":false,"startTimeMillis":0,"durationMillis":0,"agent":"","children":[],"steps":[]},{"id":"55","name":"Post Actions","type":"STAGE","state":"SUCCESS","synthetic":true,"running":false,"startTimeMillis":1791791266000,"durationMillis":4000,"agent":"","children":[],"steps":[{"id":"57","name":"**/*.log","title":"Archive the artifacts","state":"SUCCESS","running":false,"startTimeMillis":1791791266100,"durationMillis":3000,"log":{"gzipBase64":"H4sIAAAAAAAA/+zSOxLCQAwD0D6n8BWyJVdhKCATwMBQwMKE29ODP5LrlCs9NTveP6azvvV+kqPeZhl+3stfYCRWZGZ26KRe7OZ+ETRRFXZxmbRZnfY5AARCIIMhUKEMdjgkJEMpy2H8s7aXq/aNjK21UQ6fPj9levXdekfrHfGa5bTnB4VFZVLa1EbF1TJ8AwAA//8b4oFP1AcAAA==","bytes":14200,"cutBytes":12221,"partial":false},"exception":"","error":""},{"id":"58","name":"","title":"Delete workspace when build is done","state":"SUCCESS","running":false,"startTimeMillis":1791791269200,"durationMillis":100,"log":{"gzipBase64":"","bytes":0,"cutBytes":0,"partial":false},"exception":"","error":"Jenkins error HTTP 500 on /job/team/job/app/job/main/42/pipeline-overview/log"}]},{"id":"60","name":"Node 60","type":"UNLISTED","state":"","synthetic":true,"running":false,"startTimeMillis":0,"durationMillis":0,"agent":"","children":[],"steps":[{"id":"61","name":"cleanup","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791270000,"durationMillis":10,"log":{"gzipBase64":"H4sIAAAAAAAA/0rOSU3MS03hAgQAAP//8lCa/wgAAAA=","bytes":8,"cutBytes":0,"partial":false},"exception":"","error":""}]}],"console":{"gzipBase64":"H4sIAAAAAAAA/wouSSwqSU1RSKpUKC1OLVJITMnNzOOKDsgsSM3JzEuNVQArUMhPU4AJcZUnFuVl5qVbKSQnlqZnlIC0JieWJGe4FhXlF3EBAgAA//8gvHdVUQAAAA==","bytes":81,"cutBytes":0,"partial":true},"consoleError":"reading console: context deadline exceeded; raise it with --timeout","failureNodeId":"14","failureMessage":"script returned exit code 1","failureMessageSource":"node"}
 </script>
 <script>
 "use strict";
@@ -292,7 +326,16 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
   function stepLabel(s) { return s.title || s.name || "(unnamed step)"; }
 
+  
+  function nodeFailureMessage() {
+    return S.failureMessage && S.failureMessageSource === "node" && nodesById.has(S.failureNodeId);
+  }
   function renderHeader() {
+    if (S.failureMessage && !nodeFailureMessage()) {
+      var fm = el("pre", "fail-msg", S.failureMessage);
+      fm.title = "The error that stopped the build";
+      $("meta").after(fm);
+    }
     var state = S.building ? "IN_PROGRESS" : S.result;
     var r = $("result");
     r.textContent = S.building ? "running" : (S.result || "unknown");
@@ -369,12 +412,65 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     if (k) d.append(k);
     return d;
   }
+  var branchEls = new Map();
+  function descendants(n, out) {
+    (n.children || []).forEach(function (c) { out.push(c); descendants(c, out); });
+    return out;
+  }
+  
   function renderBranch(n) {
     var d = el("div", "branch");
-    d.append(nodeButton(n));
+    var b = nodeButton(n);
+    b.classList.add("branch-node");
+    d.append(b);
     var k = children(n);
-    if (k) d.append(k);
+    if (!k) return d;
+    k.id = "branch-" + branchEls.size;
+    var t = el("button", "tog");
+    t.type = "button";
+    t.setAttribute("aria-controls", k.id);
+    t.setAttribute("aria-label", "Branch " + n.name);
+    t.addEventListener("click", function () { setCollapsed(d, !d.classList.contains("collapsed")); });
+    d.prepend(t);
+    var strip = el("span", "strip");
+    descendants(n, []).forEach(function (c) {
+      var st = stateOf(c.state);
+      var dot = el("button", "dot st-" + st[0]);
+      dot.type = "button";
+      
+      dot.tabIndex = -1;
+      dot.title = c.name + " (" + st[2] + ")";
+      dot.setAttribute("aria-label", dot.title);
+      dot.addEventListener("click", function () { select({ node: c.id }, true); });
+      strip.append(dot);
+    });
+    d.append(strip, k);
+    branchEls.set(n.id, d);
+    setCollapsed(d, false);
     return d;
+  }
+  function setCollapsed(d, c) {
+    d.classList.toggle("collapsed", c);
+    var t = d.firstChild;
+    t.textContent = c ? "▸" : "▾";
+    t.setAttribute("aria-expanded", String(!c));
+  }
+  function ancestorIds(id) {
+    var out = new Set();
+    for (var e = nodesById.get(id); e && e.parent; e = nodesById.get(e.parent.id)) out.add(e.parent.id);
+    return out;
+  }
+  
+  function collapseAll(c) {
+    var keep = c && current.node ? ancestorIds(current.node) : new Set();
+    branchEls.forEach(function (d, id) { setCollapsed(d, c && !keep.has(id)); });
+    revealNode(current.node);
+  }
+  function expandTo(id) {
+    ancestorIds(id).forEach(function (a) {
+      var d = branchEls.get(a);
+      if (d && d.classList.contains("collapsed")) setCollapsed(d, false);
+    });
   }
   function renderGraph() {
     var g = $("graph");
@@ -429,6 +525,19 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     $("steps-h").textContent = "Steps of " + n.name;
     h.textContent = info.join(" · ");
     box.append(h);
+    if (n.id === S.failureNodeId && nodeFailureMessage()) {
+      var fm = el("pre", "fail-msg", S.failureMessage);
+      fm.title = "The error that stopped the build";
+      box.append(fm);
+    }
+    if (failedLeaves.indexOf(n) >= 0 && !n.steps.some(function (s) { return s.state === "FAILURE"; })) {
+      var note = el("p", "hint", "No step of this stage failed; the console log may show why it did. ");
+      var q = el("button", null, "Search console for “" + n.name + "”");
+      q.type = "button";
+      q.addEventListener("click", function () { openConsole(n.name); });
+      note.append(q);
+      box.append(note);
+    }
     if (n.steps.length) {
       box.append(stepList(n));
       return;
@@ -532,6 +641,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   var logEl = $("log");
   var view = null;
   var openToken = 0;
+  var searchOnOpen = "";
 
   function lineStarts(text) {
     var starts = [0], i = -1;
@@ -669,6 +779,8 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     logEl.append(el("span", "hint", "Select a step to read its log, or open the full console log."));
   }
   function openLog(log, heading, fullName, step) {
+    var query = searchOnOpen;
+    searchOnOpen = "";
     resetLogPanel();
     var token = openToken;
     $("log-h").textContent = heading;
@@ -708,6 +820,10 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       showWindow(Math.max(0, n - CHUNK_LINES), n);
       $("log-tools").hidden = false;
       logEl.scrollTop = logEl.scrollHeight;
+      if (query) {
+        $("search").value = query;
+        search(query);
+      }
     }, function (err) {
       if (token !== openToken) return;
       logEl.replaceChildren(el("p", "err", logError(err)));
@@ -725,6 +841,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     if (sel.node && !nodesById.has(sel.node)) sel.node = null;
     if (sel.step && !stepsById.has(sel.step)) sel.step = null;
     if (sel.node !== current.node && sel.node) renderSteps(nodesById.get(sel.node).node);
+    if (sel.node) expandTo(sel.node);
     setPressed(".node", "id", sel.node);
     revealNode(sel.node);
     setPressed(".step-btn", "step", sel.step);
@@ -762,6 +879,50 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     if (left < 0 || left + r.width > box.clientWidth) box.scrollLeft += left - 16;
     if (top < 0 || top + r.height > box.clientHeight) box.scrollTop += top - 16;
   }
+  function openConsole(q) {
+    if (current.console && view) {
+      $("search").value = q;
+      search(q);
+      return;
+    }
+    searchOnOpen = q;
+    
+    if (current.console) current = { node: current.node, step: current.step };
+    select({ node: current.node, console: true }, true);
+  }
+
+  
+  var failedLeaves = [];
+  (function find(list) {
+    list.forEach(function (n) {
+      var before = failedLeaves.length;
+      find(n.children || []);
+      if (n.state === "FAILURE" && failedLeaves.length === before) failedLeaves.push(n);
+    });
+  })(S.stages || []);
+  function stepFail(dir) {
+    var i = failedLeaves.indexOf(current.node ? nodesById.get(current.node).node : null);
+    var len = failedLeaves.length;
+    var j = i < 0 ? (dir > 0 ? 0 : len - 1) : (i + dir + len) % len;
+    var wasCollapsed = !!document.querySelector(".branch.collapsed");
+    select({ node: failedLeaves[j].id }, true);
+    
+    if (wasCollapsed) collapseAll(true);
+    $("fail-pos").textContent = (j + 1) + " of " + len + " failed";
+  }
+  function setupTools() {
+    if (failedLeaves.length) {
+      $("failnav").hidden = false;
+      $("fail-pos").textContent = failedLeaves.length + " failed";
+      $("fail-prev").addEventListener("click", function () { stepFail(-1); });
+      $("fail-next").addEventListener("click", function () { stepFail(1); });
+    }
+    if (!branchEls.size) return;
+    $("branch-tools").hidden = false;
+    $("collapse-all").addEventListener("click", function () { collapseAll(true); });
+    $("expand-all").addEventListener("click", function () { collapseAll(false); });
+  }
+
   function fromHash() {
     var p = new URLSearchParams(location.hash.slice(1));
     return { node: p.get("node"), step: p.get("step"), console: p.has("console") };
@@ -896,9 +1057,14 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   renderHeader();
   renderGraph();
   setupLayout();
+  setupTools();
+  
+  
+  var gs = $("graph-scroll");
+  if ($("graph").scrollWidth > 3 * gs.clientWidth) collapseAll(true);
   var initial = fromHash();
   if (!initial.node && !initial.step && !initial.console) {
-    var d = defaultNode();
+    var d = nodesById.has(S.failureNodeId) ? nodesById.get(S.failureNodeId).node : defaultNode();
     initial = { node: d ? d.id : null };
   }
   select(initial, false);
