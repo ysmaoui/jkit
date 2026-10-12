@@ -379,6 +379,22 @@ func TestExportHTMLMaxLogBytes(t *testing.T) {
 	}
 }
 
+func TestExportHTMLConcurrency(t *testing.T) {
+	assert.Equal(t, 1, exportConcurrency(-3))
+	assert.Equal(t, 1, exportConcurrency(0))
+	assert.Equal(t, 4, exportConcurrency(4))
+	assert.Equal(t, 8, exportConcurrency(99))
+
+	h := &htmlRun{}
+	h.serve(t)
+	for _, n := range []string{"1", "8"} {
+		_, stderr, _, err := runHTMLExport(t, "export", "html", "my-app", "7", "--concurrency", n)
+		require.NoError(t, err, n)
+		assert.Contains(t, stderr, "fetching step 1/2: ", n)
+		assert.Contains(t, stderr, "fetching step 2/2: ", n)
+	}
+}
+
 func TestExportHTMLDefaultTimeout(t *testing.T) {
 	old := exportTimeout
 	exportTimeout = 100 * time.Millisecond

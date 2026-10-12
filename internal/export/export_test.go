@@ -45,6 +45,8 @@ type fakeRun struct {
 	holdHeaders map[string]bool
 	// failException is the status a step's exceptionText answers.
 	failException map[string]int
+	// delay holds a step log's response back this long.
+	delay map[string]time.Duration
 }
 
 func loadRun(t *testing.T, phase, kind string) *fakeRun {
@@ -68,6 +70,7 @@ func loadRun(t *testing.T, phase, kind string) *fakeRun {
 
 		holdHeaders:   map[string]bool{},
 		failException: map[string]int{},
+		delay:         map[string]time.Duration{},
 	}
 }
 
@@ -116,6 +119,13 @@ func (f *fakeRun) serve(t *testing.T, opts ...api.ClientOption) *api.Client {
 			if rest == "" {
 				_, _ = io.WriteString(w, "<html>flow node</html>")
 				return
+			}
+			if d := f.delay[id]; d > 0 {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(d):
+				}
 			}
 			if f.holdHeaders[id] {
 				<-r.Context().Done()

@@ -364,12 +364,16 @@ front. The page makes no network request and the export needs PGV only; there is
 no Blue Ocean fallback. The full console is stored as well, because
 `allSteps` omits steps outside any stage and block steps such as `node` and
 `catchError`, so their output exists nowhere else. Memory stays flat whatever
-the file size: `Collect` streams each encoded log into one spool file (beside
+the file size: `Collect` streams each encoded log into a spool file (beside
 the output, or in `TMPDIR` for `-o -`; unlinked at creation on Unix), and
 `Render` encodes the snapshot with a random placeholder per log, then copies the
 logs from the spool in place of the placeholders. Base64 needs no JSON escaping,
 so the bytes match a plain `json.Encoder` run. A 320 MB export peaks at about
 20 MB RSS. The cost is disk: the spool is about the size of the output.
+Step logs download in a bounded pool (`--concurrency`, default 4, at most 8),
+since export time is per-request latency. Each worker owns one spool file, so
+no lock guards the writes; the console goes to the first after the pool ends.
+Progress lines follow step order, and the first fatal error cancels the rest.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its

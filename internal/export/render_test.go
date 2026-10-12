@@ -168,7 +168,7 @@ func loaded(t *testing.T, s *Snapshot) Snapshot {
 		return out
 	}
 	out := *s
-	out.spool = nil
+	out.spools = nil
 	out.Stages = loadNodes(s.Stages)
 	out.Console = loadLog(s.Console)
 	return out
