@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -52,33 +54,32 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
+// resetFlagsRecursive restores every flag on c and all descendants to its
+// default. Cobra keeps flag values and Changed state on the package-level
+// command tree, so they leak between executeCmd calls otherwise. Inherited
+// persistent flags are shared *pflag.Flag pointers, so they reset too.
+func resetFlagsRecursive(c *cobra.Command) {
+	reset := func(f *pflag.Flag) {
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			_ = sv.Replace(nil)
+		} else {
+			_ = f.Value.Set(f.DefValue)
+		}
+		f.Changed = false
+	}
+	c.Flags().VisitAll(reset)
+	c.PersistentFlags().VisitAll(reset)
+	for _, sub := range c.Commands() {
+		resetFlagsRecursive(sub)
+	}
+}
+
 // executeCmd runs rootCmd with given args, returns stdout and error.
 func executeCmd(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var cmdErr error
 	cmd := rootCmd
-	// Reset persistent flags to defaults between test runs
-	cmd.ResetFlags()
-	registerRootFlags(cmd)
-	// Reset subcommand local flags to avoid state leaking between tests
-	for _, sub := range cmd.Commands() {
-		sub.ResetFlags()
-	}
-	// Re-register subcommand flags
-	runCmd.Flags().StringArrayP("param", "p", nil, "Build parameter (KEY=VALUE)")
-	runCmd.Flags().Bool("wait", false, "Wait for build to complete")
-	runCmd.Flags().Bool("log", false, "Stream build log (implies --wait)")
-	registerLogFlags(logCmd)
-	listCmd.Flags().String("folder", "", "Folder path to list")
-	statusCmd.Flags().Int("limit", 10, "Number of recent builds to show")
-	registerInspectFlags(inspectCmd)
-	registerScanFlags(scanCmd)
-	registerInputFlags(inputCmd)
-	registerSourcesFlags(sourcesCmd)
-	registerWaitFlags(waitCmd)
-	registerRebuildFlags(rebuildCmd)
-	exportHTMLCmd.ResetFlags()
-	registerExportHTMLFlags(exportHTMLCmd)
+	resetFlagsRecursive(cmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()
