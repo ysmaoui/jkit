@@ -1353,6 +1353,40 @@ jkit diagnose my-app --json
 
 ---
 
+## `jkit export html`
+
+Write a pipeline run as one self-contained HTML file: stage graph, steps, every step log and the console. The file opens offline, so the run stays readable after the Jenkins instance is gone. Needs the Pipeline Graph View plugin.
+
+```
+jkit export html [job] [build#] [-o FILE] [--max-log-bytes N]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-o, --output FILE` | File to write. Default `<job>-<build#>.html` in the current directory, with `/` in the job path written as `_`. `-` writes the page to stdout |
+| `--max-log-bytes N` | Keep at most `N` bytes of each log (plain bytes), half from the head and half from the tail, with a marker line where the middle was cut. `0` (default) keeps every log whole. Shrinks the file, not the download: each log is still read in full |
+
+Defaults to the latest build. With no arguments and `BUILD_URL` set, as inside a Jenkins build, it exports that build; arguments win over `BUILD_URL`. The host is `JENKINS_URL` (also set by Jenkins, and including any context path such as `/jenkins`) when `BUILD_URL` starts with it, else the scheme and host of `BUILD_URL`; `--host` overrides either.
+
+On a running build the file is a snapshot of what exists at call time, and a warning on stderr says so.
+
+Unless `--timeout` is given, the HTTP timeout is `10m` instead of `30s`: each log is one response, and the timeout covers downloading all of it.
+
+The file is written beside its destination under a temporary name and renamed when complete, so a failed or interrupted export leaves no partial file.
+
+stderr gets one line per log as it downloads (`fetching step 12/58: Build › make all`, then `fetching console log`) and a total. stdout gets the written path; `--json` prints `{"path", "bytes", "complete", "stepErrors", "consoleError"}` instead, and `--format` takes a template over the same fields (neither with `-o -`).
+
+A log that cannot be read does not stop the export: the step or console is marked in the page and named in a warning on stderr, and the exit code stays 0. Authentication, permission, unreachable host and a missing plugin end it with exit code 1, as does any other error. Ctrl+C and SIGTERM (what Jenkins sends when the build is aborted) both exit 130 and remove the temporary file. A file over 250 MB gets a warning that browsers are slow to open it, and over 500 MB that browsers cannot open it.
+
+```bash
+jkit export html my-app 42
+jkit export html https://jenkins.example.com/job/team/job/svc/42/ -o svc-42.html
+jkit export html                                  # in a pipeline step: this build
+jkit export html my-app 42 --max-log-bytes 20000000
+```
+
+---
+
 ## `jkit diff`
 
 Compare two builds of the same job.

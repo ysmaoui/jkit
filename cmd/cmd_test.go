@@ -77,6 +77,8 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	registerSourcesFlags(sourcesCmd)
 	registerWaitFlags(waitCmd)
 	registerRebuildFlags(rebuildCmd)
+	exportHTMLCmd.ResetFlags()
+	registerExportHTMLFlags(exportHTMLCmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()

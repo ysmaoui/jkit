@@ -102,6 +102,10 @@ type Options struct {
 	// MaxLogBytes caps each log, keeping half from the head and half from the
 	// tail. 0 keeps everything.
 	MaxLogBytes int64
+	// Progress, when set, is called before each log is read: step i of
+	// total with the node holding it, then the console with node and step
+	// nil.
+	Progress func(i, total int, node *Node, step *Step)
 }
 
 // timeoutHint is added to a log read that timed out: one log is one HTTP
@@ -140,6 +144,9 @@ func Collect(ctx context.Context, client *api.Client, jobPath string, number int
 		return nil, err
 	}
 
+	if opts.Progress != nil {
+		opts.Progress(0, 0, nil, nil)
+	}
 	snap.Console, err = encodeLog(opts.MaxLogBytes, func(w io.Writer) error {
 		body, err := client.OpenConsoleText(jobPath, number)
 		if err != nil {
@@ -253,12 +260,27 @@ func compareIDs(a, b string) int {
 	return cmp.Compare(a, b)
 }
 
+// EachStep calls fn for every step with the node holding it, depth-first.
+func (s *Snapshot) EachStep(fn func(*Node, *Step)) {
+	walk(s.Stages, func(n *Node) {
+		for i := range n.Steps {
+			fn(n, &n.Steps[i])
+		}
+	})
+}
+
 func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, nodes []Node) error {
+	total, done := 0, 0
+	walk(nodes, func(n *Node) { total += len(n.Steps) })
 	var fatal error
 	walk(nodes, func(n *Node) {
 		for i := range n.Steps {
 			if fatal != nil {
 				return
+			}
+			done++
+			if opts.Progress != nil {
+				opts.Progress(done, total, n, &n.Steps[i])
 			}
 			fatal = fillStep(ctx, client, jobPath, number, opts, &n.Steps[i])
 		}

@@ -190,6 +190,10 @@ jkit input my-job 42 --deny                   # reject the gate
 jkit artifacts URL                  # list
 jkit artifacts URL -d report.xml    # download
 
+# Offline copy of a run (stages, steps, every log) as one HTML file; prints the path
+jkit export html URL                # finished or running build
+jkit export html                    # inside a pipeline: the build BUILD_URL names
+
 # Queue
 jkit queue                          # pending builds
 jkit queue --job my-job             # filter
