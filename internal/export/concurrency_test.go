@@ -149,3 +149,28 @@ func TestCollectConcurrentCloseRemovesEverySpool(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, entries)
 }
+
+func TestCollectConsoleExceptionsRunConcurrently(t *testing.T) {
+	run := consoleRun(t)
+	run.allSteps = strings.ReplaceAll(run.allSteps, `"state":"success"`, `"state":"failure"`)
+	run.pairException = true
+	for _, id := range scriptedIDs {
+		run.exceptions[id] = "exception of " + id
+	}
+	client := run.serve(t)
+
+	snap, err := collect(t, client, run.job, Options{LogSource: LogSourceConsole, Concurrency: 8})
+	require.NoError(t, err)
+
+	failed := 0
+	snap.EachStep(func(_ *Node, s *Step) {
+		if s.State == "FAILURE" {
+			failed++
+			assert.Equal(t, "exception of "+s.ID, s.Exception)
+		}
+	})
+	require.Equal(t, len(scriptedIDs), failed)
+	assert.Equal(t, int32(1), run.htmlHits.Load(), "read from the annotated console")
+	assert.Zero(t, run.stepLogHits.Load(), "no fallback to step logs")
+	assert.GreaterOrEqual(t, run.maxInflight.Load(), int32(2), "exception requests overlap")
+}

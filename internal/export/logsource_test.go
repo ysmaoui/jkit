@@ -139,11 +139,21 @@ func TestCollectConsoleFallsBack(t *testing.T) {
 			client := run.serve(t, opts...)
 			want := renderPage(t, client, run.job, Options{LogSource: LogSourceSteps, Concurrency: 4})
 			run.stepLogHits.Store(0)
+			run.consoleHits.Store(0)
 
 			var notices []string
-			got := renderPage(t, client, run.job, Options{LogSource: LogSourceConsole, Concurrency: 4,
-				Notice: func(msg string) { notices = append(notices, msg) }})
-			assert.Equal(t, want, got)
+			dir := t.TempDir()
+			exportOpts := Options{LogSource: LogSourceConsole, Concurrency: 4, SpoolDir: dir,
+				Notice: func(msg string) { notices = append(notices, msg) }}
+			snap, err := Collect(context.Background(), client, run.job, 1, exportOpts)
+			require.NoError(t, err)
+			snap.ExportedAtMillis = 0
+			var buf bytes.Buffer
+			require.NoError(t, Render(&buf, snap))
+			require.NoError(t, snap.Close())
+			assert.Equal(t, want, buf.String())
+			assert.Zero(t, openSpools(t, dir), "spools closed")
+			assert.Equal(t, int32(1), run.consoleHits.Load(), "plain console read once")
 			require.Len(t, notices, 2)
 			assert.Contains(t, notices[1], "reading step logs one by one")
 			assert.Contains(t, notices[1], tc.reason)

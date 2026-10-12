@@ -449,9 +449,43 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 		if err != nil {
 			return err
 		}
-		if err := fillException(ctx, client, jobPath, number, s); err != nil {
-			return err
+	}
+	return fillExceptions(ctx, client, jobPath, number, opts, steps)
+}
+
+// fillExceptions reads the exception text of steps, Concurrency requests at
+// once. Each text lands on its own step, so the result does not depend on
+// which request answers first. The first fatal error cancels the rest.
+func fillExceptions(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, steps []*Step) error {
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		mu    sync.Mutex
+		fatal error
+		wg    sync.WaitGroup
+	)
+	queue := make(chan *Step)
+	for range max(opts.Concurrency, 1) {
+		wg.Go(func() {
+			for s := range queue {
+				if err := fillException(workCtx, client, jobPath, number, s); err != nil {
+					mu.Lock()
+					fatal = cmp.Or(fatal, err)
+					mu.Unlock()
+					cancel()
+				}
+			}
+		})
+	}
+dispatch:
+	for _, s := range steps {
+		select {
+		case queue <- s:
+		case <-workCtx.Done():
+			break dispatch
 		}
 	}
-	return nil
+	close(queue)
+	wg.Wait()
+	return cmp.Or(fatal, ctx.Err())
 }
