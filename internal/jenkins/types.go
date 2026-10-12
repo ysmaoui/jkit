@@ -298,9 +298,12 @@ type PGVResponse struct {
 }
 
 type PGVData struct {
-	Complete bool       `json:"complete"`
-	Stages   []PGVStage `json:"stages"`
-	Steps    []PGVStep  `json:"steps,omitempty"`
+	Complete bool `json:"complete"`
+	// RunIsComplete is what stages/steps and stages/allSteps send in place of
+	// complete.
+	RunIsComplete bool       `json:"runIsComplete"`
+	Stages        []PGVStage `json:"stages"`
+	Steps         []PGVStep  `json:"steps,omitempty"`
 }
 
 // PGVStage is a node in the PGV stage tree. Types: STAGE, PARALLEL, PARALLEL_BLOCK.

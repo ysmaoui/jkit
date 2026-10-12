@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
 )
@@ -23,6 +24,17 @@ func (e *stepLogsUnavailable) Error() string {
 }
 func (e *stepLogsUnavailable) Is(target error) bool { return target == ErrStepLogsUnavailable }
 func (e *stepLogsUnavailable) Unwrap() error        { return e.cause }
+
+// ErrPGVRequired means a route only the Pipeline Graph View plugin serves
+// answered 404 for a pipeline run that exists.
+var ErrPGVRequired = errors.New("needs the Pipeline Graph View plugin, which this server does not serve")
+
+// pgvRequired is ErrPGVRequired with the error behind it.
+type pgvRequired struct{ cause error }
+
+func (e *pgvRequired) Error() string        { return ErrPGVRequired.Error() + ": " + e.cause.Error() }
+func (e *pgvRequired) Is(target error) bool { return target == ErrPGVRequired }
+func (e *pgvRequired) Unwrap() error        { return e.cause }
 
 // maxExceptionText bounds one exception text read. It is a message or a stack
 // trace, never log output.
@@ -108,6 +120,61 @@ func (c *Client) listStageStepsPGV(ctx context.Context, jobPath string, number i
 		}
 	}
 	return steps, nil
+}
+
+// ListAllSteps returns every step of a run, each tagged with its stageId, and
+// whether the run is complete. State is PGV's raw value; map it with
+// jenkins.MapPGVState. Only PGV serves this route, but a 404 is ErrPGVRequired
+// only once the run answers as a pipeline run.
+func (c *Client) ListAllSteps(ctx context.Context, jobPath string, number int) (steps []jenkins.PGVStep, runComplete bool, err error) {
+	path := fmt.Sprintf("%s/%d/stages/allSteps", NormalizeJobPath(jobPath), number)
+	resp, err := c.getContext(ctx, path, nil, nil)
+	if err != nil {
+		var nfe *jenkins.NotFoundError
+		if errors.As(err, &nfe) {
+			return nil, false, c.explainAllSteps404(jobPath, number, err)
+		}
+		return nil, false, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var pgv jenkins.PGVResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pgv); err != nil {
+		return nil, false, fmt.Errorf("decoding PGV all steps: %w", err)
+	}
+	if pgv.Status != "ok" {
+		return nil, false, fmt.Errorf("PGV status %q", pgv.Status)
+	}
+	return pgv.Data.Steps, pgv.Data.RunIsComplete, nil
+}
+
+// explainAllSteps404 tells apart the failures behind a 404 from stages/allSteps:
+// a container job, a missing job or build, a build that is not a pipeline run,
+// and a server without PGV. Only the run itself answering as a pipeline run
+// leaves the plugin as the cause.
+func (c *Client) explainAllSteps404(jobPath string, number int, cause error) error {
+	if hint := c.ContainerHint(jobPath); hint != nil {
+		return hint
+	}
+	resp, err := c.Get(fmt.Sprintf("%s/%d/api/json", NormalizeJobPath(jobPath), number), url.Values{"tree": {"_class"}})
+	if err != nil {
+		var nfe *jenkins.NotFoundError
+		if errors.As(err, &nfe) {
+			return &jenkins.NotFoundError{Resource: "build", Name: fmt.Sprintf("%s #%d", jobPath, number), Host: c.host}
+		}
+		return fmt.Errorf("checking build %s #%d after its allSteps 404'd: %w", jobPath, number, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var run struct {
+		Class string `json:"_class"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
+		return fmt.Errorf("decoding build class: %w", err)
+	}
+	if !strings.HasSuffix(run.Class, ".WorkflowRun") {
+		return fmt.Errorf("%s #%d is not a pipeline build (%s) on %s, so it has no steps to list", jobPath, number, run.Class, c.host)
+	}
+	return &pgvRequired{cause}
 }
 
 // stepLog reads a pipeline step's log through core's progressiveText. A step

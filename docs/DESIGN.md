@@ -173,6 +173,12 @@ GET /job/{path}/{number}/stages/steps?nodeId={id}
 # Returns: { status, data: { runIsComplete, steps: [ {id, name, state, type,
 #           title, stageId, pauseDurationMillis, startTimeMillis,
 #           totalDurationMillis} ] } }, sorted by ID. state as in stages/tree.
+GET /job/{path}/{number}/stages/allSteps
+# Returns: { status, data: { runIsComplete, steps: [ ... ] } }, every step of
+# the run in the shape of stages/steps above, each with its stageId. PGV only.
+# A 404 is blamed on the missing plugin only after the build's api/json
+# answers with a WorkflowRun _class; otherwise it is a container job, a missing
+# build, or a build that is not a pipeline run.
 GET /job/{path}/{number}/stages/exceptionText?nodeId={stepId}
 # Plain text; empty for a step without an error. Only fetched for a step in
 # state failure or aborted, which is where an ErrorAction lives.
