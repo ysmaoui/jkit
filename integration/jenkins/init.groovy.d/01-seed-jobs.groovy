@@ -127,5 +127,63 @@ pipeline {
 }
 ''', true))
 
+// 6. console-pipeline: the console shapes the progressiveHtml parser fixtures
+// in internal/export/testdata come from. writeFile prints nothing.
+def consolePipeline = jenkins.createProject(WorkflowJob, 'console-pipeline')
+consolePipeline.setDefinition(new CpsFlowDefinition('''\
+pipeline {
+    agent any
+    options { timestamps() }
+    stages {
+        stage('Text') {
+            steps {
+                echo 'a < b && c > "d" \\'e\\''
+                sh 'printf "two\\\\nlines\\\\n"; printf "no newline at end"'
+                ansiColor('xterm') {
+                    echo '\u001B[31mred text\u001B[0m plain'
+                }
+                writeFile file: 'quiet.txt', text: 'x'
+            }
+        }
+        stage('Flaky') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh 'echo about to fail; exit 3'
+                }
+            }
+        }
+        stage('Fan Out') {
+            parallel {
+                stage('Branch A') {
+                    steps {
+                        echo 'in branch A'
+                        sh 'for i in 1 2 3; do echo A$i; sleep 1; done'
+                    }
+                }
+                stage('Branch B') {
+                    stages {
+                        stage('B1') {
+                            steps {
+                                sh 'for i in 1 2 3; do echo B$i; sleep 1; done'
+                            }
+                        }
+                        stage('B2') {
+                            steps {
+                                echo 'in B2'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            echo 'post always'
+        }
+    }
+}
+''', true))
+
 jenkins.save()
 println '>>> Seed jobs created successfully'

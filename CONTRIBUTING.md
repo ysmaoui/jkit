@@ -64,9 +64,11 @@ internal/
     steplog.go              # StageStepFollower: --stage -f, each step read from its last offset
     progressive.go          # ProgressiveLog: progressiveText followed poll by poll
     consoletail.go          # GetBuildLogTail, ConsoleTailLines: console tail per Stapler version
+    consolehtml.go          # CopyConsoleHTML: progressiveHtml, every node's output in one download
   export/
     export.go               # Collect: run, stage tree, steps and logs into a Snapshot
     log.go                  # per-log sanitize, head/tail cap, gzip + base64
+    consolehtml.go          # consoleSplitter: progressiveHtml streamed into per-node text
     render.go               # Render: Snapshot embedded in template.html
   config/
     config.go               # YAML config load/save, XDG path resolution

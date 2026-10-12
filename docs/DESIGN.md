@@ -71,6 +71,7 @@ jkit/
 │   ├── export/
 │   │   ├── export.go          # Collect: build, PGV stage tree, steps and logs into a Snapshot
 │   │   ├── log.go             # Per-log sanitize, head/tail cap, gzip + base64
+│   │   ├── consolehtml.go     # Split progressiveHtml into per-node text as it streams
 │   │   ├── render.go          # Render: Snapshot JSON embedded in the HTML page
 │   │   └── template.html      # Page markup, CSS and JS (no external requests)
 │   ├── output/
@@ -148,6 +149,15 @@ GET /job/{path}/{number}/logText/progressiveText?start={byte-offset}
 # The whole console as it stands: notes stripped, line ends as stored, an
 # unfinished last line included. No offset and no size header.
 GET /job/{path}/{number}/consoleText
+# The console as HTML, each node's output in <span class="pipeline-node-{id}">
+# and each "[Pipeline] step" line in <span class="pipeline-new-node">, so one
+# download holds every step log. Only Jenkins' own file log storage writes the
+# node spans. Headers as for progressiveText, plus X-ConsoleAnnotator, which is
+# sent back to continue the markup; no multipart answer. Line ends are CRLF as
+# in a plain progressiveText answer. Timestamper writes a visible
+# <span class="timestamp"> and a hidden "[ISO]" span; AnsiColor leaves escape
+# sequences in comments around inline-style spans.
+GET /job/{path}/{number}/logText/progressiveHtml?start={byte-offset}
 # Jenkins version (X-Jenkins). Jenkins sends the header on api/json and pages
 # but not on progressiveText, so it is asked here once when no answer has
 # carried it yet.
