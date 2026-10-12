@@ -176,18 +176,22 @@ GET /job/{path}/{number}/stages/steps?nodeId={id}
 GET /job/{path}/{number}/stages/allSteps
 # Returns: { status, data: { runIsComplete, steps: [ ... ] } }, every step of
 # the run in the shape of stages/steps above, each with its stageId. PGV only.
-# A 404 is blamed on the missing plugin only after the build's api/json
-# answers with a WorkflowRun _class; otherwise it is a container job, a missing
-# build, or a build that is not a pipeline run.
+# A 404 here or on exceptionText is a PluginMissingError only after the
+# build's api/json answers with a WorkflowRun _class; otherwise it is a
+# container job, a missing job (the job's api/json 404s too) or build, or a
+# build that is not a pipeline run.
 GET /job/{path}/{number}/stages/exceptionText?nodeId={stepId}
 # Plain text; empty for a step without an error. Only fetched for a step in
-# state failure or aborted, which is where an ErrorAction lives.
+# state failure or aborted, which is where an ErrorAction lives. `log --stage
+# -f` takes a 404 as no text, as the stage log would show none.
 
 # One step's log (core + workflow-support, no plugin). progressiveText from a
 # start= offset, read as the console is (see "progressiveText offsets"). A step
 # that has written nothing has no LogAction yet and 404s. On Jenkins 2.509 to
 # 2.533, a step that passes the 10000-line cap while running is shown to its
 # end once it completes; if the stage ends first, -f fails naming the step.
+# CopyStepLog reads it once to its last line end, with no size cap, and
+# reports such a step as partial.
 GET /job/{path}/{number}/execution/node/{stepId}/log/logText/progressiveText?start={byte-offset}
 # The flow node page. Probed once, on the first step log 404, to tell a step
 # without a log from a server where this route is missing or blocked.

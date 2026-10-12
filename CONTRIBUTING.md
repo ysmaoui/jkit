@@ -134,6 +134,7 @@ Return typed errors from `internal/jenkins/errors.go`:
 |-------|------|---------|
 | `AuthError` | 401 | `not authenticated to {host} — run 'jkit auth login'` |
 | `NotFoundError` | 404 | `{resource} not found on {host} — run 'jkit list'` |
+| `PluginMissingError` | 404 on a plugin route, pipeline build exists | `{route} not served on {host} — the {plugin} plugin is not installed or too old` |
 | `PermissionError` | 403 | `access denied for {resource} on {host}` |
 | `UnreachableError` | network | `cannot reach {host} — check network or VPN` |
 | `ServerError` | 5xx | `Jenkins error HTTP {code} on {path}` |
