@@ -191,7 +191,11 @@ func (s *Snapshot) markFailure(f *failureFinder) {
 		id, msg := f.resolve(s.Stages)
 		s.FailureMessage = msg
 		if msg != "" {
-			s.FailureMessageSource = map[bool]string{true: "node", false: "build"}[id != ""]
+			if id != "" {
+				s.FailureMessageSource = "node"
+			} else {
+				s.FailureMessageSource = "build"
+			}
 		}
 		if id != "" {
 			s.FailureNodeID = id

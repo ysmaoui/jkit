@@ -144,7 +144,11 @@ func TestFailureFinderUncaughtException(t *testing.T) {
 			s.markFailure(f)
 			assert.Equal(t, "71", s.FailureNodeID, "falls back to the last failed leaf")
 			assert.Equal(t, tc.msg, s.FailureMessage)
-			assert.Equal(t, map[bool]string{true: "build"}[tc.msg != ""], s.FailureMessageSource)
+			wantSource := ""
+			if tc.msg != "" {
+				wantSource = "build"
+			}
+			assert.Equal(t, wantSource, s.FailureMessageSource)
 		})
 	}
 }

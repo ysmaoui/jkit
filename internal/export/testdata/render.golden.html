@@ -46,7 +46,7 @@ button:hover { border-color: var(--accent); }
 .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
 .meta { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; margin: .5rem 0 0; color: var(--muted); }
 .meta div { display: flex; gap: .4rem; min-width: 0; }
-.meta dt { font-weight: 600; }
+.meta dt { font-weight: 600; overflow-wrap: normal; white-space: nowrap; }
 .meta dd { margin: 0; color: var(--fg); min-width: 0; }
 .banner {
   margin: .75rem 0 0; padding: .6rem .8rem; border: 1px solid var(--warn-border);
@@ -203,6 +203,8 @@ section { margin-top: 1rem; }
 .step-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
 .step-badges { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: .25rem; }
 .step-badges:empty { display: none; }
+.fail-cap { margin: .5rem 0 0; color: var(--err-fg); font-size: .75rem; font-weight: 600; }
+.fail-cap + .fail-msg { margin-top: .15rem; }
 .fail-msg {
   margin: .25rem 0 .5rem; padding: .2rem .5rem; border-left: 3px solid var(--fail); color: var(--muted);
   white-space: pre-wrap; font-family: var(--mono); font-size: .75rem; max-height: 6rem; overflow: auto;
@@ -378,9 +380,10 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
   function renderHeader() {
     if (S.failureMessage && !nodeFailureMessage()) {
+      
       var fm = el("pre", "fail-msg", S.failureMessage);
       fm.title = "The error that stopped the build";
-      $("meta").after(fm);
+      $("meta").after(el("p", "fail-cap", "Build error"), fm);
     }
     var state = S.building ? "IN_PROGRESS" : S.result;
     var r = $("result");
@@ -1014,6 +1017,8 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     $("console-btn").setAttribute("aria-pressed", String(!!sel.console));
     var logChanged = sel.step !== current.step || !!sel.console !== !!current.console;
     current = sel;
+    var fi = sel.node ? failedLeaves.indexOf(nodesById.get(sel.node).node) : -1;
+    if (failedLeaves.length) $("fail-pos").textContent = (fi >= 0 ? (fi + 1) + " of " : "") + failedLeaves.length + " failed";
     if (filterActive()) applyFilter();
     if (logChanged) {
       if (sel.console) {
@@ -1028,13 +1033,24 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       }
     }
     if (user) {
-      var p = new URLSearchParams();
-      if (sel.node) p.set("node", sel.node);
-      if (sel.step) p.set("step", sel.step);
-      if (sel.console) p.set("console", "1");
-      try { history.replaceState(null, "", "#" + p.toString()); } catch (e) {   }
-      if ((sel.step || sel.console) && window.innerWidth < 900) $("log-panel").scrollIntoView({ block: "start" });
+      writeHash(sel, true);
+      if (sel.step || sel.console) {
+        
+        
+        var r = logEl.getBoundingClientRect();
+        if (r.bottom < 48 || r.top > window.innerHeight - 200) $("log-panel").scrollIntoView({ block: "start" });
+      }
     }
+  }
+  
+  function writeHash(sel, push) {
+    var p = new URLSearchParams();
+    if (sel.node) p.set("node", sel.node);
+    if (sel.step) p.set("step", sel.step);
+    if (sel.console) p.set("console", "1");
+    var h = "#" + p.toString();
+    if (push && h === location.hash) return;
+    try { history[push ? "pushState" : "replaceState"](null, "", h); } catch (e) {   }
   }
   
   function revealNode(id) {
@@ -1081,7 +1097,6 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     
     if (wasCollapsed) collapseAll(true);
     if (listWasCollapsed) listCollapseAll(true);
-    $("fail-pos").textContent = (j + 1) + " of " + len + " failed";
   }
   function setupTools() {
     if (failedLeaves.length) {
@@ -1242,7 +1257,14 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   $("console-btn").addEventListener("click", function () {
     select({ node: current.node, console: true }, true);
   });
-  window.addEventListener("hashchange", function () { select(fromHash(), false); });
+  
+  function followHash() {
+    var h = fromHash();
+    if (h.node === (current.node || null) && h.step === (current.step || null) && h.console === !!current.console) return;
+    select(h, false);
+  }
+  window.addEventListener("popstate", followHash);
+  window.addEventListener("hashchange", followHash);
 
   renderHeader();
   renderGraph();
@@ -1262,6 +1284,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     initial = { node: d ? d.id : null };
   }
   select(initial, false);
+  if (initial.node || initial.step || initial.console) writeHash(current, false);
 })();
 </script>
 </body>
