@@ -73,6 +73,9 @@ internal/
     errors.go               # Typed errors: AuthError, NotFoundError, PermissionError, etc.
     stage_tree.go           # BuildStageTree — flat stages to depth-annotated tree
     branchname.go           # BranchJobName: branch name to the job name branch-api gives it
+  export/
+    export.go               # Collect: a run's PGV stage tree, steps, step logs and console as one Snapshot
+    log.go                  # Log encoding: sanitize line-wise, head/tail cap, gzip, base64
   output/
     formatter.go            # Table, JSON, Go template output
     color.go                # ANSI color for build statuses

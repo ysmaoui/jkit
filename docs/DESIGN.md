@@ -152,6 +152,11 @@ GET /job/{path}/{number}/stages/tree
 # Returns: { status, data: { complete, stages: [ {id, name, state, type,
 #           pauseDurationMillis, startTimeMillis, totalDurationMillis,
 #           children[], isSequential, synthetic, placeholder, agent, url } ] } }
+# Seen on Jenkins 2.541.2: no PARALLEL_BLOCK node; a parallel wrapper is a
+# STAGE whose children are PARALLEL branches. isSequential is always false.
+# A running node omits totalDurationMillis. Declarative post is a synthetic
+# STAGE "Post Actions". complete is false while the run is going. Read nested
+# by GetPGVTree (export), flattened by GetPipelineStages (everything else).
 
 # Per-line console timestamps (Timestamper plugin, not core)
 GET /job/{path}/{number}/timestamps/?elapsed=HH:mm:ss.S&startLine=-N&appendLog
@@ -179,7 +184,11 @@ GET /job/{path}/{number}/stages/allSteps
 # A 404 here or on exceptionText is a PluginMissingError only after the
 # build's api/json answers with a WorkflowRun _class; otherwise it is a
 # container job, a missing job (the job's api/json 404s too) or build, or a
-# build that is not a pipeline run.
+# build that is not a pipeline run. Not chronological. Leaves out steps
+# outside any stage and block steps (node, catchError), so their output
+# ("Running on ...", "ERROR: script returned exit code 3") is only in
+# consoleText. A step in a parallel branch without a nested stage has the
+# PARALLEL node's id as stageId.
 GET /job/{path}/{number}/stages/exceptionText?nodeId={stepId}
 # Plain text; empty for a step without an error. Only fetched for a step in
 # state failure or aborted, which is where an ErrorAction lives. `log --stage
