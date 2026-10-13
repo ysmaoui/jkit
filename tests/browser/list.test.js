@@ -201,22 +201,158 @@ async function wide(browserName, file) {
   check(`${tag} click row selects ${pick.name}`, s.id === pick.id && s.inPane && s.graphPressed === pick.id && s.hash.includes('node=' + encodeURIComponent(pick.id)) &&
     steps === 'Steps of ' + pick.name, { s, steps });
 
-  // Keyboard: Tab between rows, Enter selects.
-  const ids = await visibleRows(page);
-  await page.focus(`.sl-sel[data-id="${ids[0]}"]`);
-  await page.keyboard.press('Enter');
-  check(`${tag} Enter on focused row selects`, (await selRow(page)).id === ids[0]);
-  await page.keyboard.press('Tab');
-  const f = await page.evaluate(() => { const a = document.activeElement; return { cls: a.className, id: a.dataset.id, tag: a.tagName }; });
-  check(`${tag} Tab moves to next row or chevron`, f.tag === 'BUTTON' && /sl-(sel|chev)/.test(f.cls), f);
+  // Keyboard: the list is one tab stop (roving tabindex), arrows move over shown rows.
+  {
+    const stops = () => page.$$eval('#sl-tree button', bs => bs.filter(b => b.tabIndex >= 0).map(b => b.dataset.id || b.className));
+    const focused = () => page.evaluate(() => document.activeElement.dataset.id || document.activeElement.id);
+    const inTree = () => page.evaluate(() => document.getElementById('sl-tree').contains(document.activeElement));
+    const press = async (k, n = 1) => { for (let i = 0; i < n; i++) await page.keyboard.press(k); };
+    // Home, then ArrowDown until focus stops moving: the order arrows visit.
+    const walk = async () => {
+      await press('Home');
+      const seen = [await focused()];
+      for (;;) {
+        await press('ArrowDown');
+        const id = await focused();
+        if (id === seen[seen.length - 1] || seen.length > idx.size) return seen;
+        seen.push(id);
+      }
+    };
+    const setFilter = (v) => page.evaluate(v => { const f = document.getElementById('sl-filter'); f.value = v; f.dispatchEvent(new Event('input')); }, v);
+
+    let st = await stops();
+    check(`${tag} list is one tab stop, on the selected row`, st.length === 1 && st[0] === pick.id, st);
+    await page.focus('#sl-failed');
+    await press('Tab');
+    check(`${tag} Tab from Failed only enters the list on the selected row`, (await focused()) === pick.id, await focused());
+    await press('Tab');
+    check(`${tag} next Tab leaves the list`, !(await inTree()), await focused());
+    await press('Shift+Tab');
+    check(`${tag} Shift+Tab comes back to the same row`, (await focused()) === pick.id, await focused());
+
+    let order = await walk();
+    let vis = await visibleRows(page);
+    check(`${tag} Home + ArrowDown visit every shown row in order`, order.join() === vis.join(), { order: order.length, vis: vis.length });
+    await press('End');
+    const last = await focused();
+    await press('ArrowDown');
+    check(`${tag} End goes to the last row, ArrowDown stops there`, last === vis[vis.length - 1] && (await focused()) === last, last);
+    await press('ArrowUp');
+    check(`${tag} ArrowUp moves to the previous row`, (await focused()) === vis[vis.length - 2]);
+    await press('Home');
+    check(`${tag} Home goes to the first row`, (await focused()) === vis[0]);
+    st = await stops();
+    check(`${tag} focused row is the only tab stop`, st.length === 1 && st[0] === vis[0], st);
+    check(`${tag} arrows move focus, not selection`, (await selRow(page)).id === pick.id);
+
+    // Right and Left on a parent row.
+    // A leaf first child: Left on an open child would collapse it rather than move up.
+    const parent = ([...idx.values()].find(e => (e.n.children || []).length && !(e.n.children[0].children || []).length) || {}).n;
+    const chevOf = id => page.locator(`li:has(> .sl-row > .sl-sel[data-id="${id}"]) > .sl-row > .sl-chev`);
+    if (parent) {
+      const c = chevOf(parent.id);
+      if ((await c.getAttribute('aria-expanded')) === 'false') await c.click();
+      await page.focus(`.sl-sel[data-id="${parent.id}"]`);
+      await press('ArrowRight');
+      check(`${tag} Right on open ${parent.name} moves to its first child`, (await focused()) === parent.children[0].id, await focused());
+      await press('ArrowLeft');
+      check(`${tag} Left on a child moves to its parent`, (await focused()) === parent.id, await focused());
+      await press('ArrowLeft');
+      check(`${tag} Left on open parent collapses it, focus stays`, (await c.getAttribute('aria-expanded')) === 'false' && (await focused()) === parent.id);
+      order = await walk();
+      vis = await visibleRows(page);
+      check(`${tag} arrows skip rows under a collapsed parent`, order.join() === vis.join() && !order.includes(parent.children[0].id), { order: order.length, vis: vis.length });
+      await page.focus(`.sl-sel[data-id="${parent.id}"]`);
+      await press('ArrowLeft');
+      check(`${tag} Left on a closed top-level row does nothing`, idx.get(parent.id).parent || ((await focused()) === parent.id && (await c.getAttribute('aria-expanded')) === 'false'));
+      await page.focus(`.sl-sel[data-id="${parent.id}"]`);
+      await press('ArrowRight');
+      check(`${tag} Right on closed parent expands it, focus stays`, (await c.getAttribute('aria-expanded')) === 'true' && (await focused()) === parent.id);
+      const leaf = [...idx.values()].find(e => !(e.n.children || []).length).n;
+      await page.focus(`.sl-sel[data-id="${leaf.id}"]`);
+      await press('ArrowRight');
+      check(`${tag} Right on a leaf does nothing`, (await focused()) === leaf.id);
+    }
+
+    // Filtered: arrows follow the filtered rows; the tab stop never sits on a hidden row.
+    const hidden = order.find(id => id !== pick.id && ![...expected(idx, 'zz-no-such-stage-zz', false, leafIds, pick.id)].includes(id));
+    await page.focus(`.sl-sel[data-id="${hidden}"]`);
+    await page.fill('#sl-filter', q);
+    await press('Tab');
+    await press('Tab');
+    vis = await visibleRows(page);
+    const entered = await focused();
+    check(`${tag} filtered: Tab enters on a shown row`, vis.includes(entered) && (await stops()).length === 1, { entered, hidden });
+    order = await walk();
+    check(`${tag} filtered: arrows visit exactly the shown rows`, order.join() === vis.join(), { order: order.length, vis: vis.length });
+    await page.fill('#sl-filter', '');
+
+    // The focused row gets hidden while it has focus: focus moves to the selected row.
+    await page.focus(`.sl-sel[data-id="${hidden}"]`);
+    await setFilter('zz-no-such-stage-zz');
+    let f = await focused();
+    check(`${tag} focused row filtered out: focus moves to the selected row`, f === pick.id && (await stops()).join() === pick.id, { f, hidden });
+    await setFilter('');
+
+    // Enter and Space select, as a click does.
+    await press('Home');
+    await press('ArrowDown');
+    const target = await focused();
+    await press('Enter');
+    s = await selRow(page);
+    check(`${tag} Enter on focused row selects it`, s.id === target && s.hash.includes('node=' + encodeURIComponent(target)) && (await focused()) === target, s);
+    await press('ArrowUp');
+    const t2 = await focused();
+    await press('Space');
+    check(`${tag} Space on focused row selects it`, (await selRow(page)).id === t2);
+    await page.goBack();
+    await page.waitForTimeout(150);
+    check(`${tag} Back undoes a keyboard selection`, (await selRow(page)).id === target);
+
+    // A selection from outside the list moves the tab stop to it.
+    if (leaves.length) {
+      await page.click('#fail-next');
+      s = await selRow(page);
+      check(`${tag} failed nav moves the tab stop to the selected row`, (await stops()).join() === s.id, { stops: await stops(), s: s.id });
+    }
+
+    // A chevron click keeps focus on the row, so arrows go on working.
+    if (parent) {
+      const c = chevOf(parent.id);
+      await page.focus(`.sl-sel[data-id="${parent.id}"]`);
+      await c.click();
+      vis = await visibleRows(page);
+      await press('ArrowDown');
+      f = await focused();
+      check(`${tag} chevron click, then ArrowDown moves to the next shown row`, (await c.getAttribute('aria-expanded')) === 'false' &&
+        f === vis[vis.indexOf(parent.id) + 1], { f, next: vis[vis.indexOf(parent.id) + 1] });
+      await c.click();
+    }
+
+    await page.click('#mode-graph');
+    await page.click('#mode-list');
+    await page.click('#mode-graph');
+    await page.click('#mode-list');
+    st = await stops();
+    check(`${tag} one tab stop after Graph, List, Graph, List`, st.length === 1, st);
+    if (await page.isVisible('#collapse-all')) {
+      await page.click('#collapse-all');
+      st = await stops();
+      vis = await visibleRows(page);
+      check(`${tag} one shown tab stop after Collapse all`, st.length === 1 && vis.includes(st[0]), st);
+      await page.click('#expand-all');
+      st = await stops();
+      check(`${tag} one tab stop after Expand all`, st.length === 1, st);
+    }
+  }
 
   // Chevrons.
   const chev = await page.$$eval('button.sl-chev', cs => cs.map(c => {
     const u = document.getElementById(c.getAttribute('aria-controls'));
-    return { ok: !!u && u.tagName === 'UL' && u.parentElement === c.closest('li') && c.getAttribute('aria-expanded') === 'true' && /^Nested stages of /.test(c.getAttribute('aria-label')) };
+    return { ok: !!u && u.tagName === 'UL' && u.parentElement === c.closest('li') && c.getAttribute('aria-expanded') === 'true' && c.tabIndex === -1 && /^Nested stages of /.test(c.getAttribute('aria-label')) };
   }));
   const withKids = [...idx.values()].filter(e => (e.n.children || []).length).length;
-  check(`${tag} chevron per parent row, aria-controls own kids`, chev.length === withKids && chev.every(c => c.ok), { chev: chev.length, withKids });
+  check(`${tag} chevron per parent row, aria-controls own kids, not a tab stop`, chev.length === withKids && chev.every(c => c.ok), { chev: chev.length, withKids });
   if (withKids) {
     const parent = [...idx.values()].find(e => (e.n.children || []).length).n;
     const c = page.locator(`li:has(> .sl-row > .sl-sel[data-id="${parent.id}"]) > .sl-row > .sl-chev`);

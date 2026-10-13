@@ -268,7 +268,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       <div id="stage-list" hidden><div id="sl-tools" class="sl-tools">
         <input type="search" id="sl-filter" placeholder="Filter stages" aria-label="Filter stages">
         <label><input type="checkbox" id="sl-failed"> Failed only</label></div>
-        <ul id="sl-tree" class="sl-tree"></ul><p id="sl-empty" class="hint" aria-live="polite"></p></div></div></div>
+        <ul id="sl-tree" class="sl-tree" aria-label="Stages"></ul><p id="sl-empty" class="hint" aria-live="polite"></p></div></div></div>
   </section>
   <div id="graph-split" class="splitter h" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="graph-scroll"
     aria-label="Resize stages pane" title="Resize stages pane (drag or arrow keys; double-click resets)"></div>
@@ -552,6 +552,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
         var b = el("button", "sl-sel" + (n.synthetic ? " synthetic" : ""));
         b.type = "button";
         b.dataset.id = n.id;
+        b.tabIndex = -1;
         b.setAttribute("aria-pressed", "false");
         b.title = n.name + " (" + st[2] + ")";
         b.append(icon(n.state), el("span", "sl-name", n.name));
@@ -572,9 +573,16 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
           var sub = el("ul");
           sub.id = "sl-kids-" + listItems.size;
           chev.type = "button";
+          // Out of the tab order: Right and Left on the row do the same, and a stop per parent row defeats the roving row.
+          chev.tabIndex = -1;
           chev.setAttribute("aria-controls", sub.id);
           chev.setAttribute("aria-label", "Nested stages of " + n.name);
-          chev.addEventListener("click", function () { setListCollapsed(li, !li.classList.contains("collapsed")); });
+          // A click leaves focus on the row, where the arrow keys work; the chevron has no keys of its own.
+          chev.addEventListener("mousedown", function (e) { e.preventDefault(); });
+          chev.addEventListener("click", function () {
+            setListCollapsed(li, !li.classList.contains("collapsed"));
+            syncListStop();
+          });
           add(kids, sub);
           li.append(sub);
           setListCollapsed(li, false);
@@ -584,6 +592,72 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     })(S.stages || [], $("sl-tree"));
     $("sl-filter").addEventListener("input", applyFilter);
     $("sl-failed").addEventListener("change", applyFilter);
+    $("sl-tree").addEventListener("focusin", function (e) {
+      if (!e.target.classList.contains("sl-sel")) return;
+      listFocus = e.target.dataset.id;
+      syncListStop();
+    });
+    $("sl-tree").addEventListener("keydown", listKey);
+    syncListStop();
+  }
+  // Roving tab stop with the WAI-ARIA tree view keys, on plain lists: the list is one Tab stop, arrows move between rows.
+  // Not role=tree: a treeitem can hold neither the chevron button nor aria-pressed, and in browse mode
+  // screen readers still read every row and chevron as list items and buttons.
+  var listFocus = null, listStop = null;
+  // Structural, not layout: the list is hidden in graph mode and still needs its tab stop.
+  function rowShown(li) {
+    for (; li.classList.contains("sl-item"); li = li.parentElement.parentElement) {
+      if (li.classList.contains("out") || li.parentElement.parentElement.classList.contains("collapsed")) return false;
+    }
+    return true;
+  }
+  function shownRows() {
+    var out = [];
+    listItems.forEach(function (li) { if (rowShown(li)) out.push(li.firstChild.lastChild); });
+    return out;
+  }
+  // Tab stop: the row last focused, else the selected row, else the first row, whichever shows first.
+  function syncListStop() {
+    var pick = [listFocus, current.node].map(function (id) { return id && listItems.get(id); })
+      .filter(function (li) { return li && rowShown(li); })[0];
+    var b = pick ? pick.firstChild.lastChild : shownRows()[0] || null;
+    if (b === listStop) return;
+    var hadFocus = !!listStop && document.activeElement === listStop;
+    if (listStop) listStop.tabIndex = -1;
+    listStop = b;
+    if (!b) return;
+    b.tabIndex = 0;
+    // The focused row got hidden; keep keyboard focus in the list rather than dropping it on the body.
+    if (hadFocus) focusRow(b);
+  }
+  function focusRow(b) {
+    listFocus = b.dataset.id;
+    syncListStop();
+    b.focus({ preventScroll: true });
+    // Minimal scroll, unlike revealNode: an arrow past the edge moves the list by one row, not a pane.
+    var box = $("graph-scroll"), inset = $("sl-tools").offsetHeight;
+    var r = b.getBoundingClientRect(), top = r.top - box.getBoundingClientRect().top - box.clientTop;
+    if (top < inset) box.scrollTop += top - inset;
+    else if (top + r.height > box.clientHeight) box.scrollTop += top + r.height - box.clientHeight;
+  }
+  function listKey(e) {
+    var b = e.target;
+    if (!b.classList.contains("sl-sel") || e.altKey || e.ctrlKey || e.metaKey) return;
+    var li = b.parentElement.parentElement, kids = li.lastChild.tagName === "UL" ? li.lastChild : null;
+    var open = !!kids && !li.classList.contains("collapsed");
+    var rows = shownRows(), i = rows.indexOf(b), to = null, up = li.parentElement.parentElement;
+    if (e.key === "ArrowDown") to = rows[i + 1];
+    else if (e.key === "ArrowUp") to = rows[i - 1];
+    else if (e.key === "Home") to = rows[0];
+    else if (e.key === "End") to = rows[rows.length - 1];
+    else if (e.key === "ArrowRight" && open) to = rows[i + 1] && kids.contains(rows[i + 1]) ? rows[i + 1] : null;
+    else if (e.key === "ArrowRight") { if (kids) setListCollapsed(li, false); }
+    else if (e.key === "ArrowLeft" && open) setListCollapsed(li, true);
+    else if (e.key === "ArrowLeft") to = up.classList.contains("sl-item") ? up.firstChild.lastChild : null;
+    else return;
+    e.preventDefault();
+    if (to) focusRow(to);
+    else syncListStop();
   }
   function setListCollapsed(li, c) {
     li.classList.toggle("collapsed", c);
@@ -594,6 +668,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   function listCollapseAll(c) {
     var keep = c && current.node ? ancestorIds(current.node) : new Set();
     listItems.forEach(function (li, id) { if (li.lastChild.tagName === "UL") setListCollapsed(li, c && !keep.has(id)); });
+    syncListStop();
     revealNode(current.node);
   }
   function filterActive() { return !!$("sl-filter").value.trim() || $("sl-failed").checked; }
@@ -640,6 +715,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     listItems.forEach(function (li, id) { li.classList.toggle("out", !!keep && !keep.has(id)); });
     // Text rather than the hidden attribute: screen readers skip live regions that start hidden.
     $("sl-empty").textContent = keep && !matches ? "No stages match." : "";
+    syncListStop();
     revealNode(current.node);
   }
   var mode = "graph";
@@ -1031,6 +1107,9 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     var fi = sel.node ? failedLeaves.indexOf(nodesById.get(sel.node).node) : -1;
     if (failedLeaves.length) $("fail-pos").textContent = (fi >= 0 ? (fi + 1) + " of " : "") + failedLeaves.length + " failed";
     if (filterActive()) applyFilter();
+    // A selection made outside the list (graph, failed nav, hash, Back) moves the list's tab stop to it.
+    if (!$("sl-tree").contains(document.activeElement)) listFocus = null;
+    syncListStop();
     if (logChanged) {
       if (sel.console) {
         openLog(S.console, "Full console log", "", null);
