@@ -162,13 +162,8 @@ func runExportHTML(cmd *cobra.Command, args []string) error {
 		defer out.abort()
 	}
 
-	progress := func(i, total int, n *export.Node, s *export.Step) {
-		if s == nil {
-			_, _ = fmt.Fprintln(os.Stderr, "fetching console log")
-			return
-		}
-		_, _ = fmt.Fprintf(os.Stderr, "fetching step %d/%d: %s\n", i, total, stepLabel(n, s))
-	}
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	progress := newExportProgress(os.Stderr, verbose)
 	// The spool goes beside the output, where the output needs room anyway.
 	// TMPDIR may be a small tmpfs, which the spool would fill or keep in RAM.
 	spoolDir := ""
@@ -177,12 +172,13 @@ func runExportHTML(cmd *cobra.Command, args []string) error {
 	}
 	snap, err := export.Collect(ctx, client, jobPath, buildNum, export.Options{
 		MaxLogBytes: maxLog,
-		Progress:    progress,
+		Progress:    progress.report,
 		SpoolDir:    spoolDir,
 		Concurrency: exportConcurrency(concurrency),
 		LogSource:   logSource,
-		Notice:      func(msg string) { _, _ = fmt.Fprintln(os.Stderr, msg) },
+		Notice:      progress.notice,
 	})
+	progress.clear()
 	if snap != nil {
 		defer func() { _ = snap.Close() }()
 	}
@@ -315,7 +311,7 @@ func stepLabel(n *export.Node, s *export.Step) string {
 	if r := []rune(name); len(r) > 60 {
 		name = string(r[:59]) + "…"
 	}
-	return n.Name + " › " + name
+	return collapseWS(n.Name) + " › " + name
 }
 
 func formatBytes(n int64) string {

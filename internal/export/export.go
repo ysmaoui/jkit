@@ -135,7 +135,8 @@ type Options struct {
 	// LogSource picks where step logs come from.
 	LogSource LogSource
 	// Notice, when set, gets one line naming the log source read, or why the
-	// annotated console was given up.
+	// annotated console was given up. It runs on the goroutine that calls
+	// Progress, so a printer may share state between the two without a lock.
 	Notice func(msg string)
 }
 

@@ -36,6 +36,8 @@ type htmlRun struct {
 	slowStep time.Duration
 	// prefix is a context path every route sits under, such as /jenkins.
 	prefix string
+	// steps, when above 0, replaces the two steps with that many, ids 100 up.
+	steps int
 	// onStep runs when step 4's log is requested, before it is answered.
 	onStep func()
 
@@ -85,6 +87,14 @@ func (h *htmlRun) serve(t *testing.T) string {
 				{"id":"3","name":"Build","type":"STAGE","state":"success","children":[]}]}}`, !h.building)
 		case rest == "stages/allSteps" && h.denySteps:
 			w.WriteHeader(http.StatusForbidden)
+		case rest == "stages/allSteps" && h.steps > 0:
+			var steps []string
+			for i := 0; i < h.steps; i++ {
+				steps = append(steps, fmt.Sprintf(`{"id":"%d","name":"step %d","title":"","state":"success","stageId":"3","startTimeMillis":%d}`, 100+i, i+1, i+1))
+			}
+			_, _ = fmt.Fprintf(w, `{"status":"ok","data":{"runIsComplete":true,"steps":[%s]}}`, strings.Join(steps, ","))
+		case h.steps > 0 && strings.HasSuffix(rest, "/log/logText/progressiveText") && strings.HasPrefix(rest, "execution/node/1"):
+			staplertest.WriteProgressive(w, r, staplertest.Streaming, "line\n", false)
 		case rest == "stages/allSteps":
 			_, _ = fmt.Fprintf(w, `{"status":"ok","data":{"runIsComplete":%t,"steps":[
 				{"id":"4","name":"make all","title":"","state":"success","stageId":"3","startTimeMillis":1},
@@ -166,6 +176,21 @@ func TestExportHTMLJobAndBuild(t *testing.T) {
 	assert.Contains(t, stderr, "fetching console log\n")
 	assert.Contains(t, stderr, "exported 2 step logs and the console")
 	assert.NotContains(t, stderr, "warning")
+}
+
+func TestExportHTMLProgressStaysShortOnManySteps(t *testing.T) {
+	const steps = 1000
+	h := &htmlRun{steps: steps}
+	h.serve(t)
+
+	_, stderr, _, err := runHTMLExport(t, "export", "html", "my-app", "7", "--log-source", "steps", "--concurrency", "8")
+	require.NoError(t, err)
+
+	n := strings.Count(stderr, "fetching step ")
+	assert.LessOrEqual(t, n, 17)
+	assert.Contains(t, stderr, "fetching step 1/1000: Build › step 1\n")
+	assert.Contains(t, stderr, "fetching step 1000/1000: Build › step 1000\n")
+	assert.Contains(t, stderr, "exported 1000 step logs")
 }
 
 func TestExportHTMLJobOnlyTakesLastBuild(t *testing.T) {
