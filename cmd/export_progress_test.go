@@ -74,6 +74,6 @@ func TestRewriteInPlace(t *testing.T) {
 func TestTTYWidthFallsBackTo80(t *testing.T) {
 	f, err := os.Open(os.DevNull)
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	assert.Equal(t, 80, ttyWidth(int(f.Fd())))
 }
