@@ -24,8 +24,7 @@ var (
 	exceptionHeader = regexp.MustCompile(`^(?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*(?:Exception|Error)(?::|$)`)
 )
 
-// errorLine is an error line's place among all error lines and its text,
-// empty for an "Also:" line.
+// errorLine is an error line's place among all error lines and its text.
 type errorLine struct {
 	seq int
 	msg string
@@ -45,9 +44,18 @@ type failureFinder struct {
 	seq int
 	// byNode is each node's last "ERROR:" line.
 	byNode map[string]errorLine
-	// build is the build's own "ERROR:", exception header and "Also:" lines,
-	// oldest first.
+	// build is the build's own "ERROR:" and exception header lines, oldest
+	// first.
 	build []errorLine
+	// branchFails is, oldest first, the place of each "Failed in branch"
+	// line and the node that wrote it: a parallel branch's closing node,
+	// when the branch threw.
+	branchFails []branchFail
+}
+
+type branchFail struct {
+	seq  int
+	node string
 }
 
 func newFailureFinder() *failureFinder {
@@ -106,13 +114,13 @@ func (f *failureFinder) line(node string, line []byte) {
 		return
 	}
 	if node != "" {
+		if bytes.HasPrefix(line, []byte("Failed in branch ")) {
+			f.seq++
+			f.branchFails = append(f.branchFails, branchFail{f.seq, node})
+		}
 		return
 	}
-	switch {
-	case bytes.HasPrefix(line, []byte("Also:")):
-		f.seq++
-		f.addBuild(errorLine{seq: f.seq})
-	case (bytes.Contains(line, []byte("Exception")) || bytes.Contains(line, []byte("Error"))) && exceptionHeader.Match(line):
+	if (bytes.Contains(line, []byte("Exception")) || bytes.Contains(line, []byte("Error"))) && exceptionHeader.Match(line) {
 		f.seq++
 		f.addBuild(errorLine{f.seq, cleanErrorText(line)})
 	}
@@ -129,12 +137,17 @@ func cleanErrorText(b []byte) string {
 	return strings.TrimSpace(output.StripControl(output.SanitizeLog(string(b[:min(len(b), maxFailureLineBytes)]))))
 }
 
-// resolve picks the error that failed the build. That is the latest node
-// error whose stage failed, unless the build wrote an error or exception
-// after it: then the failure is the build's own, id is empty and msg is the
-// first such line. A node error whose stage did not fail, such as a green
-// step echoing "ERROR:", or that traces to no stage, does not count.
-func (f *failureFinder) resolve(nodes []Node) (id, msg string) {
+// resolve picks the errors that failed the build. id and msg are the latest
+// node error whose stage failed; one whose stage did not fail, such as a
+// green step echoing "ERROR:", or that traces to no stage, does not count.
+// build is the first of the build's own error or exception lines written
+// after it. Both are kept: when code after a catchError stage throws, such
+// as notification code, the stage error is the actionable one. But when the
+// build threw from another stage, that stage is the answer, with no message
+// of its own: an uncaught failure writes its error at build level, not on a
+// node. build is dropped when it repeats msg, as when a stage echoes its
+// error and rethrows.
+func (f *failureFinder) resolve(nodes []Node) (id, msg, build string) {
 	byID := map[string]*Node{}
 	walk(nodes, func(n *Node) { byID[n.ID] = n })
 	var best errorLine
@@ -146,20 +159,105 @@ func (f *failureFinder) resolve(nodes []Node) (id, msg string) {
 			best, id = e, n.ID
 		}
 	}
-	after := false
+	msg = best.msg
 	for _, e := range f.build {
-		if e.seq <= best.seq {
+		if e.seq > best.seq && e.msg != "" {
+			build = e.msg
+			break
+		}
+	}
+	if build != "" && id != "" {
+		if later := f.laterFailure(nodes, byID, byID[id], best.seq); later != "" {
+			id, msg = later, ""
+		}
+	}
+	if build == msg {
+		build = ""
+	}
+	return id, msg, build
+}
+
+// laterFailure is the stage that threw after stage wrote its error at seq,
+// "" for stage itself. Branches run at once, so start times do not order
+// their failures; a branch that threw writes "Failed in branch" after the
+// error instead. A sibling of a branch holding stage may write it before
+// the error, and still fails the parallel stage is in; any other branch's
+// earlier line belongs to a parallel that did not fail the build. A branch
+// counts only when it and every enclosing node failed: a failure that
+// reached the build leaves its whole chain failed, while a parallel a
+// try/catch swallowed leaves its stage green. The first counted branch
+// names the stage: an enclosing branch writes its own line after an inner
+// one, and a branch failFast aborted is not FAILURE. When that branch holds
+// stage, the stage after stage in the branch threw, as in a sequential run.
+// With no counted line the run was sequential, and the failed leaf that
+// started last threw, if it started after stage and lies outside it.
+func (f *failureFinder) laterFailure(nodes []Node, byID map[string]*Node, stage *Node, seq int) string {
+	parentOf := map[string]*Node{}
+	walk(nodes, func(n *Node) {
+		for i := range n.Children {
+			parentOf[n.Children[i].ID] = n
+		}
+	})
+	// failedChain is whether n and every node enclosing it ended failed. An
+	// enclosing parallel failFast stopped ends ABORTED.
+	failedChain := func(n *Node) bool {
+		for p := parentOf[n.ID]; p != nil; p = parentOf[p.ID] {
+			if p.State != "FAILURE" && p.State != "ABORTED" {
+				return false
+			}
+		}
+		return n.State == "FAILURE"
+	}
+	branched := false
+	for _, e := range f.branchFails {
+		b := byID[f.trace(e.node, byID)]
+		if b == nil {
+			if e.seq > seq {
+				branched = true
+			}
 			continue
 		}
-		after = true
-		if e.msg != "" {
-			return "", e.msg
+		if e.seq <= seq && (parentOf[b.ID] == nil || !contains(parentOf[b.ID], stage)) {
+			continue
 		}
+		if !failedChain(b) {
+			continue
+		}
+		branched = true
+		if contains(b, stage) {
+			if leaf := laterLeaf([]Node{*b}, stage); leaf != nil {
+				return leaf.ID
+			}
+			continue
+		}
+		if leaf := lastFailedLeaf([]Node{*b}); leaf != nil {
+			return leaf.ID
+		}
+		return b.ID
 	}
-	if after {
-		return "", ""
+	if branched {
+		return ""
 	}
-	return id, best.msg
+	if leaf := laterLeaf(nodes, stage); leaf != nil {
+		return leaf.ID
+	}
+	return ""
+}
+
+// laterLeaf is the failed leaf under nodes that started last, if it started
+// after stage and lies outside it.
+func laterLeaf(nodes []Node, stage *Node) *Node {
+	if leaf := lastFailedLeaf(nodes); leaf != nil && leaf.StartTimeMillis > stage.StartTimeMillis && !contains(stage, leaf) {
+		return leaf
+	}
+	return nil
+}
+
+// contains reports whether n is root or lies under it.
+func contains(root, n *Node) bool {
+	found := false
+	walk([]Node{*root}, func(m *Node) { found = found || m.ID == n.ID })
+	return found
 }
 
 // trace is the first of node and its ancestors that is in the tree, "" for
@@ -179,41 +277,33 @@ func (f *failureFinder) trace(node string, byID map[string]*Node) string {
 	return ""
 }
 
-// markFailure sets which node failed a failed or still running build: the
-// stage f resolves when it resolves one, else the failed leaf stage that
-// started last. f is nil when step logs were not read from the annotated
-// console.
+// markFailure sets which node failed a failed or still running build and
+// the error lines naming why: the stage f resolves when it resolves one,
+// else the failed leaf stage that started last, with no stage message. f is
+// nil when step logs were not read from the annotated console.
 func (s *Snapshot) markFailure(f *failureFinder) {
 	if s.Result != "FAILURE" && !s.Building {
 		return
 	}
 	if f != nil {
-		id, msg := f.resolve(s.Stages)
-		s.FailureMessage = msg
-		if msg != "" {
-			if id != "" {
-				s.FailureMessageSource = "node"
-			} else {
-				s.FailureMessageSource = "build"
-			}
-		}
+		id, msg, build := f.resolve(s.Stages)
+		s.BuildErrorMessage = build
 		if id != "" {
-			s.FailureNodeID = id
+			s.FailureNodeID, s.FailureMessage = id, msg
 			return
 		}
 	}
-	s.FailureNodeID = lastFailedLeaf(s.Stages)
+	if leaf := lastFailedLeaf(s.Stages); leaf != nil {
+		s.FailureNodeID = leaf.ID
+	}
 }
 
-func lastFailedLeaf(nodes []Node) string {
+func lastFailedLeaf(nodes []Node) *Node {
 	var last *Node
 	walk(nodes, func(n *Node) {
 		if n.State == "FAILURE" && len(n.Children) == 0 && (last == nil || n.StartTimeMillis >= last.StartTimeMillis) {
 			last = n
 		}
 	})
-	if last == nil {
-		return ""
-	}
-	return last.ID
+	return last
 }

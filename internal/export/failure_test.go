@@ -1,6 +1,9 @@
 package export
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,9 +82,10 @@ func TestFailureFinderBlockEndNode(t *testing.T) {
 	node, msg := lastError(f)
 	assert.Equal(t, "24", node)
 	assert.Equal(t, "script returned exit code 3", msg)
-	id, msg := f.resolve(consolePipelineStages())
+	id, msg, build := f.resolve(consolePipelineStages())
 	assert.Equal(t, "20", id)
 	assert.Equal(t, "script returned exit code 3", msg)
+	assert.Empty(t, build)
 }
 
 // lateFailure is a stage after the fixture's catchError stage whose error
@@ -107,48 +111,214 @@ func TestFailureFinderCatchErrorThenRealFailure(t *testing.T) {
 	// Every split point gives the same answer: lines cross writes.
 	for i := 0; i <= len(html); i += 97 {
 		f := findFailure(t, html[:i], html[i:])
-		id, msg := f.resolve(stages)
+		id, msg, build := f.resolve(stages)
 		assert.Equal(t, "71", id, "split at %d", i)
 		assert.Equal(t, "Could not find credentials entry with ID 'SECRET'", msg, "split at %d", i)
+		assert.Empty(t, build, "split at %d", i)
 	}
 }
 
+const uncaughtTrace = "[2026-10-12T11:13:21.000Z] groovy.lang.MissingPropertyException: No such property: foo for class: WorkflowScript\n" +
+	"[2026-10-12T11:13:21.000Z] \tat WorkflowScript.run(WorkflowScript:12)\n"
+
+const uncaughtHeader = "groovy.lang.MissingPropertyException: No such property: foo for class: WorkflowScript"
+
 // An uncaught exception other than AbortException ends the build with a
-// build-level stack trace and no "ERROR:" line. The catchError stage before
-// it is then not the answer.
+// build-level stack trace and no "ERROR:" line; an uncaught sh or error step
+// writes a build-level "ERROR:" line. Either is kept apart from the
+// catchError stage's error before it. That stage keeps the failure unless a
+// failed stage started after it, which is then what the build threw from.
 func TestFailureFinderUncaughtException(t *testing.T) {
-	const trace = "[2026-10-12T11:13:21.000Z] groovy.lang.MissingPropertyException: No such property: foo for class: WorkflowScript\n" +
-		"[2026-10-12T11:13:21.000Z] \tat WorkflowScript.run(WorkflowScript:12)\n"
-	stages := append(consolePipelineStages(), Node{ID: "71", Name: "B", State: "FAILURE", StartTimeMillis: 5})
 	tests := map[string]struct {
-		build, msg string
+		build, want string
 	}{
-		"exception":         {trace, "groovy.lang.MissingPropertyException: No such property: foo for class: WorkflowScript"},
-		"Also first":        {"Also:   org.jenkinsci.plugins.workflow.actions.ErrorAction$ErrorId: 1f\n" + trace, "groovy.lang.MissingPropertyException: No such property: foo for class: WorkflowScript"},
-		"Also only":         {"Also:   something\n", ""},
-		"build ERROR line":  {"ERROR: script returned exit code 1\n", "script returned exit code 1"},
-		"plain Error text":  {"Error: not a stack trace\nNo Exception here\n", "script returned exit code 3"},
-		"unqualified class": {"MissingPropertyException: no package\n", "script returned exit code 3"},
+		"exception":          {uncaughtTrace, uncaughtHeader},
+		"Also first":         {"Also:   org.jenkinsci.plugins.workflow.actions.ErrorAction$ErrorId: 1f\n" + uncaughtTrace, uncaughtHeader},
+		"Also ignored":       {"Also:   something\n", ""},
+		"uncaught sh":        {"ERROR: script returned exit code 2\n", "script returned exit code 2"},
+		"uncaught error":     {"ERROR: later stage fail\n", "later stage fail"},
+		"repeats stage line": {"ERROR: script returned exit code 3\n", "script returned exit code 3"},
+		"plain Error text":   {"Error: not a stack trace\nNo Exception here\n", ""},
+		"unqualified class":  {"MissingPropertyException: no package\n", ""},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			f := findFailure(t, consolePipeline(t, "", tc.build))
-			id, msg := f.resolve(stages)
-			assert.Equal(t, tc.msg, msg)
-			if tc.msg == "script returned exit code 3" {
-				assert.Equal(t, "20", id, "no build-level failure")
-				return
+
+			// Flaky (20) is the only failed stage: it keeps the failure, as
+			// when post-pipeline code throws.
+			id, msg, build := f.resolve(consolePipelineStages())
+			assert.Equal(t, "20", id, "the stage error keeps its stage")
+			assert.Equal(t, "script returned exit code 3", msg)
+			if tc.want == msg {
+				assert.Empty(t, build, "a build line repeating the stage's is dropped")
+			} else {
+				assert.Equal(t, tc.want, build)
 			}
-			assert.Empty(t, id, "the build's own failure")
+
+			// B failed after Flaky's caught error: the build threw from B.
+			stages := append(consolePipelineStages(), Node{ID: "71", Name: "B", State: "FAILURE", StartTimeMillis: 5})
 			s := &Snapshot{Result: "FAILURE", Stages: stages}
 			s.markFailure(f)
-			assert.Equal(t, "71", s.FailureNodeID, "falls back to the last failed leaf")
-			assert.Equal(t, tc.msg, s.FailureMessage)
-			wantSource := ""
-			if tc.msg != "" {
-				wantSource = "build"
+			if tc.want == "" {
+				assert.Equal(t, "20", s.FailureNodeID, "no build-level failure")
+				assert.Equal(t, "script returned exit code 3", s.FailureMessage)
+			} else {
+				assert.Equal(t, "71", s.FailureNodeID, "the later failed stage threw")
+				assert.Empty(t, s.FailureMessage, "the uncaught error is the build's")
 			}
-			assert.Equal(t, wantSource, s.FailureMessageSource)
+			assert.Equal(t, tc.want, s.BuildErrorMessage)
+
+			// Flaky passed, so only the build's own error is left.
+			stages[1].State = "SUCCESS"
+			s = &Snapshot{Result: "FAILURE", Stages: stages}
+			s.markFailure(f)
+			assert.Equal(t, "71", s.FailureNodeID, "falls back to the last failed leaf")
+			assert.Empty(t, s.FailureMessage, "the fallback leaf wrote no error")
+			assert.Equal(t, tc.want, s.BuildErrorMessage)
+		})
+	}
+}
+
+// Post-pipeline code throwing after a catchError stage failed on a missing
+// credential: the page needs both, the stage error on its stage and the
+// exception for the build.
+func TestFailureFinderStageErrorThenException(t *testing.T) {
+	f := findFailure(t, consolePipeline(t, lateFailure, uncaughtTrace))
+	s := &Snapshot{Result: "FAILURE", Stages: append(consolePipelineStages(), Node{ID: "71", Name: "Upload", State: "FAILURE", StartTimeMillis: 5})}
+	s.markFailure(f)
+	assert.Equal(t, "71", s.FailureNodeID)
+	assert.Equal(t, "Could not find credentials entry with ID 'SECRET'", s.FailureMessage)
+	assert.Equal(t, uncaughtHeader, s.BuildErrorMessage)
+}
+
+// testdata/failure holds progressiveHtml captured from the integration
+// Jenkins running the .groovy beside each page. Branch X catches an error
+// while branch Y throws and fails the build; start times do not tell which
+// threw.
+func TestFailureFinderParallelLaterBranch(t *testing.T) {
+	const t0 = int64(1791867641000)
+	tests := map[string]struct {
+		page   string
+		stages []Node
+		want   string
+	}{
+		"declarative": {"parallel-later", []Node{{ID: "6", Name: "P", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+			{ID: "9", Name: "X", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: t0 + 86, Children: []Node{
+				{ID: "16", Name: "X1", State: "SUCCESS", StartTimeMillis: t0 + 221},
+				{ID: "24", Name: "X2", State: "FAILURE", StartTimeMillis: t0 + 1320},
+			}},
+			{ID: "10", Name: "Y", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: t0 + 94, Children: []Node{
+				{ID: "18", Name: "Y1", State: "FAILURE", StartTimeMillis: t0 + 238},
+			}},
+		}}}, "18"},
+		// Siblings often start in the same millisecond.
+		"scripted": {"scripted-parallel-later", []Node{{ID: "5", Name: "Parallel", Type: "PARALLEL_BLOCK", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+			{ID: "7", Name: "X", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+				{ID: "10", Name: "X1", State: "FAILURE", StartTimeMillis: t0 + 30},
+			}},
+			{ID: "8", Name: "Y", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+				{ID: "12", Name: "Y1", State: "FAILURE", StartTimeMillis: t0 + 30},
+			}},
+		}}}, "12"},
+		// Y throws before X catches its error, so Y's branch line comes
+		// first; Y is X's sibling, so it still failed the parallel.
+		"sibling line first": {"sibling-before-caught", []Node{{ID: "5", Name: "Parallel", Type: "PARALLEL_BLOCK", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+			{ID: "7", Name: "Y", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+				{ID: "10", Name: "Y1", State: "FAILURE", StartTimeMillis: t0 + 30},
+			}},
+			{ID: "8", Name: "X", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+				{ID: "12", Name: "X1", State: "FAILURE", StartTimeMillis: t0 + 30},
+			}},
+		}}}, "10"},
+		"sibling line first, X declared first": {"sibling-before-caught-swapped", []Node{{ID: "5", Name: "Parallel", Type: "PARALLEL_BLOCK", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+			{ID: "7", Name: "X", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+				{ID: "10", Name: "X1", State: "FAILURE", StartTimeMillis: t0 + 30},
+			}},
+			{ID: "8", Name: "Y", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: t0, Children: []Node{
+				{ID: "12", Name: "Y1", State: "FAILURE", StartTimeMillis: t0 + 30},
+			}},
+		}}}, "12"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			html, err := os.ReadFile(filepath.Join("testdata", "failure", tc.page+".html"))
+			require.NoError(t, err)
+			s := &Snapshot{Result: "FAILURE", Stages: tc.stages}
+			s.markFailure(findFailure(t, string(html)))
+			assert.Equal(t, tc.want, s.FailureNodeID, "Y1 threw")
+			assert.Empty(t, s.FailureMessage, "the caught error is X's")
+			assert.Equal(t, "real", s.BuildErrorMessage)
+		})
+	}
+}
+
+// These fixtures carry the stage tree the export built for the run, with
+// its real start times.
+func TestFailureFinderCapturedRuns(t *testing.T) {
+	tests := map[string]struct{ id, name string }{
+		// The caught stage and the one that threw share branch O1.
+		"later-stage-in-branch": {"25", "Z"},
+		// X1 sits three parallels deep; E threw first.
+		"deep-nested-branch": {"14", "E1"},
+		// Y's branch line follows the caught error, but a try/catch swallowed
+		// that parallel and B threw.
+		"swallowed-parallel": {"37", "B"},
+	}
+	for page, tc := range tests {
+		t.Run(page, func(t *testing.T) {
+			html, err := os.ReadFile(filepath.Join("testdata", "failure", page+".html"))
+			require.NoError(t, err)
+			b, err := os.ReadFile(filepath.Join("testdata", "failure", page+".stages.json"))
+			require.NoError(t, err)
+			s := &Snapshot{Result: "FAILURE"}
+			require.NoError(t, json.Unmarshal(b, &s.Stages))
+			s.markFailure(findFailure(t, string(html)))
+			assert.Equal(t, tc.id, s.FailureNodeID, tc.name)
+			assert.Empty(t, s.FailureMessage)
+			assert.Equal(t, "real", s.BuildErrorMessage)
+		})
+	}
+}
+
+func TestFailureFinderBranchLines(t *testing.T) {
+	// R's branch Q failed inside a try/catch before P ran; in P, X1 caught
+	// an error, Y threw and failFast aborted Z.
+	stages := func() []Node {
+		return []Node{
+			{ID: "1", Name: "R", Type: "PARALLEL_BLOCK", State: "SUCCESS", StartTimeMillis: 10, Children: []Node{
+				{ID: "2", Name: "Q", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: 10, Children: []Node{{ID: "3", Name: "Q1", State: "FAILURE", StartTimeMillis: 10}}},
+			}},
+			{ID: "4", Name: "P", Type: "PARALLEL_BLOCK", State: "FAILURE", StartTimeMillis: 20, Children: []Node{
+				{ID: "5", Name: "X", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: 20, Children: []Node{{ID: "6", Name: "X1", State: "FAILURE", StartTimeMillis: 20}}},
+				{ID: "7", Name: "Y", Type: "PARALLEL", State: "FAILURE", StartTimeMillis: 20, Children: []Node{{ID: "8", Name: "Y1", State: "FAILURE", StartTimeMillis: 20}}},
+				{ID: "9", Name: "Z", Type: "PARALLEL", State: "ABORTED", StartTimeMillis: 20, Children: []Node{{ID: "10", Name: "Z1", State: "ABORTED", StartTimeMillis: 20}}},
+			}},
+		}
+	}
+	type write struct{ node, text string }
+	tests := map[string]struct {
+		writes []write
+		id     string
+	}{
+		"other parallel's earlier line ignored": {[]write{{"92", "Failed in branch Q\n"}, {"90", "ERROR: caught\n"}, {"", "ERROR: real\n"}}, "6"},
+		"aborted branch skipped":                {[]write{{"90", "ERROR: caught\n"}, {"94", "Failed in branch Z\n"}, {"93", "Failed in branch Y\n"}, {"", "ERROR: real\n"}}, "8"},
+		"sibling's earlier line counts":         {[]write{{"93", "Failed in branch Y\n"}, {"90", "ERROR: caught\n"}, {"", "ERROR: real\n"}}, "8"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newFailureFinder()
+			f.newNode("90", "", "6")
+			f.newNode("92", "2", "")
+			f.newNode("93", "7", "")
+			f.newNode("94", "9", "")
+			for _, w := range tc.writes {
+				f.text(w.node, []byte(w.text))
+			}
+			s := &Snapshot{Result: "FAILURE", Stages: stages()}
+			s.markFailure(f)
+			assert.Equal(t, tc.id, s.FailureNodeID)
+			assert.Equal(t, "real", s.BuildErrorMessage)
 		})
 	}
 }
@@ -167,9 +337,10 @@ func TestFailureFinderGreenStepEcho(t *testing.T) {
 	node, _ := lastError(f)
 	require.Equal(t, "82", node)
 	stages := append(consolePipelineStages(), Node{ID: "81", Name: "Report", State: "SUCCESS", StartTimeMillis: 9})
-	id, msg := f.resolve(stages)
+	id, msg, build := f.resolve(stages)
 	assert.Equal(t, "20", id)
 	assert.Equal(t, "script returned exit code 3", msg)
+	assert.Empty(t, build)
 }
 
 func TestFailureFinderLines(t *testing.T) {
@@ -221,13 +392,13 @@ func TestCollectFailureNode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "18", snap.FailureNodeID)
 	assert.Equal(t, "late", snap.FailureMessage)
-	assert.Equal(t, "node", snap.FailureMessageSource)
+	assert.Empty(t, snap.BuildErrorMessage)
 
 	snap, err = collect(t, client, run.job, Options{LogSource: LogSourceSteps})
 	require.NoError(t, err)
 	assert.Equal(t, "18", snap.FailureNodeID)
 	assert.Empty(t, snap.FailureMessage)
-	assert.Empty(t, snap.FailureMessageSource)
+	assert.Empty(t, snap.BuildErrorMessage)
 }
 
 func TestMarkFailure(t *testing.T) {
@@ -249,16 +420,30 @@ func TestMarkFailure(t *testing.T) {
 		return f
 	}
 
+	// then writes text as node after what f already holds.
+	then := func(f *failureFinder, node, text string) *failureFinder {
+		f.text(node, []byte(text))
+		return f
+	}
+
 	tests := map[string]struct {
-		result   string
-		building bool
-		find     *failureFinder
-		id, msg  string
-		src      string
+		result       string
+		building     bool
+		find         *failureFinder
+		id, msg, bld string
 	}{
-		"attributed":                {"FAILURE", false, finder("12", "ERROR: in 9\n", "12", "9"), "9", "in 9", "node"},
+		"attributed":                {"FAILURE", false, finder("12", "ERROR: in 9\n", "12", "9"), "9", "in 9", ""},
+		"stage and build":           {"FAILURE", false, then(finder("12", "ERROR: in 8\n", "12", "8"), "", "java.lang.IllegalStateException: boom\n"), "8", "in 8", "java.lang.IllegalStateException: boom"},
+		"later stage threw":         {"FAILURE", false, then(finder("12", "ERROR: in 9\n", "12", "9"), "", "ERROR: script returned exit code 2\n"), "8", "", "script returned exit code 2"},
+		"leaf inside stage threw":   {"FAILURE", false, then(finder("12", "ERROR: in 7\n", "12", "7"), "", "ERROR: in 8\n"), "7", "in 7", "in 8"},
+		"later branch threw":        {"FAILURE", false, then(then(finder("12", "ERROR: in 8\n", "12", "8", "13", "9"), "13", "Failed in branch 9\n"), "", "ERROR: real\n"), "9", "", "real"},
+		"own branch threw":          {"FAILURE", false, then(then(finder("12", "ERROR: in 9\n", "12", "9", "13", "9"), "13", "Failed in branch 9\n"), "", "ERROR: real\n"), "9", "in 9", "real"},
+		"inner branch line first":   {"FAILURE", false, then(then(then(finder("12", "ERROR: in 8\n", "12", "8", "13", "9", "14", "7"), "13", "Failed in branch 9\n"), "14", "Failed in branch 7\n"), "", "ERROR: real\n"), "9", "", "real"},
+		"branch line before error":  {"FAILURE", false, then(then(finder("13", "Failed in branch 9\n", "12", "9", "13", "9"), "12", "ERROR: in 9\n"), "", "ERROR: real\n"), "8", "", "real"},
+		"build repeats stage":       {"FAILURE", false, then(finder("12", "ERROR: in 8\n", "12", "8"), "", "ERROR: in 8\n"), "8", "in 8", ""},
+		"build before stage":        {"FAILURE", false, then(finder("", "ERROR: early\n", "12", "9"), "12", "ERROR: in 9\n"), "9", "in 9", ""},
 		"stage not failed":          {"FAILURE", false, finder("12", "ERROR: in 10\n", "12", "10"), "8", "", ""},
-		"build level falls back":    {"FAILURE", false, finder("", "ERROR: uncaught\n"), "8", "uncaught", "build"},
+		"build only falls back":     {"FAILURE", false, finder("", "ERROR: uncaught\n"), "8", "", "uncaught"},
 		"outside stages falls back": {"FAILURE", false, finder("99", "ERROR: outside\n"), "8", "", ""},
 		"no error line":             {"FAILURE", false, newFailureFinder(), "8", "", ""},
 		"steps path":                {"FAILURE", false, nil, "8", "", ""},
@@ -272,7 +457,7 @@ func TestMarkFailure(t *testing.T) {
 			s.markFailure(tc.find)
 			assert.Equal(t, tc.id, s.FailureNodeID)
 			assert.Equal(t, tc.msg, s.FailureMessage)
-			assert.Equal(t, tc.src, s.FailureMessageSource)
+			assert.Equal(t, tc.bld, s.BuildErrorMessage)
 		})
 	}
 	s := &Snapshot{Result: "FAILURE", Stages: []Node{{ID: "1", State: "SUCCESS"}}}

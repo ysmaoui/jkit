@@ -404,17 +404,40 @@ failed and goes on. While the annotated console splits, each node's last
 `enclosingId` trace that node up to its stage. The node is often no step at
 all, such as a `catchError` body's closing `}`. The latest such line whose
 stage is in state FAILURE wins, so a green step echoing `ERROR:` does not, and
-`failureMessage` is that line. The build's own text can override it: an
-`ERROR:` line, a qualified exception header such as
-`groovy.lang.MissingPropertyException: ...`, or an `Also:` line written after
-it means the build itself threw, since an uncaught exception other than
-`AbortException` prints a stack trace and no `ERROR:` line. `failureMessage`
-is then the first of those lines. `failureNodeId` falls back to the failed
-leaf stage that started last when the build threw, when no node's `ERROR:`
-line traces to a failed stage (the message is then empty), and when the pool
-read the logs: `consoleText` carries no node to trace. `failureMessageSource` says
-which: `node` for the stage's own line, `build` for the build's, so the page
-does not show a build exception under the fallback stage.
+`failureMessage` is that line. The build's own text written after it goes to
+`buildErrorMessage` instead: the first `ERROR:` line or qualified exception
+header such as `groovy.lang.MissingPropertyException: ...` with no node. An
+uncaught exception other than `AbortException` prints a stack trace and no
+`ERROR:` line, so the header is all there is. The two are kept apart because
+post-pipeline code, such as a notification hitting the script sandbox, often
+throws after a `catchError` stage failed, and the stage error is the one to
+act on. But when the build threw from another stage, that stage takes
+`failureNodeId`, with an empty `failureMessage`: an uncaught `sh` or `error`
+writes its `ERROR:` line at build level, not on its node. Parallel branches
+run at once, so start times do not say which threw last. A branch that
+threw has its closing node write `Failed in branch <name>`, in declarative
+and scripted `parallel` alike. A line written after the caught error counts,
+and so does an earlier one from a branch of a parallel that holds the
+caught stage, since such a branch that threw fails that parallel whenever
+it threw. Any other earlier line belongs to a parallel that did not fail
+the build. A line also counts only when its branch is in state FAILURE and
+every stage enclosing it is FAILURE or ABORTED (`failFast` aborts the
+parallel): a failure that reached the build leaves that whole chain
+failed, while a parallel inside a `try` leaves its stage green. The first
+counted line names the branch. When the branch does not hold the caught
+stage, its failed leaf that started last is the answer; when it does, the
+failed leaf in it that started after the caught stage and lies outside it,
+as in a sequential run, else the next line decides. An enclosing branch
+writes its line after the inner one, so the first line is the innermost,
+and a branch `failFast` aborted is not FAILURE. With no counted line
+the run was sequential: the failed leaf that started last, if it started
+after the caught stage and lies outside it, threw. A `buildErrorMessage` equal to
+`failureMessage` is dropped, since a stage that echoes its error and
+rethrows would show it twice. `failureNodeId` falls back to the failed leaf
+stage that started last when no node's `ERROR:` line traces to a failed
+stage and when the pool read the logs: `consoleText` carries no node to
+trace. `failureMessage` is then empty, so the page never shows an error
+under a stage that did not write it.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its

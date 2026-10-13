@@ -46,14 +46,14 @@ type Snapshot struct {
 	// the build did not fail or no stage did. A catchError stage marked
 	// FAILURE is not it when a later error stopped the build.
 	FailureNodeID string `json:"failureNodeId"`
-	// FailureMessage is the "ERROR:" line or exception header that named
-	// FailureNodeID, or the build's own when the build threw. It is read only
-	// with the annotated console.
+	// FailureMessage is the "ERROR:" line that named FailureNodeID, empty
+	// when FailureNodeID is only the fallback leaf. It is read only with the
+	// annotated console.
 	FailureMessage string `json:"failureMessage"`
-	// FailureMessageSource is "node" when FailureMessage came from
-	// FailureNodeID's own output, "build" when the build threw and
-	// FailureNodeID is only the fallback leaf, empty with no message.
-	FailureMessageSource string `json:"failureMessageSource"`
+	// BuildErrorMessage is the build's own error or exception line written
+	// after FailureMessage, set when the build itself threw. It belongs to no
+	// stage and is read only with the annotated console.
+	BuildErrorMessage string `json:"buildErrorMessage"`
 }
 
 // Node is a stage or parallel branch. A parallel wrapper is a STAGE whose

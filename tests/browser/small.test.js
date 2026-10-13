@@ -164,9 +164,11 @@ async function wide(browserName, file) {
       await fresh.waitForSelector('.node', { state: 'attached' });
       const l0 = (await state(fresh)).len;
       await fresh.click('#fail-next');
+      const moved = (await state(fresh)).graph !== want.id;
+      // With two failed stages the second step wraps back to the opening one.
       await fresh.click('#fail-next');
       s = await state(fresh);
-      check(`${tag} stepping right after open adds one entry`, s.len === l0 + 1 && s.graph !== want.id, { l0, s });
+      check(`${tag} stepping right after open adds one entry`, s.len === l0 + 1 && moved, { l0, moved, s });
       await back(fresh);
       s = await state(fresh);
       check(`${tag} Back after open-then-step returns to opening ${want.name}`, s.graph === want.id, s);
@@ -198,15 +200,20 @@ async function wide(browserName, file) {
     await page.click('#mode-graph');
   }
 
-  // Caption on build-level message only.
-  const cap = await page.evaluate(() => {
-    const c = document.querySelector('header .fail-cap'), m = document.querySelector('header .fail-msg');
-    return { cap: c && c.textContent, next: c && c.nextElementSibling === m, msg: m && m.textContent, msgKids: m ? m.children.length : -1, steps: !!document.querySelector('#steps .fail-cap') };
-  });
-  const inHeader = !!(S.failureMessage && !(S.failureMessageSource === 'node' && find(S.stages, S.failureNodeId)));
+  // Each message has its caption just before it, named by aria-labelledby.
+  const capOf = sel => page.evaluate(sel => {
+    const c = document.querySelector(sel + ' .fail-cap'), m = document.querySelector(sel + ' .fail-msg');
+    return { cap: c && c.textContent, next: !!c && c.nextElementSibling === m, label: !!c && !!c.id && !!m && m.getAttribute('aria-labelledby') === c.id,
+      msg: m && m.textContent, msgKids: m ? m.children.length : -1 };
+  }, sel);
+  const cap = await capOf('header'), scap = await capOf('#steps');
+  const inHeader = !!S.buildErrorMessage;
   check(`${tag} "Build error" caption ${inHeader ? 'before header message' : 'absent'}`, inHeader
-    ? cap.cap === 'Build error' && cap.next && cap.msg === S.failureMessage && cap.msgKids === 0 && !cap.steps
-    : cap.cap === null && !cap.steps, cap);
+    ? cap.cap === 'Build error' && cap.next && cap.label && cap.msg === S.buildErrorMessage && cap.msgKids === 0
+    : cap.cap === null && cap.msg === null, cap);
+  check(`${tag} "Stage error" caption ${scap.msg !== null ? 'before steps message' : 'absent'}`, scap.msg !== null
+    ? scap.cap === 'Stage error' && scap.next && scap.label && scap.msg === S.failureMessage && scap.msgKids === 0
+    : scap.cap === null, scap);
   if (inHeader) await page.screenshot({ path: `${SHOTS}/${browserName}-${path.basename(file, '.html')}-1280-caption.png`, clip: { x: 0, y: 0, width: 1280, height: 260 } });
 
   check(`${tag} no console errors`, errors.length === 0, errors);

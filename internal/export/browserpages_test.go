@@ -24,16 +24,49 @@ func TestBrowserPages(t *testing.T) {
 	}
 	write("golden.html", renderFixture(t))
 	// A build that threw before any stage, and a failure node the graph lacks:
-	// both put the message in the header.
-	for name, v := range map[string]struct{ node, source string }{
-		"golden-nonode.html":  {"", "build"},
-		"golden-missing.html": {"999", "node"},
+	// both show only the build's message.
+	for name, v := range map[string]struct{ node, msg string }{
+		"golden-nonode.html":  {"", ""},
+		"golden-missing.html": {"999", "script returned exit code 1"},
 	} {
 		s := renderFixture(t)
-		s.FailureNodeID, s.FailureMessageSource = v.node, v.source
-		s.FailureMessage = "hudson.AbortException: thrown before any stage"
+		s.FailureNodeID, s.FailureMessage = v.node, v.msg
+		s.BuildErrorMessage = "hudson.AbortException: thrown before any stage"
 		write(name, s)
 	}
+	// unit (14) failed under catchError, then Setup (20), which started after
+	// it, threw: the page opens on Setup with no stage message.
+	s := renderFixture(t)
+	s.Stages[1].Children[1].Children[0].State = "FAILURE"
+	// Setup has no failed step, so the page offers a console search for it.
+	s.Console = mustLog(t, testSpool(t), 0, "Started by user admin\n[Pipeline] { (Setup)\nERROR: script returned exit code 2\nFinished: FAILURE\n")
+	f := newFailureFinder()
+	f.newNode("90", "", "14")
+	f.text("90", []byte("ERROR: script returned exit code 1\n"))
+	f.text("", []byte("ERROR: script returned exit code 2\n"))
+	s.markFailure(f)
+	require.Equal(t, "20", s.FailureNodeID)
+	require.Empty(t, s.FailureMessage)
+	require.Equal(t, "script returned exit code 2", s.BuildErrorMessage)
+	write("golden-later.html", s)
+	// Setup (20) failed under catchError, then the unit branch (14), which
+	// started before it, threw: the branch's closing node names it. The
+	// failure reached the build, so Test, which encloses unit, failed too.
+	s = renderFixture(t)
+	s.Stages[1].Children[1].Children[0].State = "FAILURE"
+	s.Stages[1].State, s.Stages[1].Running = "FAILURE", false
+	s.Console = mustLog(t, testSpool(t), 0, "Started by user admin\n[Pipeline] { (Setup)\nERROR: caught\nFailed in branch unit\nERROR: script returned exit code 1\nFinished: FAILURE\n")
+	f = newFailureFinder()
+	f.newNode("90", "", "20")
+	f.newNode("91", "14", "")
+	f.text("90", []byte("ERROR: caught\n"))
+	f.text("91", []byte("Failed in branch unit\n"))
+	f.text("", []byte("ERROR: script returned exit code 1\n"))
+	s.markFailure(f)
+	require.Equal(t, "14", s.FailureNodeID)
+	require.Empty(t, s.FailureMessage)
+	require.Equal(t, "script returned exit code 1", s.BuildErrorMessage)
+	write("golden-branch.html", s)
 	write("wide-failed.html", wideFixture(t, true))
 	write("wide-passed.html", wideFixture(t, false))
 }
@@ -145,9 +178,8 @@ func wideFixture(t *testing.T, failed bool) *Snapshot {
 		quiet := stage("Publish run statistics", "FAILURE", false)
 		s.Stages = append(s.Stages, quiet, ok("Clean up"))
 		s.FailureNodeID = quiet.ID
-		s.FailureMessageSource = "build"
-		s.FailureMessage = "org.jenkinsci.plugins.scriptsecurity.sandbox.RejectedAccessException: Scripts not permitted to use staticMethod java.lang.System getenv"
-		console.WriteString("[Pipeline] { (Publish run statistics)\nPublish run statistics: posting 42 records\n" + s.FailureMessage + "\nFinished: FAILURE\n")
+		s.BuildErrorMessage = "org.jenkinsci.plugins.scriptsecurity.sandbox.RejectedAccessException: Scripts not permitted to use staticMethod java.lang.System getenv"
+		console.WriteString("[Pipeline] { (Publish run statistics)\nPublish run statistics: posting 42 records\n" + s.BuildErrorMessage + "\nFinished: FAILURE\n")
 	} else {
 		s.Result = "SUCCESS"
 		kinds := []string{"BuildPackages", "BuildPackagesDebug", "BuildPackages", "UnitTests", "StaticChecks", "FormatCheck", "Docs"}

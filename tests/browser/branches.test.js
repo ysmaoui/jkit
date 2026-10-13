@@ -58,14 +58,17 @@ async function run(browserName, file) {
   const want = find(S.stages, S.failureNodeId) || defaultNode(S.stages);
   let s = await selInfo(page);
   check(`${tag} opens on ${want.name} (${want.id})`, s && s.id === want.id && s.w > 0, s);
+  // Pages where a stage threw after another's caught error: the page opens on the one that threw.
+  const threw = { 'golden-later.html': 'Setup', 'golden-branch.html': 'unit' }[path.basename(file)];
+  if (threw) check(`${tag} opens on the stage that threw, ${threw}`, want.name === threw && s && s.id === want.id, { want: want.name, s });
   const fm = await page.evaluate(() => {
     const t = sel => { const p = document.querySelector(sel); return p && p.textContent; };
     return { steps: t('#steps .fail-msg'), header: t('header .fail-msg'), all: document.querySelectorAll('.fail-msg').length };
   });
-  const onNode = !!(S.failureMessage && S.failureMessageSource === 'node' && find(S.stages, S.failureNodeId) && want.id === S.failureNodeId);
-  const inHeader = !!(S.failureMessage && !(S.failureMessageSource === 'node' && find(S.stages, S.failureNodeId)));
-  check(`${tag} failure message placed (${S.failureMessageSource || 'none'}): ${onNode ? 'steps' : inHeader ? 'header' : 'nowhere'}`,
-    fm.steps === (onNode ? S.failureMessage : null) && fm.header === (inHeader ? S.failureMessage : null) && fm.all === (onNode || inHeader ? 1 : 0), fm);
+  const onNode = !!(S.failureMessage && find(S.stages, S.failureNodeId) && want.id === S.failureNodeId);
+  const inHeader = !!S.buildErrorMessage;
+  check(`${tag} failure messages placed: stage ${onNode ? 'steps' : 'none'}, build ${inHeader ? 'header' : 'none'}`,
+    fm.steps === (onNode ? S.failureMessage : null) && fm.header === (inHeader ? S.buildErrorMessage : null) && fm.all === (onNode ? 1 : 0) + (inHeader ? 1 : 0), fm);
 
   // Width, collapse and expand.
   const m = () => page.evaluate(() => ({ sw: document.getElementById('graph').scrollWidth, pane: document.getElementById('graph-scroll').clientWidth,

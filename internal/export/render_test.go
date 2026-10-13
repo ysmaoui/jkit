@@ -84,11 +84,11 @@ func renderFixture(t *testing.T) *Snapshot {
 				{ID: "61", Name: "cleanup", State: "SUCCESS", StartTimeMillis: t0 + 94_000, DurationMillis: 10, Log: mustLog(t, sp, 0, "cleaned\n")},
 			}},
 		},
-		Console:              console,
-		ConsoleError:         "reading console: context deadline exceeded; raise it with --timeout",
-		FailureNodeID:        "14",
-		FailureMessage:       "script returned exit code 1",
-		FailureMessageSource: "node",
+		Console:           console,
+		ConsoleError:      "reading console: context deadline exceeded; raise it with --timeout",
+		FailureNodeID:     "14",
+		FailureMessage:    "script returned exit code 1",
+		BuildErrorMessage: "java.lang.IllegalStateException: notify failed",
 	}
 }
 

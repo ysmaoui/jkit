@@ -30,7 +30,7 @@ make browser-test                      # all suites, Chromium + Firefox
 bash tests/browser/run.sh panes list   # some suites
 ```
 
-Run it after changing `internal/export/template.html` or the snapshot JSON the page reads. Needs Docker and Go. It renders test pages with `export.Render` (`TestBrowserPages` in `internal/export/browserpages_test.go`: the golden fixture, two failure-message variants, and two synthetic wide builds), then runs the Playwright suites in `tests/browser/` inside `mcr.microsoft.com/playwright:v1.50.0-noble` with `--network none`. The first run installs `playwright` into `tests/browser/node_modules` with `npm ci`, the only step that uses the network; proxy variables pass through. Logs and screenshots go to `tests/browser/out/`. Not run in CI.
+Run it after changing `internal/export/template.html` or the snapshot JSON the page reads. Needs Docker and Go. It renders test pages with `export.Render` (`TestBrowserPages` in `internal/export/browserpages_test.go`: the golden fixture, four failure-message variants, and two synthetic wide builds), then runs the Playwright suites in `tests/browser/` inside `mcr.microsoft.com/playwright:v1.50.0-noble` with `--network none`. The first run installs `playwright` into `tests/browser/node_modules` with `npm ci`, the only step that uses the network; proxy variables pass through. Logs and screenshots go to `tests/browser/out/`. Not run in CI.
 
 ## Project Structure
 

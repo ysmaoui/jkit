@@ -381,16 +381,19 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
   function stepLabel(s) { return s.title || s.name || "(unnamed step)"; }
 
-  // A build-level message belongs to no stage; failureNodeId is then only the fallback leaf.
-  function nodeFailureMessage() {
-    return S.failureMessage && S.failureMessageSource === "node" && nodesById.has(S.failureNodeId);
+  // Without a caption the raw message reads like stray output.
+  function failMsg(id, caption, title, text) {
+    var cap = el("p", "fail-cap", caption);
+    cap.id = id;
+    var fm = el("pre", "fail-msg", text);
+    fm.title = title;
+    fm.setAttribute("aria-labelledby", id);
+    return [cap, fm];
   }
   function renderHeader() {
-    if (S.failureMessage && !nodeFailureMessage()) {
-      // Without a caption the raw message reads like stray output.
-      var fm = el("pre", "fail-msg", S.failureMessage);
-      fm.title = "The error that stopped the build";
-      $("meta").after(el("p", "fail-cap", "Build error"), fm);
+    // The build's own exception belongs to no stage, so it sits in the header.
+    if (S.buildErrorMessage) {
+      $("meta").after.apply($("meta"), failMsg("build-err-cap", "Build error", "The error that stopped the build", S.buildErrorMessage));
     }
     var state = S.building ? "IN_PROGRESS" : S.result;
     var r = $("result");
@@ -776,10 +779,8 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     $("steps-h").textContent = "Steps of " + n.name;
     h.textContent = info.join(" · ");
     box.append(h);
-    if (n.id === S.failureNodeId && nodeFailureMessage()) {
-      var fm = el("pre", "fail-msg", S.failureMessage);
-      fm.title = "The error that stopped the build";
-      box.append(fm);
+    if (n.id === S.failureNodeId && S.failureMessage) {
+      box.append.apply(box, failMsg("stage-err-cap", "Stage error", "The error that failed this stage", S.failureMessage));
     }
     if (failedLeaves.indexOf(n) >= 0 && !n.steps.some(function (s) { return s.state === "FAILURE"; })) {
       var note = el("p", "hint", "No step of this stage failed; the console log may show why it did. ");
