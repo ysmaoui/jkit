@@ -1411,7 +1411,7 @@ The page works offline and has no server side.
 - **Parallel branches.** Each branch collapses to a row of squares, one per nested stage, so a failure inside stays visible. Branches start collapsed when the graph is more than three times wider than its pane. Collapse branches and Expand branches act on all of them. Selecting a stage opens its branch.
 - **Off-screen stages.** When the graph is wider than its pane, a `N more →` button at the right edge counts the top-level stages not fully in view and scrolls the graph right. A `← N more` button does the same on the left once the graph is scrolled. Both buttons are keyboard reachable and hide at the ends.
 - **Failures.** The header shows `N failed` with up and down buttons that step through the failed stages. The page opens on the stage that failed the build, not the first stage in state FAILURE, since `catchError` marks a stage failed and goes on. When the build itself threw, its error shows in the header. Otherwise the stage's error line shows above its steps.
-- **History.** Each selection of a stage, step or the full console log is a history entry, so Back undoes it. The address fragment names the selection, so a link reopens it.
+- **History.** Each selection of a stage, step or the full console log is a history entry, so Back undoes it. The first up or down failure step after a selection adds one entry and later steps replace it, so a walk through many failures takes one Back to undo. The address fragment names the selection, so a link reopens it.
 
 ### Size
 

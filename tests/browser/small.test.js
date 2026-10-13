@@ -137,13 +137,41 @@ async function wide(browserName, file) {
     await settle(page);
     s = await state(page);
     check(`${tag} hash to failed leaf shows its position`, s.pos === `${k + 1} of ${leaves.length} failed`, s);
-    // Failed nav is a user step, so Back retraces it.
-    await page.click('#fail-prev');
-    s = await state(page);
-    const prev = s.graph;
-    await back(page);
-    s = await state(page);
-    check(`${tag} Back after failed nav returns to previous leaf`, leaves.length === 1 || (prev !== leaves[k].id && s.graph === leaves[k].id && s.pos === `${k + 1} of ${leaves.length} failed`), s);
+    // First step after a selection pushes, later steps replace: a walk costs one entry and one Back returns to the selection.
+    const A = other || nodes.find(n => n.id !== leaves[k].id);
+    if (A) {
+      await page.click(`.node[data-id="${A.id}"]`);
+      s = await state(page);
+      const len = s.len;
+      for (let i = 0; i < 5; i++) await page.click('#fail-next');
+      s = await state(page);
+      check(`${tag} stepping 5 failures adds exactly one entry`, s.len === len + 1, { len, s });
+      await back(page);
+      s = await state(page);
+      check(`${tag} one Back after failed nav returns to clicked ${A.name}`, s.graph === A.id && s.hash === '#node=' + A.id, s);
+      await page.click('#fail-next');
+      await page.click('#fail-next');
+      await page.click('#fail-next');
+      s = await state(page);
+      const stepped = s.graph;
+      await back(page);
+      s = await state(page);
+      check(`${tag} step after Back pushes again, Back returns to ${A.name}`, s.graph === A.id && stepped !== A.id, s);
+    }
+    if (leaves.length > 1 || !leaves.includes(want)) {
+      const fresh = await ctx.newPage();
+      await fresh.goto(url);
+      await fresh.waitForSelector('.node', { state: 'attached' });
+      const l0 = (await state(fresh)).len;
+      await fresh.click('#fail-next');
+      await fresh.click('#fail-next');
+      s = await state(fresh);
+      check(`${tag} stepping right after open adds one entry`, s.len === l0 + 1 && s.graph !== want.id, { l0, s });
+      await back(fresh);
+      s = await state(fresh);
+      check(`${tag} Back after open-then-step returns to opening ${want.name}`, s.graph === want.id, s);
+      await fresh.close();
+    }
   }
 
   // List mode Back.

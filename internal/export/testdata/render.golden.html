@@ -1004,12 +1004,16 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
 
   var current = {};
+  
+  var failWalk = false;
   function setPressed(selector, attr, value) {
     document.querySelectorAll(selector).forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.dataset[attr] === value));
     });
   }
+  
   function select(sel, user) {
+    if (user !== "replace") failWalk = false;
     if (sel.step && !sel.node && stepsById.has(sel.step)) sel.node = stepsById.get(sel.step).node.id;
     if (sel.node && !nodesById.has(sel.node)) sel.node = null;
     if (sel.step && !stepsById.has(sel.step)) sel.step = null;
@@ -1038,7 +1042,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       }
     }
     if (user) {
-      writeHash(sel, true);
+      writeHash(sel, user !== "replace");
       if (sel.step || sel.console) {
         
         
@@ -1098,7 +1102,9 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     var wasCollapsed = !!document.querySelector(".branch.collapsed");
     
     var listWasCollapsed = mode === "list" && !filterActive() && !!document.querySelector(".sl-item.collapsed");
-    select({ node: failedLeaves[j].id }, true);
+    
+    select({ node: failedLeaves[j].id }, failWalk ? "replace" : true);
+    failWalk = true;
     
     if (wasCollapsed) collapseAll(true);
     if (listWasCollapsed) listCollapseAll(true);

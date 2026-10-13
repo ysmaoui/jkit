@@ -1006,12 +1006,16 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
 
   var current = {};
+  // True while ↑/↓ stepping continues one history entry; select() clears it on any other selection.
+  var failWalk = false;
   function setPressed(selector, attr, value) {
     document.querySelectorAll(selector).forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.dataset[attr] === value));
     });
   }
+  // user: true pushes a history entry; "replace" updates the URL in place; false is the initial or Back/Forward selection.
   function select(sel, user) {
+    if (user !== "replace") failWalk = false;
     if (sel.step && !sel.node && stepsById.has(sel.step)) sel.node = stepsById.get(sel.step).node.id;
     if (sel.node && !nodesById.has(sel.node)) sel.node = null;
     if (sel.step && !stepsById.has(sel.step)) sel.step = null;
@@ -1040,7 +1044,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       }
     }
     if (user) {
-      writeHash(sel, true);
+      writeHash(sel, user !== "replace");
       if (sel.step || sel.console) {
         // Below 900px the log sits under the steps; above, a long step list can scroll it away.
         // 200px leaves room for the search bar and Load earlier, which appear above the text once it is decoded.
@@ -1100,7 +1104,9 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     var wasCollapsed = !!document.querySelector(".branch.collapsed");
     // A filter opens rows on its own; collapsing under it would hide matches.
     var listWasCollapsed = mode === "list" && !filterActive() && !!document.querySelector(".sl-item.collapsed");
-    select({ node: failedLeaves[j].id }, true);
+    // The first step pushes so Back returns to the prior selection; later steps replace so a long walk costs one Back.
+    select({ node: failedLeaves[j].id }, failWalk ? "replace" : true);
+    failWalk = true;
     // Otherwise each visit leaves its branch open and a full cycle undoes the collapse.
     if (wasCollapsed) collapseAll(true);
     if (listWasCollapsed) listCollapseAll(true);
