@@ -408,7 +408,8 @@ branch finished first (seen: an 8s `sh` given 1040ms). A finished step's
 text is kept on four conditions:
 
 - Its `[Pipeline]` line, at the start of the `pipeline-new-node` span,
-  names `echo`, `sh`, `bat`, `powershell` or `pwsh`. Any other step can
+  arrived whole up to the newline (a line cut after `sh` may be `sha256`)
+  and names `echo`, `sh`, `bat`, `powershell` or `pwsh`. Any other step can
   write from an agent through workflow-api's `DelayBufferedOutputStream`,
   flushed on a timer whose period grows to 10s, after it returned. `echo`
   writes on the controller before it returns. The durable-task steps copy
@@ -424,9 +425,9 @@ text is kept on four conditions:
 - The step wrote nothing after that span.
 - Its text is empty or ends a line. A durable-task step reports its exit
   before it closes its listener, and closing writes the line end the
-  output lacked. A text whose last piece came before a dropped comment
-  fails this too: the output went on past the line end, in an AnsiColor
-  escape sequence, say.
+  output lacked. A text that ends in a dropped comment (such as an
+  AnsiColor escape sequence) fails this too, even when empty: the output
+  went on past the last line end.
 
 Each span is held with its ids, its step function and the raw spool size
 when it arrived. Every other step goes to the pool: running ones, the one

@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ysmaoui/jkit/internal/export"
 )
@@ -67,4 +69,11 @@ func TestRewriteInPlace(t *testing.T) {
 	assert.False(t, rewriteInPlace(false, "xterm", false))
 	assert.False(t, rewriteInPlace(true, "dumb", false))
 	assert.False(t, rewriteInPlace(true, "xterm", true))
+}
+
+func TestTTYWidthFallsBackTo80(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	require.NoError(t, err)
+	defer f.Close()
+	assert.Equal(t, 80, ttyWidth(int(f.Fd())))
 }

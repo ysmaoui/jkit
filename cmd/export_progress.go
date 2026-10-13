@@ -37,7 +37,7 @@ func newExportProgress(f *os.File, verbose bool) *exportProgress {
 	fd := int(f.Fd())
 	if rewriteInPlace(term.IsTerminal(fd), os.Getenv("TERM"), verbose) {
 		p.tty = true
-		p.width, _, _ = term.GetSize(fd)
+		p.width = ttyWidth(fd)
 	}
 	return p
 }
@@ -80,4 +80,11 @@ func (p *exportProgress) clear() {
 func (p *exportProgress) notice(msg string) {
 	p.clear()
 	_, _ = fmt.Fprintln(p.w, msg)
+}
+
+func ttyWidth(fd int) int {
+	if w, _, err := term.GetSize(fd); err == nil && w > 0 {
+		return w
+	}
+	return 80
 }

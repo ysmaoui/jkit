@@ -257,3 +257,42 @@ func TestCaptureConsoleHTML(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, f.job+".steps.json"), append(b, '\n'), 0o644))
 	}
 }
+
+// A [Pipeline] line names a step only when it arrives whole up to its
+// newline: "sh" cut from "sha256" must not count as an sh step.
+func TestStepFnNeedsWholeLine(t *testing.T) {
+	tests := map[string]struct {
+		writes []string
+		want   string
+	}{
+		"whole":        {[]string{"[Pipeline] sh\n"}, "sh"},
+		"cut at end":   {[]string{"[Pipeline] sh", "\nout\n"}, ""},
+		"cut in name":  {[]string{"[Pipeline] sh", "a256\n"}, ""},
+		"later pieces": {[]string{"[Pipeline] echo\nhello\n"}, "echo"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var first []byte
+			armed := false
+			s := newConsoleSplitter(func(node string, text []byte) error {
+				if node == "" && armed && first == nil {
+					first = append([]byte{}, text...)
+				}
+				return nil
+			})
+			s.newNode = func(string, string, string) { armed = true }
+			for i, w := range tt.writes {
+				if i == 0 {
+					w = `<span class="pipeline-new-node" nodeId="5">` + w
+				}
+				if i == len(tt.writes)-1 {
+					w += `</span><span class="pipeline-node-5">out</span>`
+				}
+				_, err := s.Write([]byte(w))
+				require.NoError(t, err)
+			}
+			require.NoError(t, s.Close())
+			assert.Equal(t, tt.want, stepFn(first))
+		})
+	}
+}

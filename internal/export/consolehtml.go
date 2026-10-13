@@ -424,6 +424,17 @@ var flushedSteps = map[string]bool{"echo": true, "sh": true, "bat": true, "power
 // pipelineLine finds the step function in a pipeline-new-node span's text.
 var pipelineLine = regexp.MustCompile(`^\[Pipeline\] (\S+)`)
 
+// stepFn returns the function a [Pipeline] line names, or "" unless text
+// holds the whole line up to its newline: a piece cut after "sh" may be the
+// start of "sha256".
+func stepFn(text []byte) string {
+	line, _, whole := bytes.Cut(text, []byte("\n"))
+	if m := pipelineLine.FindSubmatch(line); whole && m != nil {
+		return string(m[1])
+	}
+	return ""
+}
+
 // nodeMark is a pipeline-new-node span as it streamed by. start is the
 // startId attribute: the node itself on a block start, the block's start on
 // a block end, empty on an atom.
@@ -495,7 +506,8 @@ func (l *markLog) endOf(a int) int {
 // steps.
 //
 // For a finished run every step is filled. For a running one the download
-// may stop anywhere, so only the steps wholeIn proves whole are.
+// may stop anywhere, so only the steps wholeIn proves whole are, less those
+// whose text ends in a dropped comment (an AnsiColor escape, say).
 func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, nodes []Node, find *failureFinder, running bool) (map[*Step]bool, error) {
 	raw, err := newSpool(opts.SpoolDir)
 	if err != nil {
@@ -520,10 +532,7 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 	split := newConsoleSplitter(func(node string, text []byte) error {
 		find.text(node, text)
 		if node == "" && named >= 0 {
-			line, _, whole := bytes.Cut(text, []byte("\n"))
-			if m := pipelineLine.FindSubmatch(line); whole && m != nil {
-				marks.marks[named].fn = string(m[1])
-			}
+			marks.marks[named].fn = stepFn(text)
 			named = -1
 		}
 		delete(hidden, node)
@@ -545,9 +554,11 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 		marks.add(nodeMark{id: id, enclosing: enclosing, start: start, pos: raw.size})
 		named = len(marks.marks) - 1
 	}
-	split.comment = func(node string) {
-		if _, ok := runs[node]; ok {
-			hidden[node] = true
+	if running {
+		split.comment = func(node string) {
+			if _, ok := runs[node]; ok {
+				hidden[node] = true
+			}
 		}
 	}
 	_, partial, err := client.CopyConsoleHTML(ctx, jobPath, number, split)

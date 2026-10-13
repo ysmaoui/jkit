@@ -41,7 +41,20 @@ func TestBrowserPages(t *testing.T) {
 	s.markFailure(newFailureFinder())
 	require.Equal(t, "14", s.FailureNodeID)
 	write("golden-running.html", s)
-	finished := func(s *Snapshot) { s.Building, s.Complete, s.Result = false, true, "FAILURE" }
+	finished := func(s *Snapshot) {
+		s.Building, s.Complete, s.Result = false, true, "FAILURE"
+		s.Console.Partial = false
+		walk(s.Stages, func(n *Node) {
+			if n.Running {
+				n.State, n.Running = "SUCCESS", false
+			}
+			for i := range n.Steps {
+				if st := &n.Steps[i]; st.Running {
+					st.State, st.Running, st.Log.Partial = "SUCCESS", false, false
+				}
+			}
+		})
+	}
 	// unit (14) failed under catchError, then Setup (20), which started after
 	// it, threw: the page opens on Setup with no stage message.
 	s = renderFixture(t)

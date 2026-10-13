@@ -394,7 +394,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     // The build's own exception belongs to no stage, so it sits in the header.
     if (S.buildErrorMessage) {
       $("meta").after.apply($("meta"), failMsg("build-err-cap", "Build error",
-        S.building ? "A build-level error written while the build ran" : "The error that stopped the build", S.buildErrorMessage));
+        S.building ? "Build-level error so far. The build was still running at export." : "The error that stopped the build", S.buildErrorMessage));
     }
     var state = S.building ? "IN_PROGRESS" : S.result;
     var r = $("result");
