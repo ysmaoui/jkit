@@ -232,6 +232,14 @@ for job in export-pipeline console-pipeline; do
         go -C "$PROJECT_DIR" run ./integration/exportcheck same "$WORK_DIR/$job-console.html" "$WORK_DIR/$job-steps.html"
 done
 
+assert_fail "run compile-error-pipeline --wait" \
+    "$JK" run compile-error-pipeline --wait
+
+assert_success "export html compile-error-pipeline 1: finished, compile error as build error" \
+    sh -c '"$1" export html compile-error-pipeline 1 -o "$2" 2>"$2.err" && ! grep -q "still in progress" "$2.err" && grep -qF "$3" "$2"' \
+    _ "$JK" "$WORK_DIR/compile-error.html" \
+    "\"buildErrorMessage\":\"org.codehaus.groovy.control.MultipleCompilationErrorsException: startup failed: WorkflowScript: 7: expecting '}', found '' @ line 7, column 1.\""
+
 assert_success "download in-pipeline snapshot artifact" \
     "$JK" artifacts export-pipeline 1 -d snapshot.html -o "$WORK_DIR/snapshot.html"
 

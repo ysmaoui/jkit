@@ -419,6 +419,11 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 	if err == nil {
 		err = split.Close()
 	}
+	// With no step to fill, all text is the build's own, as when the
+	// Jenkinsfile failed to compile, and find has seen it whole.
+	if errors.Is(err, errNoNodeSpans) && len(runs) == 0 {
+		err = nil
+	}
 	switch {
 	case err != nil && stopsExport(ctx, err):
 		return err

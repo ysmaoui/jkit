@@ -47,6 +47,9 @@ type failureFinder struct {
 	// build is the build's own "ERROR:" and exception header lines, oldest
 	// first.
 	build []errorLine
+	// wantDetail is set after a build-level exception header that ends in
+	// ":", as Groovy's "startup failed:", whose detail is the next line.
+	wantDetail bool
 	// branchFails is, oldest first, the place of each "Failed in branch"
 	// line and the node that wrote it: a parallel branch's closing node,
 	// when the branch threw.
@@ -103,6 +106,14 @@ func (f *failureFinder) line(node string, line []byte) {
 		}
 	}
 	line = bytes.TrimRight(bytes.TrimLeft(line, " \t"), "\r")
+	if node == "" && len(line) > 0 && f.wantDetail {
+		f.wantDetail = false
+		if !bytes.HasPrefix(line, []byte("at ")) && !bytes.HasPrefix(line, []byte("ERROR:")) && !isExceptionHeader(line) {
+			last := &f.build[len(f.build)-1]
+			last.msg += " " + cleanErrorText(line)
+			return
+		}
+	}
 	if rest, ok := bytes.CutPrefix(line, []byte("ERROR:")); ok {
 		f.seq++
 		e := errorLine{f.seq, cleanErrorText(rest)}
@@ -120,10 +131,16 @@ func (f *failureFinder) line(node string, line []byte) {
 		}
 		return
 	}
-	if (bytes.Contains(line, []byte("Exception")) || bytes.Contains(line, []byte("Error"))) && exceptionHeader.Match(line) {
+	if isExceptionHeader(line) {
 		f.seq++
-		f.addBuild(errorLine{f.seq, cleanErrorText(line)})
+		msg := cleanErrorText(line)
+		f.addBuild(errorLine{f.seq, msg})
+		f.wantDetail = strings.HasSuffix(msg, ":")
 	}
+}
+
+func isExceptionHeader(line []byte) bool {
+	return (bytes.Contains(line, []byte("Exception")) || bytes.Contains(line, []byte("Error"))) && exceptionHeader.Match(line)
 }
 
 func (f *failureFinder) addBuild(e errorLine) {

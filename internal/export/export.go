@@ -184,7 +184,9 @@ func Collect(ctx context.Context, client *api.Client, jobPath string, number int
 	if err != nil {
 		return nil, fmt.Errorf("reading stage tree: %w", err)
 	}
-	snap.Complete = treeComplete && runComplete && !build.Building
+	// PGV never calls a tree complete when the run has no flow node, as when
+	// the Jenkinsfile failed to compile.
+	snap.Complete = !build.Building && runComplete && (treeComplete || len(tree) == 0 && len(steps) == 0)
 	snap.Stages = buildTree(tree, steps)
 
 	for range max(opts.Concurrency, 1) {

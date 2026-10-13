@@ -185,5 +185,17 @@ pipeline {
 }
 ''', true))
 
+// 7. compile-error-pipeline: fails to compile, so the build ends before any
+// flow node exists.
+def compileErrorPipeline = jenkins.createProject(WorkflowJob, 'compile-error-pipeline')
+compileErrorPipeline.setDefinition(new CpsFlowDefinition('''\
+pipeline {
+    agent any
+    stages {
+        stage('A') {
+            steps {
+                echo 'unclosed'
+''', true))
+
 jenkins.save()
 println '>>> Seed jobs created successfully'

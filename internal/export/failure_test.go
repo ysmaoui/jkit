@@ -344,6 +344,8 @@ func TestFailureFinderGreenStepEcho(t *testing.T) {
 }
 
 func TestFailureFinderLines(t *testing.T) {
+	// The splitter needs one node span to accept the page.
+	const span = `<span class="pipeline-node-3">ok` + "\n</span>"
 	tests := map[string]struct {
 		in, node, msg string
 	}{
@@ -357,6 +359,10 @@ func TestFailureFinderLines(t *testing.T) {
 		"ansi dropped":       {`<span class="pipeline-node-3">ERROR: <!--` + "\x1b[31m" + `-->red` + "\x1b[0m\n</span>", "3", "red"},
 		"interleaved halves": {`<span class="pipeline-node-3">ERR</span><span class="pipeline-node-4">ok` + "\n</span>" + `<span class="pipeline-node-3">OR: y` + "\n</span>", "3", "y"},
 		"step exception":     {`<span class="pipeline-node-3">java.io.IOException: x` + "\n</span>", "", ""},
+		"header detail":      {span + "a.BException: startup failed:\n\n  Script: 6: bad\nmore\n", "", "a.BException: startup failed: Script: 6: bad"},
+		"header then frame":  {span + "a.BException: failed:\n\tat a.B.c(B.java:1)\nmore\n", "", "a.BException: failed:"},
+		"header then error":  {span + "a.BException: failed:\nERROR: x\n", "", "x"},
+		"header with text":   {span + "a.BException: boom\nmore\n", "", "a.BException: boom"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -463,4 +469,45 @@ func TestMarkFailure(t *testing.T) {
 	s := &Snapshot{Result: "FAILURE", Stages: []Node{{ID: "1", State: "SUCCESS"}}}
 	s.markFailure(nil)
 	assert.Empty(t, s.FailureNodeID, "no failed stage")
+}
+
+// A Jenkinsfile that fails to compile ends the build before any flow node
+// exists: PGV answers an empty tree it never reports complete, and the
+// compile error is build-level console text.
+func TestCollectCompileFailure(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join("testdata", "failure", name))
+		require.NoError(t, err)
+		return string(b)
+	}
+	run := loadRun(t, "done", "compile")
+	run.consoleHTML = read("compile-error.html")
+	run.console = read("compile-error.txt")
+	client := run.serve(t)
+
+	var notices []string
+	snap, err := collect(t, client, run.job, Options{Notice: func(msg string) { notices = append(notices, msg) }})
+	require.NoError(t, err)
+	assert.True(t, snap.Complete)
+	assert.Empty(t, snap.Stages)
+	assert.Empty(t, snap.FailureNodeID)
+	assert.Equal(t, "org.codehaus.groovy.control.MultipleCompilationErrorsException: startup failed: WorkflowScript: 6: expecting '}', found '' @ line 6, column 2.", snap.BuildErrorMessage)
+	assert.Equal(t, []string{"reading step logs from the annotated console"}, notices)
+	assert.Contains(t, decode(t, snap.Console), "expecting '}'")
+}
+
+// A failed run whose stage tree and step listing PGV has not caught up on is
+// still a snapshot, whatever its result.
+func TestCollectFailedButIncomplete(t *testing.T) {
+	run := consoleRun(t)
+	run.tree = strings.Replace(run.tree, `"complete":true`, `"complete":false`, 1)
+	run.allSteps = strings.Replace(run.allSteps, `"runIsComplete":true`, `"runIsComplete":false`, 1)
+	require.Contains(t, run.tree, `"complete":false`)
+	require.Contains(t, run.allSteps, `"runIsComplete":false`)
+	snap, err := collect(t, run.serve(t), run.job, Options{})
+	require.NoError(t, err)
+	assert.Equal(t, "FAILURE", snap.Result)
+	assert.NotEmpty(t, snap.Stages)
+	assert.False(t, snap.Complete)
+	assert.Zero(t, run.htmlHits.Load(), "read step by step")
 }

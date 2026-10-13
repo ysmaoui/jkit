@@ -171,8 +171,10 @@ GET /job/{path}/{number}/stages/tree
 # Seen on Jenkins 2.541.2: no PARALLEL_BLOCK node; a parallel wrapper is a
 # STAGE whose children are PARALLEL branches. isSequential is always false.
 # A running node omits totalDurationMillis. Declarative post is a synthetic
-# STAGE "Post Actions". complete is false while the run is going. Read nested
-# by GetPGVTree (export), flattened by GetPipelineStages (everything else).
+# STAGE "Post Actions". complete is false while the run is going, and stays
+# false, with no stages, for a run whose Jenkinsfile failed to compile. Read
+# nested by GetPGVTree (export), flattened by GetPipelineStages (everything
+# else).
 
 # Per-line console timestamps (Timestamper plugin, not core)
 GET /job/{path}/{number}/timestamps/?elapsed=HH:mm:ss.S&startLine=-N&appendLog
@@ -384,18 +386,20 @@ Step logs download in a bounded pool (`--concurrency`, default 4, at most 8),
 since export time is per-request latency. Each worker owns one spool file, so
 no lock guards the writes; the console goes to the first after the pool ends.
 Progress lines follow step order, and the first fatal error cancels the rest.
-A finished run that PGV reports complete skips that pool for logs: one
-`progressiveHtml` download is split into per-node text, while `consoleText`
-downloads beside it. The console is not derived from the annotated one, since
-nothing proves the two sanitize to the same bytes. Parallel branches
-interleave, so the split step text goes to an unlinked raw file and memory
-holds only each step's offset runs; each step is encoded from there once the
-download ends, then failed and aborted steps get their exception text from a
-pool of the same size. No node span, a download that fails or times out, or a
-partial answer falls back to the pool, with the reason on stderr. Errors that
-stop the export (auth, permission, missing plugin, unreachable host, spool)
-do not fall back. A running run always uses the pool: its annotated console
-can stop at the line cap or, on 2.527+, end mid-line.
+A finished run that PGV reports complete, or that has no flow nodes, skips
+that pool for logs: one `progressiveHtml` download is split into per-node
+text, while `consoleText` downloads beside it. The console is not derived from
+the annotated one, since nothing proves the two sanitize to the same bytes.
+Parallel branches interleave, so the split step text goes to an unlinked raw
+file and memory holds only each step's offset runs; each step is encoded from
+there once the download ends, then failed and aborted steps get their
+exception text from a pool of the same size. No node span, a download that
+fails or times out, or a partial answer falls back to the pool, with the
+reason on stderr. No node span in a run with no steps is no reason: its text
+is all the build's own. Errors that stop the export (auth, permission, missing
+plugin, unreachable host, spool) do not fall back. A running run always uses
+the pool: its annotated console can stop at the line cap or, on 2.527+, end
+mid-line.
 
 The snapshot's `failureNodeId` names the stage that failed the build. The first
 stage in state FAILURE is often the wrong answer: `catchError` marks a stage
@@ -408,18 +412,20 @@ stage is in state FAILURE wins, so a green step echoing `ERROR:` does not, and
 `buildErrorMessage` instead: the first `ERROR:` line or qualified exception
 header such as `groovy.lang.MissingPropertyException: ...` with no node. An
 uncaught exception other than `AbortException` prints a stack trace and no
-`ERROR:` line, so the header is all there is. The two are kept apart because
-post-pipeline code, such as a notification hitting the script sandbox, often
-throws after a `catchError` stage failed, and the stage error is the one to
-act on. But when the build threw from another stage, that stage takes
-`failureNodeId`, with an empty `failureMessage`: an uncaught `sh` or `error`
-writes its `ERROR:` line at build level, not on its node. Parallel branches
-run at once, so start times do not say which threw last. A branch that
-threw has its closing node write `Failed in branch <name>`, in declarative
-and scripted `parallel` alike. A line written after the caught error counts,
-and so does an earlier one from a branch of a parallel that holds the
-caught stage, since such a branch that threw fails that parallel whenever
-it threw. Any other earlier line belongs to a parallel that did not fail
+`ERROR:` line, so the header is all there is. A header ending in a colon,
+such as a compile failure's `startup failed:`, takes the next build line as
+its detail, unless that is a stack frame or another header. The two are kept
+apart because post-pipeline code, such as a notification hitting the script
+sandbox, often throws after a `catchError` stage failed, and the stage error
+is the one to act on. But when the build threw from another stage, that stage
+takes `failureNodeId`, with an empty `failureMessage`: an uncaught `sh` or
+`error` writes its `ERROR:` line at build level, not on its node.
+Parallel branches run at once, so start times do not say which threw last.
+A branch that threw has its closing node write `Failed in branch <name>`,
+in declarative and scripted `parallel` alike. A line written after the
+caught error counts, and so does an earlier one from a branch of a
+parallel that holds the caught stage, since such a branch that threw
+fails that parallel whenever it threw. Any other earlier line belongs to a parallel that did not fail
 the build. A line also counts only when its branch is in state FAILURE and
 every stage enclosing it is FAILURE or ABORTED (`failFast` aborts the
 parallel): a failure that reached the build leaves that whole chain
