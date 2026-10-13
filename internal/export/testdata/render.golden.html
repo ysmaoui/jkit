@@ -391,7 +391,8 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   function renderHeader() {
     
     if (S.buildErrorMessage) {
-      $("meta").after.apply($("meta"), failMsg("build-err-cap", "Build error", "The error that stopped the build", S.buildErrorMessage));
+      $("meta").after.apply($("meta"), failMsg("build-err-cap", "Build error",
+        S.building ? "A build-level error written while the build ran" : "The error that stopped the build", S.buildErrorMessage));
     }
     var state = S.building ? "IN_PROGRESS" : S.result;
     var r = $("result");
@@ -777,6 +778,10 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     $("steps-h").textContent = "Steps of " + n.name;
     h.textContent = info.join(" · ");
     box.append(h);
+    
+    if (n.id === S.failureNodeId && S.building) {
+      box.append(el("p", "hint so-far", "Latest failed stage so far. The build was still running at export, so this may not be the failure that ends it."));
+    }
     if (n.id === S.failureNodeId && S.failureMessage) {
       box.append.apply(box, failMsg("stage-err-cap", "Stage error", "The error that failed this stage", S.failureMessage));
     }

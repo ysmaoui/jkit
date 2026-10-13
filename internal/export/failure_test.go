@@ -454,6 +454,7 @@ func TestMarkFailure(t *testing.T) {
 		"no error line":             {"FAILURE", false, newFailureFinder(), "8", "", ""},
 		"steps path":                {"FAILURE", false, nil, "8", "", ""},
 		"running":                   {"", true, nil, "8", "", ""},
+		"running caught error":      {"", true, finder("12", "ERROR: in 9\n", "12", "9"), "9", "in 9", ""},
 		"success":                   {"SUCCESS", false, finder("12", "ERROR: in 9\n", "12", "9"), "", "", ""},
 		"unstable":                  {"UNSTABLE", false, finder("12", "ERROR: in 9\n", "12", "9"), "", "", ""},
 	}

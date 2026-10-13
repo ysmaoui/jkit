@@ -28,7 +28,7 @@ if ! grep -qs '"version": "1.50.0"' "$here/node_modules/playwright/package.json"
     -v "$here:/suite" -w /suite "$image" npm ci --no-audit --no-fund >&2
 fi
 
-all_pages=(golden.html golden-nonode.html golden-missing.html golden-later.html golden-branch.html wide-failed.html wide-passed.html)
+all_pages=(golden.html golden-nonode.html golden-missing.html golden-later.html golden-branch.html golden-running.html wide-failed.html wide-passed.html)
 suites=("$@")
 [ $# -gt 0 ] || suites=(panes branches list small wide)
 failed=()

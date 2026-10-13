@@ -34,9 +34,18 @@ func TestBrowserPages(t *testing.T) {
 		s.BuildErrorMessage = "hudson.AbortException: thrown before any stage"
 		write(name, s)
 	}
+	// A running build whose console names no error: the page opens on the
+	// failed leaf that started last but does not call it the build's failure.
+	s := renderFixture(t)
+	s.FailureNodeID, s.FailureMessage, s.BuildErrorMessage = "", "", ""
+	s.markFailure(newFailureFinder())
+	require.Equal(t, "14", s.FailureNodeID)
+	write("golden-running.html", s)
+	finished := func(s *Snapshot) { s.Building, s.Complete, s.Result = false, true, "FAILURE" }
 	// unit (14) failed under catchError, then Setup (20), which started after
 	// it, threw: the page opens on Setup with no stage message.
-	s := renderFixture(t)
+	s = renderFixture(t)
+	finished(s)
 	s.Stages[1].Children[1].Children[0].State = "FAILURE"
 	// Setup has no failed step, so the page offers a console search for it.
 	s.Console = mustLog(t, testSpool(t), 0, "Started by user admin\n[Pipeline] { (Setup)\nERROR: script returned exit code 2\nFinished: FAILURE\n")
@@ -53,6 +62,7 @@ func TestBrowserPages(t *testing.T) {
 	// started before it, threw: the branch's closing node names it. The
 	// failure reached the build, so Test, which encloses unit, failed too.
 	s = renderFixture(t)
+	finished(s)
 	s.Stages[1].Children[1].Children[0].State = "FAILURE"
 	s.Stages[1].State, s.Stages[1].Running = "FAILURE", false
 	s.Console = mustLog(t, testSpool(t), 0, "Started by user admin\n[Pipeline] { (Setup)\nERROR: caught\nFailed in branch unit\nERROR: script returned exit code 1\nFinished: FAILURE\n")

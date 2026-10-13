@@ -61,6 +61,13 @@ async function run(browserName, file) {
   // Pages where a stage threw after another's caught error: the page opens on the one that threw.
   const threw = { 'golden-later.html': 'Setup', 'golden-branch.html': 'unit' }[path.basename(file)];
   if (threw) check(`${tag} opens on the stage that threw, ${threw}`, want.name === threw && s && s.id === want.id, { want: want.name, s });
+  // A running build's failed stage may be one catchError caught: the page must not present it as what ended the build.
+  const label = await page.evaluate(() => ({ soFar: document.querySelectorAll('#steps .so-far').length,
+    buildTitle: (document.querySelector('header .fail-msg') || {}).title || null }));
+  const soFar = !!(S.building && find(S.stages, S.failureNodeId) && want.id === S.failureNodeId);
+  check(`${tag} "so far" label ${soFar ? 'shown' : 'absent'}; build error called what stopped the build iff finished`,
+    label.soFar === (soFar ? 1 : 0) && (!S.buildErrorMessage || /stopped the build/.test(label.buildTitle) === !S.building), label);
+  if (path.basename(file) === 'golden-running.html') check(`${tag} running page shows the "so far" label`, label.soFar === 1, label);
   const fm = await page.evaluate(() => {
     const t = sel => { const p = document.querySelector(sel); return p && p.textContent; };
     return { steps: t('#steps .fail-msg'), header: t('header .fail-msg'), all: document.querySelectorAll('.fail-msg').length };
