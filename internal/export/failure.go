@@ -297,7 +297,8 @@ func (f *failureFinder) trace(node string, byID map[string]*Node) string {
 // markFailure sets which node failed a failed or still running build and
 // the error lines naming why: the stage f resolves when it resolves one,
 // else the failed leaf stage that started last, with no stage message. f is
-// nil when step logs were not read from the annotated console.
+// nil when step logs were not read from the annotated console, and when the
+// run was not complete, since the console text it saw may stop short.
 func (s *Snapshot) markFailure(f *failureFinder) {
 	if s.Result != "FAILURE" && !s.Building {
 		return

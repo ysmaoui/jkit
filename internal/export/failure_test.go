@@ -510,5 +510,5 @@ func TestCollectFailedButIncomplete(t *testing.T) {
 	assert.Equal(t, "FAILURE", snap.Result)
 	assert.NotEmpty(t, snap.Stages)
 	assert.False(t, snap.Complete)
-	assert.Zero(t, run.htmlHits.Load(), "read step by step")
+	assert.Positive(t, run.stepLogHits.Load(), "steps the console does not prove whole are read on their own")
 }

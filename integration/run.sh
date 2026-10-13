@@ -246,5 +246,19 @@ assert_success "download in-pipeline snapshot artifact" \
 assert_success "in-pipeline snapshot is partial, exporting step running" \
     go -C "$PROJECT_DIR" run ./integration/exportcheck live "$WORK_DIR/snapshot.html"
 
+assert_success "download in-pipeline step-by-step snapshot and its stderr" \
+    sh -c '"$1" artifacts export-pipeline 1 -d snapshot-steps.html -o "$2/snapshot-steps.html" && "$1" artifacts export-pipeline 1 -d snapshot.err -o "$2/snapshot.err"' \
+    _ "$JK" "$WORK_DIR"
+
+# The console stops inside Long Log: Build's three steps and Race's sh and
+# two echos come from it; Race's sleeps and the steps from Long Log on are
+# read one by one.
+assert_success "in-pipeline snapshot took logs from the annotated console and read the rest one by one" \
+    sh -c 'grep -q "build running: 6 step logs whole in the annotated console, reading the other 8 one by one" "$1" && ! grep -q unusable "$1"' \
+    _ "$WORK_DIR/snapshot.err"
+
+assert_success "in-pipeline snapshot: finished steps match the step-by-step snapshot" \
+    go -C "$PROJECT_DIR" run ./integration/exportcheck ended "$WORK_DIR/snapshot.html" "$WORK_DIR/snapshot-steps.html"
+
 echo ""
 echo "Done."

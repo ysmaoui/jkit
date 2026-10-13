@@ -386,20 +386,60 @@ Step logs download in a bounded pool (`--concurrency`, default 4, at most 8),
 since export time is per-request latency. Each worker owns one spool file, so
 no lock guards the writes; the console goes to the first after the pool ends.
 Progress lines follow step order, and the first fatal error cancels the rest.
-A finished run that PGV reports complete, or that has no flow nodes, skips
-that pool for logs: one `progressiveHtml` download is split into per-node
+Step logs come from one `progressiveHtml` download split into per-node
 text, while `consoleText` downloads beside it. The console is not derived from
 the annotated one, since nothing proves the two sanitize to the same bytes.
 Parallel branches interleave, so the split step text goes to an unlinked raw
 file and memory holds only each step's offset runs; each step is encoded from
 there once the download ends, then failed and aborted steps get their
 exception text from a pool of the same size. No node span, a download that
-fails or times out, or a partial answer falls back to the pool, with the
-reason on stderr. No node span in a run with no steps is no reason: its text
-is all the build's own. Errors that stop the export (auth, permission, missing
-plugin, unreachable host, spool) do not fall back. A running run always uses
-the pool: its annotated console can stop at the line cap or, on 2.527+, end
-mid-line.
+fails or times out, or a partial answer for a complete run falls back to
+the pool, with the reason on stderr. No node span in a run with no steps is
+no reason: its text is all the build's own. Errors that stop the export
+(auth, permission, missing plugin, unreachable host, spool) do not fall
+back.
+
+A run that is not complete keeps a partial answer. Its annotated console
+can stop at the line cap or, on 2.527+, end mid-line, and nothing in the
+text says whether a node writes more after the cut, so a node span that
+closed before it proves nothing. PGV's step times prove nothing either:
+for the last step of a parallel branch its end is the end of whichever
+branch finished first (seen: an 8s `sh` given 1040ms). A finished step's
+text is kept on four conditions:
+
+- Its `[Pipeline]` line, at the start of the `pipeline-new-node` span,
+  names `echo`, `sh`, `bat`, `powershell` or `pwsh`. Any other step can
+  write from an agent through workflow-api's `DelayBufferedOutputStream`,
+  flushed on a timer whose period grows to 10s, after it returned. `echo`
+  writes on the controller before it returns. The durable-task steps copy
+  the output on the controller, last-minute output included, before
+  reporting the exit, or, watching from the agent, close the agent-side
+  stream before reporting it; remoting delivers the stream's writes before
+  that later call.
+- A `pipeline-new-node` span arrived proving the step returned: the next
+  node in its block (same `enclosingId`) or that block's end (`startId` the
+  block). One CPS thread runs a block's body in sequence, so neither node
+  exists before the step returns. Parallel branches share a block but are
+  blocks themselves, never atoms.
+- The step wrote nothing after that span.
+- Its text is empty or ends a line. A durable-task step reports its exit
+  before it closes its listener, and closing writes the line end the
+  output lacked. A text whose last piece came before a dropped comment
+  fails this too: the output went on past the line end, in an AnsiColor
+  escape sequence, say.
+
+Each span is held with its ids, its step function and the raw spool size
+when it arrived. Every other step goes to the pool: running ones, the one
+cut at the boundary, those whose proving span is past the cut, and every
+step of another kind. stderr says how many. The failure trace is skipped,
+as for the pool: the text it saw stops short.
+
+What remains: a durable-task step that is aborted can write after it
+returned. When the process does not stop within the stop timeout, the step
+logs `After 10s process did not stop`, fails, and the cleanup then logs a
+stack trace; while watching from the agent, output copied after that
+failure lands later still. Such a step's log can miss those lines when the
+console stops between its proof and them.
 
 The snapshot's `failureNodeId` names the stage that failed the build. The first
 stage in state FAILURE is often the wrong answer: `catchError` marks a stage
@@ -441,8 +481,9 @@ after the caught stage and lies outside it, threw. A `buildErrorMessage` equal t
 `failureMessage` is dropped, since a stage that echoes its error and
 rethrows would show it twice. `failureNodeId` falls back to the failed leaf
 stage that started last when no node's `ERROR:` line traces to a failed
-stage and when the pool read the logs: `consoleText` carries no node to
-trace. `failureMessage` is then empty, so the page never shows an error
+stage, when the pool read the logs (`consoleText` carries no node to
+trace), and when the run was not complete (the traced text may stop
+short). `failureMessage` is then empty, so the page never shows an error
 under a stage that did not write it.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**

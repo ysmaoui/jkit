@@ -4,11 +4,13 @@
 //	exportcheck finished <export.html> <allSteps.json>
 //	exportcheck live <snapshot.html>
 //	exportcheck same <a.html> <b.html>
+//	exportcheck ended <a.html> <b.html>
 //
 // finished checks an export of the ended run against PGV's step listing;
 // live checks the snapshot the run took of itself from its Snapshot stage;
 // same checks that two exports of one run, from either log source, hold the
-// same steps, logs and console.
+// same steps, logs and console; ended checks that every step that had ended
+// in the mid-run export a has the same log and exception in b, taken later.
 package main
 
 import (
@@ -29,13 +31,13 @@ import (
 const (
 	snapshotOpen = `<script type="application/json" id="snapshot">`
 	longLines    = 20000
-	usage        = "usage: exportcheck finished <html> <allSteps.json> | live <html> | same <html> <html>"
+	usage        = "usage: exportcheck finished <html> <allSteps.json> | live <html> | same <html> <html> | ended <html> <html>"
 )
 
 var exportedAt = regexp.MustCompile(`"exportedAtMillis":\d+`)
 
 // stagesBeforeSnapshot have all ended when the Snapshot stage runs.
-var stagesBeforeSnapshot = []string{"Build", "Long Log", "Flaky", "Fan Out", "Branch A", "Branch B", "B1", "B2"}
+var stagesBeforeSnapshot = []string{"Build", "Race", "Race A", "Race B", "Race C", "Long Log", "Flaky", "Fan Out", "Branch A", "Branch B", "B1", "B2"}
 
 var (
 	// Timestamper prefixes plain step-log lines with [ISO-8601 UTC]
@@ -72,6 +74,8 @@ func main() {
 		live(c, snap)
 	case os.Args[1] == "same" && len(os.Args) == 4:
 		same(c, page, snap, os.Args[3])
+	case os.Args[1] == "ended" && len(os.Args) == 4:
+		ended(c, snap, os.Args[3])
 	default:
 		fatal(usage)
 	}
@@ -183,6 +187,32 @@ func same(c *checker, page []byte, snap *export.Snapshot, otherPath string) {
 
 	mask := func(p []byte) []byte { return exportedAt.ReplaceAll(p, []byte(`"exportedAtMillis":0`)) }
 	c.check(bytes.Equal(mask(page), mask(other)), "pages differ beyond exportedAtMillis")
+}
+
+func ended(c *checker, snap *export.Snapshot, laterPath string) {
+	page, err := os.ReadFile(laterPath)
+	if err != nil {
+		fatal(err.Error())
+	}
+	later, err := snapshotOf(page)
+	if err != nil {
+		fatal(err.Error())
+	}
+	type stepText struct{ log, exception, err string }
+	b := map[string]stepText{}
+	later.EachStep(func(_ *export.Node, s *export.Step) {
+		b[s.ID] = stepText{decode(c, "step "+s.ID, s.Log), s.Exception, s.Error}
+	})
+	n := 0
+	snap.EachStep(func(_ *export.Node, s *export.Step) {
+		if s.Running {
+			return
+		}
+		n++
+		a := stepText{decode(c, "step "+s.ID, s.Log), s.Exception, s.Error}
+		c.check(a == b[s.ID], "step %s differs:\n%q\nvs\n%q", s.ID, a, b[s.ID])
+	})
+	c.check(n > 0, "no ended steps")
 }
 
 func checkLongLog(c *checker, snap *export.Snapshot) {

@@ -134,8 +134,9 @@ type Options struct {
 	Concurrency int
 	// LogSource picks where step logs come from.
 	LogSource LogSource
-	// Notice, when set, gets one line naming the log source read, or why the
-	// annotated console was given up. It runs on the goroutine that calls
+	// Notice, when set, gets one line naming the log source read, why the
+	// annotated console was given up, or how many step logs of a run not
+	// complete it held whole. It runs on the goroutine that calls
 	// Progress, so a printer may share state between the two without a lock.
 	Notice func(msg string)
 }
@@ -144,12 +145,13 @@ type Options struct {
 type LogSource string
 
 const (
-	// LogSourceAuto is LogSourceConsole for a finished run, else
-	// LogSourceSteps: a running run's annotated console can stop short, or
-	// on newer Jenkins end mid-line.
+	// LogSourceAuto is LogSourceConsole.
 	LogSourceAuto LogSource = ""
 	// LogSourceConsole splits one annotated-console download into step
-	// logs, and falls back to LogSourceSteps when it cannot.
+	// logs, and falls back to LogSourceSteps when it cannot. For a running
+	// run it keeps only the logs the download proves whole and reads the
+	// other steps on their own: a running run's annotated console can stop
+	// short, or on newer Jenkins end mid-line.
 	LogSourceConsole LogSource = "console"
 	// LogSourceSteps reads each step's log on its own, Concurrency at once.
 	LogSourceSteps LogSource = "steps"
@@ -217,17 +219,10 @@ func (s *Snapshot) Close() error {
 }
 
 func collectLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, snap *Snapshot) error {
-	src := opts.LogSource
-	if src == LogSourceAuto {
-		src = LogSourceSteps
-		if snap.Complete {
-			src = LogSourceConsole
-		}
-	}
-	if src == LogSourceConsole {
+	if opts.LogSource != LogSourceSteps {
 		return collectFromConsole(ctx, client, jobPath, number, opts, snap)
 	}
-	if err := fillStepLogs(ctx, client, jobPath, number, opts, snap.spools, snap.Stages); err != nil {
+	if err := fillStepLogs(ctx, client, jobPath, number, opts, snap.spools, snap.Stages, nil); err != nil {
 		return err
 	}
 	// The plain console has no node attribution to trace an error line by.
@@ -367,10 +362,11 @@ func (s *Snapshot) EachStep(fn func(*Node, *Step)) {
 	})
 }
 
-// fillStepLogs reads step logs with one worker per spool, each worker the
-// only writer of its spool. Progress runs in step order once a worker has
-// taken the step. The first fatal error cancels the reads still going.
-func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, spools []*spool, nodes []Node) error {
+// fillStepLogs reads the logs of the steps not in skip with one worker per
+// spool, each worker the only writer of its spool. Progress runs in step
+// order once a worker has taken the step. The first fatal error cancels the
+// reads still going.
+func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, spools []*spool, nodes []Node, skip map[*Step]bool) error {
 	type job struct {
 		node *Node
 		step *Step
@@ -378,7 +374,9 @@ func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, numbe
 	var jobs []job
 	walk(nodes, func(n *Node) {
 		for i := range n.Steps {
-			jobs = append(jobs, job{n, &n.Steps[i]})
+			if !skip[&n.Steps[i]] {
+				jobs = append(jobs, job{n, &n.Steps[i]})
+			}
 		}
 	})
 

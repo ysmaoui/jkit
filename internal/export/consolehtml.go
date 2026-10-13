@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -50,8 +52,12 @@ const (
 type consoleSplitter struct {
 	emit func(node string, text []byte) error
 	// newNode, when set, gets the attributes of each pipeline-new-node span,
-	// which opens every flow node's [Pipeline] line.
+	// which opens every flow node's [Pipeline] line, once all text before
+	// the span has gone to emit.
 	newNode func(id, start, enclosing string)
+	// comment, when set, gets the node whose text a dropped comment sits in,
+	// once all text before the comment has gone to emit.
+	comment func(node string)
 
 	state splitState
 	held  []byte
@@ -118,6 +124,12 @@ func (s *consoleSplitter) Write(p []byte) (int, error) {
 			if s.state == inTag {
 				if bytes.Equal(s.held, []byte("<!--")) {
 					s.state, s.dashes = inComment, 0
+					if s.comment != nil {
+						if err := s.flush(); err != nil {
+							return 0, err
+						}
+						s.comment(s.node)
+					}
 				} else if len(s.held) > maxTagBytes {
 					s.text(s.held)
 					s.state, s.quote = inText, 0
@@ -233,6 +245,9 @@ func (s *consoleSplitter) tag(t []byte) error {
 			mark = dropSpan
 		}
 		if class == "pipeline-new-node" && s.newNode != nil {
+			if err := s.flush(); err != nil {
+				return err
+			}
 			s.newNode(attr(attrs, "nodeId"), attr(attrs, "startId"), attr(attrs, "enclosingId"))
 		}
 	}
@@ -316,6 +331,8 @@ func attr(attrs, name string) string {
 // collectFromConsole fills the step logs from one annotated-console download
 // while the plain console downloads beside it. When that download cannot
 // give every step's log, Notice says why and the steps are read one by one.
+// For a running run, the steps the download does not prove whole are read
+// one by one.
 func collectFromConsole(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, snap *Snapshot) error {
 	consoleSpool, err := newSpool(opts.SpoolDir)
 	if err != nil {
@@ -350,12 +367,28 @@ func collectFromConsole(ctx context.Context, client *api.Client, jobPath string,
 
 	notice(opts, "reading step logs from the annotated console")
 	find := newFailureFinder()
-	err = stepLogsFromConsole(workCtx, client, jobPath, number, opts, workers[0], snap.Stages, find)
+	running := !snap.Complete
+	filled, err := stepLogsFromConsole(workCtx, client, jobPath, number, opts, workers[0], snap.Stages, find, running)
 	var fb *fallbackError
-	if errors.As(err, &fb) {
+	switch {
+	case errors.As(err, &fb):
 		notice(opts, fmt.Sprintf("annotated console unusable, reading step logs one by one: %v", fb.err))
 		find = nil
-		err = fillStepLogs(workCtx, client, jobPath, number, opts, workers, snap.Stages)
+		err = fillStepLogs(workCtx, client, jobPath, number, opts, workers, snap.Stages, nil)
+	case err == nil && running:
+		// The failure finder saw the text only up to where the download
+		// stopped.
+		find = nil
+		total := 0
+		snap.EachStep(func(*Node, *Step) { total++ })
+		if rest := total - len(filled); rest > 0 {
+			state := "run not complete"
+			if snap.Building {
+				state = "build running"
+			}
+			notice(opts, fmt.Sprintf("%s: %d step logs whole in the annotated console, reading the other %d one by one", state, len(filled), rest))
+			err = fillStepLogs(workCtx, client, jobPath, number, opts, workers, snap.Stages, filled)
+		}
 	}
 	if err != nil {
 		fail(err)
@@ -380,16 +413,93 @@ func (e *fallbackError) Error() string { return e.err.Error() }
 // textRun is n bytes of one node's text at off in the raw spool.
 type textRun struct{ off, n int64 }
 
-// stepLogsFromConsole downloads the annotated console and encodes each step's
-// log onto sp. The split text waits in a raw spool file, with only where
-// each step's runs lie held in memory, because parallel branches interleave
-// and a step's log is whole only once the download ends. Steps without
-// output get an empty log and no request. find sees all the split text,
-// the build's own and that of nodes that are not steps.
-func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, nodes []Node, find *failureFinder) error {
+// flushedSteps write all their output before they return: echo on the
+// controller, and the durable-task steps either copy it on the controller
+// before reporting the exit or close the agent-side stream first. Other
+// steps can write from an agent through workflow-api's
+// DelayBufferedOutputStream, flushed on a timer up to 10s after they
+// returned.
+var flushedSteps = map[string]bool{"echo": true, "sh": true, "bat": true, "powershell": true, "pwsh": true}
+
+// pipelineLine finds the step function in a pipeline-new-node span's text.
+var pipelineLine = regexp.MustCompile(`^\[Pipeline\] (\S+)`)
+
+// nodeMark is a pipeline-new-node span as it streamed by. start is the
+// startId attribute: the node itself on a block start, the block's start on
+// a block end, empty on an atom.
+type nodeMark struct {
+	id, enclosing, start string
+	// fn is the step function its [Pipeline] line names.
+	fn string
+	// pos is the raw spool size when the span streamed by.
+	pos int64
+}
+
+// markLog is the node marks of an annotated console in stream order.
+type markLog struct {
+	marks []nodeMark
+	self  map[string]int
+	// inBlock and ends hold mark indices by enclosingId and by the startId
+	// of block ends.
+	inBlock, ends map[string][]int
+}
+
+func (l *markLog) add(m nodeMark) {
+	i := len(l.marks)
+	l.marks = append(l.marks, m)
+	l.self[m.id] = i
+	if m.start != "" && m.start != m.id {
+		l.ends[m.start] = append(l.ends[m.start], i)
+	} else if m.enclosing != "" {
+		l.inBlock[m.enclosing] = append(l.inBlock[m.enclosing], i)
+	}
+}
+
+// after is the first of the ascending indices is past a, -1 for none.
+func after(is []int, a int) int {
+	j := sort.SearchInts(is, a+1)
+	if j == len(is) {
+		return -1
+	}
+	return is[j]
+}
+
+// endOf is the index of the first mark proving that the node of mark a has
+// returned, -1 for none. A block step has returned once its end node exists.
+// An atom step has once the CPS thread running it went on: a later node in
+// the same block, or that block's end. One thread runs a block's body in
+// sequence, so neither exists before the step returns. The parallel step's
+// branches share a block and run at once, but they are blocks, not atoms.
+func (l *markLog) endOf(a int) int {
+	m := l.marks[a]
+	if m.start == m.id {
+		return after(l.ends[m.id], a)
+	}
+	if m.enclosing == "" {
+		return -1
+	}
+	sib, end := after(l.inBlock[m.enclosing], a), after(l.ends[m.enclosing], a)
+	// A block's end follows every node in it.
+	if sib >= 0 {
+		return sib
+	}
+	return end
+}
+
+// stepLogsFromConsole downloads the annotated console and encodes step logs
+// onto sp, returning the steps it filled. The split text waits in a raw
+// spool file, with only where each step's runs lie held in memory, because
+// parallel branches interleave and a step's log is whole only once the
+// download ends. Steps without output get an empty log and no request. find
+// sees all the split text, the build's own and that of nodes that are not
+// steps.
+//
+// For a finished run every step is filled. For a running one the download
+// may stop anywhere, so only the steps wholeIn proves whole are.
+func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, nodes []Node, find *failureFinder, running bool) (map[*Step]bool, error) {
 	raw, err := newSpool(opts.SpoolDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = raw.close() }()
 
@@ -399,8 +509,24 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 			runs[s.ID] = nil
 		}
 	})
+	marks := &markLog{self: map[string]int{}, inBlock: map[string][]int{}, ends: map[string][]int{}}
+	// named is the last mark whose [Pipeline] line is still to come; the
+	// splitter emits it first after the mark, as the build's own text.
+	named := -1
+	// hidden holds the steps whose text so far ends in a dropped comment,
+	// such as AnsiColor's escape sequences. Their output then may not end a
+	// line where the text does, and closing the listener can add one.
+	hidden := map[string]bool{}
 	split := newConsoleSplitter(func(node string, text []byte) error {
 		find.text(node, text)
+		if node == "" && named >= 0 {
+			line, _, whole := bytes.Cut(text, []byte("\n"))
+			if m := pipelineLine.FindSubmatch(line); whole && m != nil {
+				marks.marks[named].fn = string(m[1])
+			}
+			named = -1
+		}
+		delete(hidden, node)
 		rs, ok := runs[node]
 		if !ok {
 			return nil
@@ -414,7 +540,16 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 		_, _ = raw.Write(text)
 		return nil
 	})
-	split.newNode = find.newNode
+	split.newNode = func(id, start, enclosing string) {
+		find.newNode(id, start, enclosing)
+		marks.add(nodeMark{id: id, enclosing: enclosing, start: start, pos: raw.size})
+		named = len(marks.marks) - 1
+	}
+	split.comment = func(node string) {
+		if _, ok := runs[node]; ok {
+			hidden[node] = true
+		}
+	}
 	_, partial, err := client.CopyConsoleHTML(ctx, jobPath, number, split)
 	if err == nil {
 		err = split.Close()
@@ -426,22 +561,25 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 	}
 	switch {
 	case err != nil && stopsExport(ctx, err):
-		return err
+		return nil, err
 	case err != nil:
-		return &fallbackError{withTimeoutHint(err)}
-	case partial:
-		return &fallbackError{errors.New("the console of a running build may stop short")}
+		return nil, &fallbackError{withTimeoutHint(err)}
+	case partial && !running:
+		return nil, &fallbackError{errors.New("the console of a running build may stop short")}
 	}
 	if err := raw.flush(); err != nil {
-		return fmt.Errorf("%w: %w\n%s", errSpool, err, spoolHint)
+		return nil, fmt.Errorf("%w: %w\n%s", errSpool, err, spoolHint)
 	}
 
 	var steps []*Step
 	walk(nodes, func(n *Node) {
 		for i := range n.Steps {
-			steps = append(steps, &n.Steps[i])
+			if s := &n.Steps[i]; !running || !hidden[s.ID] && wholeIn(s, runs[s.ID], marks, raw.f) {
+				steps = append(steps, s)
+			}
 		}
 	})
+	filled := map[*Step]bool{}
 	for _, s := range steps {
 		s.Log, err = encodeLog(sp, opts.MaxLogBytes, func(w io.Writer) error {
 			for _, r := range runs[s.ID] {
@@ -452,10 +590,45 @@ func stepLogsFromConsole(ctx context.Context, client *api.Client, jobPath string
 			return nil
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
+		filled[s] = true
 	}
-	return fillExceptions(ctx, client, jobPath, number, opts, steps)
+	return filled, fillExceptions(ctx, client, jobPath, number, opts, steps)
+}
+
+// wholeIn reports whether the console text of a running run holds all of
+// step s's log, given its runs in raw and the node marks. It does for one of
+// flushedSteps when a mark proving s returned streamed by (endOf), s wrote
+// nothing after it, and its text is empty or ends a line. A durable-task
+// step reports its exit before closing its listener, and closing writes the
+// line end its output lacked. PGV's step duration plays no part: for the
+// last step of a parallel branch it runs to whichever branch ended first.
+func wholeIn(s *Step, rs []textRun, l *markLog, raw io.ReaderAt) bool {
+	if s.Running || s.State == "" {
+		return false
+	}
+	a, ok := l.self[s.ID]
+	if !ok || !flushedSteps[l.marks[a].fn] {
+		return false
+	}
+	p := l.endOf(a)
+	if p < 0 {
+		return false
+	}
+	n := len(rs)
+	if n == 0 {
+		return true
+	}
+	end := rs[n-1].off + rs[n-1].n
+	if end > l.marks[p].pos {
+		return false
+	}
+	last := make([]byte, 1)
+	if _, err := raw.ReadAt(last, end-1); err != nil {
+		return false
+	}
+	return last[0] == '\n'
 }
 
 // fillExceptions reads the exception text of steps, Concurrency requests at

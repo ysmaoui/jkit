@@ -52,7 +52,11 @@ paramJob.buildersList.add(new hudson.tasks.Shell('echo "BRANCH=$BRANCH ENV=$ENV"
 
 // 5. export-pipeline: the shapes `jkit export html` renders. Snapshot exports
 // this same run from inside it while After is still pending; run.sh copies
-// the jkit binary into the container before the first build.
+// the jkit binary into the container before the first build. That export's
+// annotated console stops at the line cap inside Long Log, so the echo and
+// sh steps before it, Race's included, come from the console and the rest
+// are read one by one. Race ends before the cut: its steps are proved by
+// the nodes after them within their branches, not by being cut.
 def exportPipeline = jenkins.createProject(WorkflowJob, 'export-pipeline')
 exportPipeline.setDefinition(new CpsFlowDefinition('''\
 pipeline {
@@ -65,6 +69,27 @@ pipeline {
                 sh 'echo build-output'
                 ansiColor('xterm') {
                     echo '\u001B[31mred text\u001B[0m plain'
+                }
+            }
+        }
+        stage('Race') {
+            parallel {
+                stage('Race A') {
+                    steps {
+                        sh 'echo a1; sleep 8; echo a2'
+                    }
+                }
+                stage('Race B') {
+                    steps {
+                        sleep 1
+                        echo 'b'
+                    }
+                }
+                stage('Race C') {
+                    steps {
+                        sleep 4
+                        echo 'c'
+                    }
                 }
             }
         }
@@ -108,9 +133,10 @@ pipeline {
                 sh \'\'\'
                     export JKIT_CONFIG_DIR="$WORKSPACE/.jkit"
                     jkit auth login --host http://localhost:8080 --user admin --token admin
-                    jkit export html -o snapshot.html
+                    jkit export html -o snapshot.html 2>snapshot.err
+                    jkit export html --log-source steps -o snapshot-steps.html
                 \'\'\'
-                archiveArtifacts 'snapshot.html'
+                archiveArtifacts 'snapshot.html, snapshot.err, snapshot-steps.html'
             }
         }
         stage('After') {
