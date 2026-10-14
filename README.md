@@ -54,6 +54,7 @@ jkit auth login                                              # interactive
 jkit auth login --host https://jenkins.example.com \
               --user me --token "$JENKINS_TOKEN"           # non-interactive
 jkit auth status
+jkit auth status --all                                       # check every configured host
 ```
 
 Credentials are stored in `~/.config/jkit/config.yml`. Multiple hosts are

@@ -64,9 +64,46 @@ type authTransport struct {
 	base  http.RoundTripper
 	user  string
 	token string
+	// home is the configured host URL. The transport sees every redirect hop,
+	// so credentials go only to requests that sendsCredentials accepts.
+	home *url.URL
+}
+
+// sendsCredentials reports whether u is the configured host: same hostname
+// ignoring case, same port after defaulting by scheme, and never a downgrade
+// from https to http. An http host may be upgraded to https on default ports,
+// as Jenkins behind a TLS-terminating proxy redirects.
+func (t *authTransport) sendsCredentials(u *url.URL) bool {
+	if t.home == nil || !strings.EqualFold(u.Hostname(), t.home.Hostname()) {
+		return false
+	}
+	if t.home.Scheme == "https" && u.Scheme != "https" {
+		return false
+	}
+	port, homePort := effectivePort(u), effectivePort(t.home)
+	if port == homePort {
+		return true
+	}
+	return t.home.Scheme == "http" && homePort == "80" && u.Scheme == "https" && port == "443"
+}
+
+func effectivePort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	switch u.Scheme {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	}
+	return ""
 }
 
 func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !t.sendsCredentials(req.URL) {
+		return t.base.RoundTrip(req)
+	}
 	req = req.Clone(req.Context())
 	cred := base64.StdEncoding.EncodeToString([]byte(t.user + ":" + t.token))
 	req.Header.Set("Authorization", "Basic "+cred)
@@ -151,6 +188,7 @@ func newBaseTransport() *http.Transport {
 
 func NewClient(host, user, token string, opts ...ClientOption) *Client {
 	host = strings.TrimRight(host, "/")
+	home, _ := url.Parse(host)
 	jar, _ := cookiejar.New(nil)
 	c := &Client{
 		httpClient: &http.Client{
@@ -158,6 +196,7 @@ func NewClient(host, user, token string, opts ...ClientOption) *Client {
 				base:  newBaseTransport(),
 				user:  user,
 				token: token,
+				home:  home,
 			},
 			Jar:     jar,
 			Timeout: 30 * time.Second,

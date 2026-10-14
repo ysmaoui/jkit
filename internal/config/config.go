@@ -22,16 +22,32 @@ type HostConfig struct {
 	Alias   string `yaml:"alias,omitempty"`
 }
 
-// ResolveHost resolves a host URL or alias to the actual host URL and its config.
-// Checks exact match first, then alias match.
+// ResolveHost resolves a host URL or alias to the configured host key and its
+// config. Tries an exact key, then a key equal after NormalizeHost on both
+// sides, then an alias. Several keys normalising to the input is an error,
+// since callers such as config remove act on the key returned. Keys are
+// visited in sorted order so a duplicate alias resolves the same way every run.
 func (c *Config) ResolveHost(hostOrAlias string) (string, *HostConfig, error) {
-	// Exact match
 	if hc, ok := c.Hosts[hostOrAlias]; ok {
 		return hostOrAlias, hc, nil
 	}
-	// Alias match
-	for host, hc := range c.Hosts {
-		if hc.Alias != "" && hc.Alias == hostOrAlias {
+	if want := NormalizeHost(hostOrAlias); want != "" {
+		var matches []string
+		for _, host := range c.HostURLs() {
+			if NormalizeHost(host) == want {
+				matches = append(matches, host)
+			}
+		}
+		switch len(matches) {
+		case 0:
+		case 1:
+			return matches[0], c.Hosts[matches[0]], nil
+		default:
+			return "", nil, fmt.Errorf("host %q matches several configured keys, give one exactly: %s", hostOrAlias, strings.Join(matches, ", "))
+		}
+	}
+	for _, host := range c.HostURLs() {
+		if hc := c.Hosts[host]; hc.Alias != "" && hc.Alias == hostOrAlias {
 			return host, hc, nil
 		}
 	}

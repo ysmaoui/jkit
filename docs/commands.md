@@ -86,16 +86,70 @@ jkit auth login --host https://ci.co --user me --token abc --alias prod
 Show authentication status.
 
 ```
-jkit auth status [--host HOST]
+jkit auth status [--host HOST | --all]
 ```
 
-Exits 0 if valid, 1 if invalid.
+| Flag | Description |
+|------|-------------|
+| `--all` | Check every configured host, one row per config key |
+
+Without `--all`, checks the default host, or `--host`. `--host` takes a
+configured key, the same URL with a trailing slash, query or fragment, or an
+alias. A URL that matches several keys only after normalising is an error
+naming them. Exits 0 if valid, 1 if invalid.
 
 ```
-Host:  https://jenkins.company.com
+Host:  https://jenkins.example.com
 User:  jane
 Auth:  valid
 ```
+
+With `--all`, every host in `config.yml` gets one `GET /whoAmI/api/json`,
+8 at a time, with a 10 second timeout, no retry and no redirect following. A
+2xx answer counts as valid only when it names a non-anonymous user. The table
+goes to stdout, progress and warnings to stderr. Tokens are never printed.
+
+```
+HOST                     ALIAS  USER  DEFAULT  RESULT               NOTES
+https://ci.example.com   prod   jane  yes      valid                duplicate of https://ci.example.com/; alias 'prod' shared with https://qa.example.com
+https://ci.example.com/  -      jane           valid                not normalised: https://ci.example.com; duplicate of https://ci.example.com
+https://qa.example.com   prod   jane           invalid token (401)  alias 'prod' shared with https://ci.example.com
+https://st.example.com   -      jane           timeout
+```
+
+RESULT is `valid`, `invalid token (401)`, `forbidden (403)`, `anonymous` (a
+2xx answer that is anonymous or not whoAmI JSON, e.g. a login page),
+`unreachable`, `timeout` or `HTTP <code>` (a redirect shows as its 3xx code).
+NOTES lists key problems found without a request: a key that `jkit auth login`
+would have written differently (trailing slash, query, fragment, spaces), keys
+that name the same host, an alias shared by several keys, and more than one key
+marked default. It also notes `authenticated as NAME` when Jenkins reports a
+user other than the configured one; that note alone does not fail the run.
+
+Exit code 1 if any host answers 401 or 403, is `anonymous`, or has a key
+problem. Hosts that are unreachable, time out or answer any other status do not
+fail the run; a warning on stderr gives their count.
+
+`--json` prints an array sorted by host. `result` is `valid`, `invalid`,
+`forbidden`, `anonymous`, `unreachable`, `timeout` or `http_<code>`;
+`status_code` is 0 when no answer came back.
+
+```json
+[
+  {
+    "host": "https://ci.example.com",
+    "alias": "prod",
+    "user": "jane",
+    "default": true,
+    "result": "valid",
+    "status_code": 200,
+    "problems": []
+  }
+]
+```
+
+`--format` applies a Go template to the same array, e.g.
+`--format '{{range .}}{{.Host}} {{.Result}}{{"\n"}}{{end}}'`.
 
 ---
 

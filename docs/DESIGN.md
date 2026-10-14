@@ -61,6 +61,8 @@ jkit/
 │   │   ├── pipeline.go        # Pipeline-specific APIs (stages, input steps)
 │   │   ├── queue.go           # Queue APIs
 │   │   └── crumb.go           # CSRF crumb handling (Jenkins-specific)
+│   ├── authcheck/
+│   │   └── authcheck.go       # Per-key credential check for auth status --all
 │   ├── config/
 │   │   ├── config.go          # Config file read/write (~/.config/jkit/)
 │   │   ├── config_test.go
@@ -162,6 +164,13 @@ GET /job/{path}/{number}/logText/progressiveHtml?start={byte-offset}
 # but not on progressiveText, so it is asked here once when no answer has
 # carried it yet.
 GET /api/json?tree=_class
+# Credential check for `auth status --all`, one request per configured host.
+# 401 means the token is rejected, 403 that the user lacks Overall/Read. A 200
+# proves nothing by itself: an anonymous request answers {"anonymous":true}
+# and a login redirect ends in an HTML 200, so redirects are not followed and
+# the body must name a non-anonymous user. Sent once with a short timeout and
+# no retry, so a dead host costs one timeout.
+GET /whoAmI/api/json
 
 # Pipeline stages — Pipeline Graph View (preferred, plugin v803+)
 GET /job/{path}/{number}/stages/tree
@@ -734,10 +743,28 @@ Non-interactive: all three flags provided, skip prompts.
 
 #### 2. `jkit auth status`
 ```
-Usage: jkit auth status
+Usage: jkit auth status [--host HOST | --all]
 
 Output: Current host, username, and whether credentials are valid.
 Exit code 1 if not authenticated.
+
+--host resolves through config.ResolveHost: exact key, then a key equal after
+NormalizeHost, then alias.
+
+--all: one row per config key. internal/config.KeyProblems finds key defects
+offline (key != NormalizeHost(key), keys normalising to one host, alias shared
+by several keys, more than one default). internal/authcheck.CheckAll sends GET
+/whoAmI/api/json to the normalised host, 8 hosts at a time, one attempt, 10s
+timeout, bypassing the client's retry and redirects. Results: valid |
+invalid (401) | forbidden (403) | anonymous (2xx without a named,
+non-anonymous user) | unreachable | timeout | http_<code>. Exit 1 on any 401,
+403, anonymous or key problem; unreachable, timeout and other codes only warn
+on stderr.
+
+The API client sends Basic credentials only to the configured host: same
+hostname ignoring case, same port after defaulting by scheme, never from https
+down to http. An http host upgraded to https on default ports keeps them. A
+redirect anywhere else does not receive them.
 ```
 
 #### 3. `jkit status [job] [build#]`
