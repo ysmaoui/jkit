@@ -17,10 +17,17 @@ type NotFoundError struct {
 	Resource string
 	Name     string
 	Host     string
+	// Hint replaces the default "run 'jkit list'" for callers whose Name is
+	// not a job, such as a raw request path.
+	Hint string
 }
 
 func (e *NotFoundError) Error() string {
-	return fmt.Sprintf("%s %q not found on %s — run 'jkit list'", e.Resource, e.Name, e.Host)
+	hint := e.Hint
+	if hint == "" {
+		hint = "run 'jkit list'"
+	}
+	return fmt.Sprintf("%s %q not found on %s — %s", e.Resource, e.Name, e.Host, hint)
 }
 
 // ContainerBuildError is returned when a build is requested on a job that is

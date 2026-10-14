@@ -137,7 +137,9 @@ func TestAPIErrorStatusPrintsBodyAndTypedError(t *testing.T) {
 		}},
 		{http.StatusNotFound, func(t *testing.T, err error) {
 			var e *jenkins.NotFoundError
-			assert.ErrorAs(t, err, &e)
+			require.ErrorAs(t, err, &e)
+			assert.Contains(t, err.Error(), "check the path")
+			assert.NotContains(t, err.Error(), "jkit list")
 		}},
 		{http.StatusInternalServerError, func(t *testing.T, err error) {
 			var e *jenkins.ServerError

@@ -801,6 +801,12 @@ writes, job creation and seed-job pushes belong in jobDSL, not a CLI. `jkit insp
 --xml` reads the file; nothing writes it. Replay is the useful boundary case, and
 it clears the line because it runs an edited script once and persists nothing.
 
+**`jkit api` is the one exception.** It is a raw escape hatch: it sends exactly
+the request the user writes, with the user's own credentials, so `-X POST` and
+other mutating methods work. jkit offers no command of its own that mutates a
+job definition. The warning in `docs/commands.md` tells users to prefer the
+dedicated commands.
+
 **A refusal must name what is missing.** Once commands need different rights, a
 failure stops being unambiguous, and the three causes look identical from the
 outside: you lack a permission, a plugin is absent, or the thing does not exist.

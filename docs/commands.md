@@ -1507,8 +1507,7 @@ jkit lint path/to/Jenkinsfile     # validate specific file
 ## `jkit api`
 
 Send an authenticated request to the Jenkins API and print the response body,
-like `gh api`. For anything no other command covers, without reaching for curl
-and a token.
+like `gh api`. It covers what no other command does, without curl and a token.
 
 ```
 jkit api <path|url> [-X METHOD] [-H "Key: Value"]... [-i]
@@ -1524,8 +1523,9 @@ A path is relative to the host root (leading slash optional) and goes to
 `--host`, an alias, or the default host. A full `http(s)` URL is sent to the
 configured host with the same scheme and host; a host that is not configured is
 an error naming `jkit auth login`. With `--host` as well, the URL must lie under
-that host (an error otherwise), which is also the way to reach a host configured with a context path
-(`--host https://example.com/jenkins https://example.com/jenkins/api/json`).
+that host, or it is an error. This is also how to reach a host configured with
+a context path (`--host https://example.com/jenkins
+https://example.com/jenkins/api/json`).
 
 The query string is sent byte for byte, so `tree=jobs[name,color]` needs no
 escaping. There is no request body flag.
@@ -1542,11 +1542,12 @@ Output:
   indented.
 - `--json`: indented JSON; an error if the body is not JSON.
 - `--format`: a Go template applied to the decoded JSON body.
-- HTTP 400 and above: the body is still printed, unformatted, and the error
-  goes to stderr with a non-zero exit: 401 not authenticated, 403 access
-  denied, 404 not found, anything else a server error with its status.
+- HTTP 400 and above: the body is still printed, unformatted. The error goes
+  to stderr and the exit code is non-zero: 401 not authenticated, 403 access
+  denied, 404 not found (check the path), anything else a server error with
+  its status.
 
-`-X` sends whatever the path asks for with your own permissions; a `POST` to
+`-X` sends exactly what you write, with your own permissions. A `POST` to
 `/job/NAME/doDelete` deletes the job. Prefer the dedicated commands where one
 exists.
 

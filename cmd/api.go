@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/config"
+	"github.com/ysmaoui/jkit/internal/jenkins"
 	"github.com/ysmaoui/jkit/internal/output"
 )
 
@@ -101,7 +103,12 @@ func runAPI(cmd *cobra.Command, args []string) error {
 		// The body is the explanation, so it is shown as-is rather than
 		// refused for not matching --json or --format.
 		writeBody(w, body, stdoutIsTerminal())
-		return api.StatusError(resp, nil)
+		err := api.StatusError(resp, nil)
+		var nf *jenkins.NotFoundError
+		if errors.As(err, &nf) {
+			nf.Hint = "check the path"
+		}
+		return err
 	}
 
 	switch {
