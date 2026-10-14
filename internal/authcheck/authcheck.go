@@ -44,6 +44,8 @@ type Entry struct {
 	StatusCode  int                 `json:"status_code"`
 	Problems    []string            `json:"problems"`
 	KeyProblems []config.KeyProblem `json:"-"`
+	// Identity is the user Jenkins reported for a valid result.
+	Identity string `json:"-"`
 }
 
 // Failed reports a defect that a retry cannot fix: rejected or unproven
@@ -129,7 +131,7 @@ func CheckAll(ctx context.Context, cfg *config.Config, opts Options) []Entry {
 			// A fragment or query left in the key would swallow the request path,
 			// so the credentials are checked against the normalised host.
 			result, code, name := Check(ctx, config.NormalizeHost(entries[i].Host), hc.User, hc.Token, opts.Timeout)
-			entries[i].Result, entries[i].StatusCode = result, code
+			entries[i].Result, entries[i].StatusCode, entries[i].Identity = result, code, name
 			if result == ResultValid && !strings.EqualFold(name, hc.User) {
 				entries[i].Problems = append(entries[i].Problems, "authenticated as "+name)
 			}

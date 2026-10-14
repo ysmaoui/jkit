@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -86,6 +87,11 @@ func Load() (*Config, error) {
 		}
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
+	return Parse(data)
+}
+
+// Parse reads config.yml content. Empty input is a config without hosts.
+func Parse(data []byte) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
@@ -141,4 +147,76 @@ func ConfigDir() (string, error) {
 		return "", fmt.Errorf("determining home directory: %w", err)
 	}
 	return filepath.Join(home, ".config", "jkit"), nil
+}
+
+// Path returns the location of config.yml.
+func Path() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yml"), nil
+}
+
+// ReplaceWithBackup copies config.yml to config.yml.bak, then writes c over
+// it, both 0600 and each through a rename so a crash leaves either the old or
+// the new file. A symlinked config.yml stays a symlink: the new content goes
+// to its target, the backup next to the link. It refuses when config.yml no
+// longer holds expected, so a change made since it was read is not lost.
+// Returns the backup path.
+func (c *Config) ReplaceWithBackup(expected []byte) (string, error) {
+	path, err := Path()
+	if err != nil {
+		return "", err
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading config: %w", err)
+	}
+	if !bytes.Equal(current, expected) {
+		return "", fmt.Errorf("%s changed while hosts were checked — re-run", path)
+	}
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return "", fmt.Errorf("marshaling config: %w", err)
+	}
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolving config path: %w", err)
+	}
+	backup := path + ".bak"
+	if err := writeFileAtomic(backup, current); err != nil {
+		return "", fmt.Errorf("writing backup: %w", err)
+	}
+	if err := writeFileAtomic(target, data); err != nil {
+		return "", fmt.Errorf("writing config: %w", err)
+	}
+	return backup, nil
+}
+
+// writeFileAtomic replaces path with a fresh 0600 file, so an existing file's
+// looser mode does not survive.
+func writeFileAtomic(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

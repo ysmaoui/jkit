@@ -153,6 +153,82 @@ fail the run; a warning on stderr gives their count.
 
 ---
 
+## `jkit auth prune`
+
+Remove config keys that another key of the same host proves redundant.
+
+```
+jkit auth prune [--yes]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--yes` | Apply the removals, after copying `config.yml` to `config.yml.bak` |
+
+Runs the same check as `auth status --all`, once. Without `--yes` it only
+prints what it would do and writes nothing. A key goes only when another key
+that normalises to the same host stays, is configured for the same user
+(ignoring case), answers `valid` as that user, and is usable as written, which
+means it differs from the normalised host by trailing slashes at most. A key
+with a query, fragment or spaces checks valid against the normalised URL but
+breaks every other command, so it never stands in for another key. Removed:
+
+- a key not in normal form (trailing slash, query, fragment, spaces) whose
+  normalised twin is such a key;
+- a key whose token gets 401 while such a key exists for the same host.
+
+Nothing else is removed: not a host that is unreachable, times out, answers
+403, 5xx or any other code, or is `anonymous`; not a 401 key without a valid
+twin; not a key whose valid twin belongs to another user; never the last key
+for a host. Those keys get a `keep` line with a command to fix them by hand. A
+key that is not a URL at all (e.g. `/`) gets `jkit config remove`.
+
+If a removed key was the default, the key that justified the removal becomes
+the default. An alias moves the same way unless that key has its own, which it
+keeps; a `note` line names the dropped alias.
+
+With `--yes` and something to remove, the current `config.yml` is copied to
+`config.yml.bak` (replacing an older one), then the new config is written.
+Both files are mode 0600 and each is written through a rename. A symlinked
+`config.yml` stays a symlink: its target is rewritten and the backup sits next
+to the link. The rewrite keeps only the `hosts` entries, so comments and other
+top-level keys are gone from `config.yml`; the backup still has them. If
+`config.yml` changed while hosts were checked, nothing is written and the
+command fails. Exit code 0 unless the config cannot be read or written;
+proposals are not failures.
+
+```
+$ jkit auth prune
+remove https://ci.example.com#  (not normalised; twin https://ci.example.com is valid)
+move   default https://ci.example.com# -> https://ci.example.com
+keep   https://qa.example.com  (invalid token, no valid twin; run: jkit auth login --host https://qa.example.com)
+keep   https://st.example.com/  (not normalised, no twin; run: jkit auth login --host https://st.example.com, then jkit config remove 'https://st.example.com/')
+dry run: re-run with --yes to apply
+```
+
+The last line goes to stderr, with progress. Tokens are never printed.
+
+`--json` prints one object; `backup` is present only when a backup was
+written. `field` is `default` or `alias`. `--format` applies a Go template to
+the same object, e.g. `--format '{{range .Removals}}{{.Host}}{{"\n"}}{{end}}'`.
+
+```json
+{
+  "dry_run": true,
+  "removals": [
+    {"host": "https://ci.example.com#", "reason": "not normalised; twin https://ci.example.com is valid"}
+  ],
+  "reports": [
+    {"host": "https://qa.example.com", "reason": "invalid token, no valid twin", "suggestion": "jkit auth login --host https://qa.example.com"}
+  ],
+  "moves": [
+    {"from": "https://ci.example.com#", "to": "https://ci.example.com", "field": "default"}
+  ]
+}
+```
+
+---
+
 ## `jkit list`
 
 List Jenkins jobs.

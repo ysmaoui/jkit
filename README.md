@@ -55,6 +55,7 @@ jkit auth login --host https://jenkins.example.com \
               --user me --token "$JENKINS_TOKEN"           # non-interactive
 jkit auth status
 jkit auth status --all                                       # check every configured host
+jkit auth prune                                              # dry run: list redundant keys; --yes removes them
 ```
 
 Credentials are stored in `~/.config/jkit/config.yml`. Multiple hosts are

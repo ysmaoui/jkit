@@ -118,6 +118,7 @@ func TestCheckAllNotesOtherIdentity(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, ResultValid, entries[0].Result)
 	assert.Equal(t, []string{"authenticated as someone-else"}, entries[0].Problems)
+	assert.Equal(t, "someone-else", entries[0].Identity)
 	assert.False(t, entries[0].Failed())
 }
 

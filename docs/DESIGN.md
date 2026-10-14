@@ -38,7 +38,8 @@ jkit/
 │   ├── root.go                # Root command, global flags (--host, --json, --format)
 │   ├── auth/
 │   │   ├── login.go           # jkit auth login
-│   │   └── status.go          # jkit auth status
+│   │   ├── status.go          # jkit auth status
+│   │   └── prune.go           # jkit auth prune
 │   ├── run.go                 # jkit run <job> [-p KEY=VALUE] [--wait] [--log]
 │   ├── status.go              # jkit status [job] [--all] [--branch]
 │   ├── log.go                 # jkit log <job> [build#] [--follow] [--stage]
@@ -63,6 +64,8 @@ jkit/
 │   │   └── crumb.go           # CSRF crumb handling (Jenkins-specific)
 │   ├── authcheck/
 │   │   └── authcheck.go       # Per-key credential check for auth status --all
+│   ├── authprune/
+│   │   └── prune.go           # Decides which keys auth prune removes
 │   ├── config/
 │   │   ├── config.go          # Config file read/write (~/.config/jkit/)
 │   │   ├── config_test.go
@@ -760,6 +763,24 @@ invalid (401) | forbidden (403) | anonymous (2xx without a named,
 non-anonymous user) | unreachable | timeout | http_<code>. Exit 1 on any 401,
 403, anonymous or key problem; unreachable, timeout and other codes only warn
 on stderr.
+
+Usage: jkit auth prune [--yes]
+
+One CheckAll pass, then internal/authprune.Decide, a pure function of the
+config and the entries' Result codes (never the Problems text), plans
+removals, kept-with-advice reports and default/alias moves. A key is removed
+only when a surviving key of the same normalised host proves working
+credentials for the same configured user: result valid, whoAmI name equal to
+its user, and usable as written (only trailing slashes differ from
+NormalizeHost; the check uses the normalised URL, but the client appends paths
+to the raw key, so a fragment or query key fails at runtime). That key also
+receives the removed key's default and alias. Rules: a non-normal key whose
+normal twin proves, or a 401 key with a proving duplicate. Unverified results
+(unreachable, timeout, 403, anonymous, other codes) never justify a removal,
+and a host never loses its last key. Dry run unless --yes; with --yes,
+config.ReplaceWithBackup copies config.yml to config.yml.bak, then writes the
+new config to the symlink-resolved path, each 0600 through temp file + rename,
+and refuses if config.yml changed since it was read. Exit 0 unless reading or writing fails.
 
 The API client sends Basic credentials only to the configured host: same
 hostname ignoring case, same port after defaulting by scheme, never from https
