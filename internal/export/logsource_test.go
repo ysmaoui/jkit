@@ -113,10 +113,12 @@ func TestCollectAutoLogSource(t *testing.T) {
 // interleave, and each ended stage's block end once all inside it ended. A
 // running step's lines follow its start. Steps sit in the block their
 // stageId names, as PGV's stage ids are the stage body's block start, and
-// their [Pipeline] lines name fn. The steps in lateLineEnd write their
+// their [Pipeline] lines name fn(id). The steps in lateLineEnd write their
 // log's last line end just after they end, as a durable-task step closing
-// its listener after reporting its exit does.
-func annotateTimeline(t *testing.T, run *fakeRun, fn string, lateLineEnd ...string) string {
+// its listener after reporting its exit does. stamped renders Timestamper's
+// markup, a visible clock and a hidden [ISO] prefix on every line, and adds
+// the prefix to run's step logs too, as their progressiveText carries it.
+func annotateTimeline(t *testing.T, run *fakeRun, fn func(id string) string, stamped bool, lateLineEnd ...string) string {
 	t.Helper()
 	type node struct {
 		ID       string `json:"id"`
@@ -141,12 +143,22 @@ func annotateTimeline(t *testing.T, run *fakeRun, fn string, lateLineEnd ...stri
 		html string
 	}
 	var events []event
+	stamp := func(at float64) (visible, hidden, text string) {
+		if !stamped {
+			return "", "", ""
+		}
+		ts := time.UnixMilli(int64(at)).UTC()
+		iso := "[" + ts.Format("2006-01-02T15:04:05.000Z") + "]"
+		return `<span class="timestamp"><b>` + ts.Format("15:04:05") + `</b> </span>`,
+			`<span style="display: none">` + iso + `</span> `, iso + " "
+	}
 	mark := func(at float64, attrs, fn string) {
-		events = append(events, event{at: at, html: fmt.Sprintf(`<span class="pipeline-new-node" %s>[Pipeline] %s`+"\n</span>", attrs, fn)})
+		visible, hidden, _ := stamp(at)
+		events = append(events, event{at: at, html: fmt.Sprintf(`%s<span class="pipeline-new-node" %s>%s[Pipeline] %s`+"\n</span>", visible, attrs, hidden, fn)})
 	}
 	ends := map[string]float64{}
 	for _, s := range steps.Data.Steps {
-		mark(float64(s.Start), fmt.Sprintf(`nodeId="%s" enclosingId="%s"`, s.ID, s.StageID), fn)
+		mark(float64(s.Start), fmt.Sprintf(`nodeId="%s" enclosingId="%s"`, s.ID, s.StageID), fn(s.ID))
 		log := run.stepLogs[s.ID]
 		if slices.Contains(lateLineEnd, s.ID) {
 			log = strings.TrimSuffix(log, "\n")
@@ -154,13 +166,19 @@ func annotateTimeline(t *testing.T, run *fakeRun, fn string, lateLineEnd ...stri
 		}
 		lines := slices.Collect(strings.Lines(log))
 		end := float64(s.Start + s.Duration)
+		var stampedLog strings.Builder
 		for k, line := range lines {
 			at := float64(s.Start) + float64(k+1)/1000
 			if s.State != "running" {
 				at = float64(s.Start) + float64(k+1)*float64(s.Duration)/float64(len(lines)+1)
 			}
 			end = max(end, at)
-			events = append(events, event{at, true, fmt.Sprintf(`<span class="pipeline-node-%s">%s</span>`, s.ID, html.EscapeString(line))})
+			visible, hidden, text := stamp(at)
+			stampedLog.WriteString(text + line)
+			events = append(events, event{at, true, fmt.Sprintf(`<span class="pipeline-node-%s">%s%s%s</span>`, s.ID, visible, hidden, html.EscapeString(line))})
+		}
+		if stamped {
+			run.stepLogs[s.ID] = stampedLog.String() + strings.TrimPrefix(run.stepLogs[s.ID], log)
 		}
 		ends[s.StageID] = max(ends[s.StageID], end)
 	}
@@ -215,6 +233,8 @@ func TestCollectRunningConsoleMatchesSteps(t *testing.T) {
 		maxHits int32
 		// lateLineEnd steps write their last line end after they end.
 		lateLineEnd []string
+		// stamped renders Timestamper's markup.
+		stamped bool
 	}{
 		"not cut": {
 			longLines: 300,
@@ -238,6 +258,16 @@ func TestCollectRunningConsoleMatchesSteps(t *testing.T) {
 				i := strings.Index(html, ">line 150 of 14")
 				require.Positive(t, i)
 				return i + len(">line 1")
+			},
+			maxHits: 9,
+		},
+		"timestamper mid-node": {
+			longLines: 300,
+			stamped:   true,
+			cut: func(t *testing.T, html string) int {
+				i := strings.Index(html, "</span> line 150 of 14")
+				require.Positive(t, i)
+				return i + len("</span> line 1")
 			},
 			maxHits: 9,
 		},
@@ -279,7 +309,13 @@ func TestCollectRunningConsoleMatchesSteps(t *testing.T) {
 			run.open["53"] = true
 			run.exceptions["21"] = "script returned exit code 3"
 			run.console = "Started by user admin\n"
-			full := annotateTimeline(t, run, "sh", tc.lateLineEnd...)
+			fn := func(id string) string {
+				if slices.Contains([]string{"8", "24", "36", "46"}, id) {
+					return "echo"
+				}
+				return "sh"
+			}
+			full := annotateTimeline(t, run, fn, tc.stamped, tc.lateLineEnd...)
 			run.consoleHTML = full[:tc.cut(t, full)]
 			run.consoleHTMLMore = true
 			// Step durations are no proof: PGV's can end long before the step.
