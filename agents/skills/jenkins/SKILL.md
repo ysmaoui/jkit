@@ -195,6 +195,11 @@ jkit queue                          # pending builds
 jkit queue --job my-job             # filter
 jkit queue cancel 12345             # cancel
 
+# Running builds (all executors, oldest first)
+jkit running                        # JOB, BUILD, ELAPSED, URL
+jkit running --folder team/svc      # whole-segment prefix match
+jkit running --json                 # [{job, number, url, timestamp}]
+
 # List jobs
 jkit list                           # current folder
 jkit list -r                        # recursive

@@ -249,6 +249,14 @@ GET /queue/api/json?tree=items[id,task[name,url],why,inQueueSince]
 GET /queue/item/{id}/api/json   # poll one item; `executable` appears once it starts
 POST /queue/cancelItem?id={id}  # requires crumb
 
+# Running builds (every executor on every node)
+GET /computer/api/json?tree=computer[oneOffExecutors[currentExecutable[url,timestamp]],
+#     executors[currentExecutable[url,timestamp]]]
+# Pipeline builds run on flyweight oneOffExecutors. A build holding an agent
+# through node{}, and any freestyle build, shows under executors, so a pipeline
+# inside node{} is listed twice and is deduplicated by URL. An idle executor has
+# currentExecutable null. Some instances restrict /computer beyond Overall/Read.
+
 # Jenkinsfile validation (linting)
 POST /pipeline-model-converter/validate  # body: jenkinsfile=<contents>
 

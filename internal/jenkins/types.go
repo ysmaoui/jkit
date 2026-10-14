@@ -347,6 +347,15 @@ type QueueItem struct {
 	} `json:"executable"`
 }
 
+// RunningBuild is a build occupying an executor. Timestamp is its start in
+// epoch milliseconds.
+type RunningBuild struct {
+	Job       string `json:"job"`
+	Number    int    `json:"number"`
+	URL       string `json:"url"`
+	Timestamp int64  `json:"timestamp"`
+}
+
 type TestReport struct {
 	Duration  float64     `json:"duration"`
 	FailCount int         `json:"failCount"`

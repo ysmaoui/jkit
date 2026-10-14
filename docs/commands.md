@@ -1409,6 +1409,42 @@ jkit queue cancel 12345
 
 ---
 
+## `jkit running`
+
+List builds currently running on the instance, oldest first.
+
+```
+jkit running [--folder PATH]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--folder` | Only builds of jobs in this folder, or of this job. Takes the job path as printed in the JOB column, so a branch job is named in its encoded form, e.g. `team/svc/feature%2Fx`. Matches whole path segments: `team` matches `team/svc` but not `team-b/app` |
+
+Reads every executor on every node, including the flyweight executors pipelines
+run on, and lists each build once. Columns: JOB, BUILD, ELAPSED, URL. The URL is
+printed as Jenkins returned it. ELAPSED is `-` when Jenkins reports no start time,
+and those builds sort last.
+
+Only executables whose URL names a job and a build number are listed. Other work
+holding an executor, such as multibranch or organization folder indexing, is
+skipped because it is not a build.
+
+With `--json` the output is an array of `{job, number, url, timestamp}`, with
+`timestamp` the build start in epoch milliseconds. No running builds prints
+`No running builds` to stderr in table mode, and `[]` with `--json`.
+
+Some instances restrict the executor list beyond Overall/Read; a 403 then fails
+with an access-denied error naming that.
+
+```bash
+jkit running                          # everything running
+jkit running --folder team/svc        # one job or folder
+jkit running --json | jq -r '.[].url'
+```
+
+---
+
 ## `jkit config`
 
 Manage CLI configuration.

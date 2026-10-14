@@ -43,6 +43,10 @@ def folder = jenkins.createProject(Folder, 'test-folder')
 def innerJob = folder.createProject(FreeStyleProject, 'inner-job')
 innerJob.buildersList.add(new hudson.tasks.Shell("echo 'Inside test-folder'"))
 
+// slow-pipeline: holds an executor through node{} long enough to be seen running
+def slowPipeline = folder.createProject(WorkflowJob, 'slow-pipeline')
+slowPipeline.setDefinition(new CpsFlowDefinition("node { sleep 300 }", true))
+
 // 4. param-job: freestyle with parameters
 def paramJob = jenkins.createProject(FreeStyleProject, 'param-job')
 def branchParam = new hudson.model.StringParameterDefinition('BRANCH', 'main', 'Branch name')

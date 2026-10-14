@@ -20,6 +20,7 @@ jkit sources my-app 42           # which code that build actually ran
 jkit scan team/svc               # what the last branch-indexing run did
 jkit search backend              # find jobs by name
 jkit history my-app              # success rate + duration trend
+jkit running                     # what is building right now
 jkit env my-app                  # a build's injected env vars
 jkit input my-app --approve      # answer a paused "Promote to prod?" gate
 jkit disable my-app              # stop it building, without touching its config
