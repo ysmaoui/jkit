@@ -26,6 +26,7 @@ jkit input my-app --approve      # answer a paused "Promote to prod?" gate
 jkit disable my-app              # stop it building, without touching its config
 jkit lint                        # validate ./Jenkinsfile
 jkit open my-app                 # open in browser
+jkit api /api/json               # raw authenticated API request, like gh api
 ```
 
 ## Install

@@ -1504,6 +1504,63 @@ jkit lint path/to/Jenkinsfile     # validate specific file
 
 ---
 
+## `jkit api`
+
+Send an authenticated request to the Jenkins API and print the response body,
+like `gh api`. For anything no other command covers, without reaching for curl
+and a token.
+
+```
+jkit api <path|url> [-X METHOD] [-H "Key: Value"]... [-i]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-X`, `--method` | HTTP method (default `GET`). Any other method than `GET`, `HEAD` or `OPTIONS` sends a CSRF crumb, re-fetched once on 403, and does not follow redirects |
+| `-H`, `--header` | Request header `"Key: Value"`, repeatable |
+| `-i`, `--include` | Print the status line and response headers before the body |
+
+A path is relative to the host root (leading slash optional) and goes to
+`--host`, an alias, or the default host. A full `http(s)` URL is sent to the
+configured host with the same scheme and host; a host that is not configured is
+an error naming `jkit auth login`. With `--host` as well, the URL must lie under
+that host (an error otherwise), which is also the way to reach a host configured with a context path
+(`--host https://example.com/jenkins https://example.com/jenkins/api/json`).
+
+The query string is sent byte for byte, so `tree=jobs[name,color]` needs no
+escaping. There is no request body flag.
+
+`GET`, `HEAD` and `OPTIONS` follow redirects. Other methods do not, so
+`jkit api -X POST /job/my-app/build -i` shows the `201` or `302` Jenkins
+answered with its `Location` header, not the page it points to. When the crumb
+cannot be fetched the request goes out without one and the server's own answer
+is shown.
+
+Output:
+
+- Default: the body as received. When stdout is a terminal, a JSON body is
+  indented.
+- `--json`: indented JSON; an error if the body is not JSON.
+- `--format`: a Go template applied to the decoded JSON body.
+- HTTP 400 and above: the body is still printed, unformatted, and the error
+  goes to stderr with a non-zero exit: 401 not authenticated, 403 access
+  denied, 404 not found, anything else a server error with its status.
+
+`-X` sends whatever the path asks for with your own permissions; a `POST` to
+`/job/NAME/doDelete` deletes the job. Prefer the dedicated commands where one
+exists.
+
+```bash
+jkit api /api/json
+jkit api '/computer/api/json?tree=computer[displayName,offline]'
+jkit api https://jenkins.example.com/job/my-app/lastBuild/api/json --format '{{.result}}'
+jkit api /api/json --include               # X-Jenkins header carries the version
+jkit api -X POST /job/my-app/build         # same as jkit run, without its checks
+jkit api /job/my-app/api/xml -H 'Accept: application/xml'
+```
+
+---
+
 ## `jkit completion`
 
 Generate shell completion script.

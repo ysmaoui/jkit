@@ -214,6 +214,12 @@ jkit lint path/to/Jenkinsfile
 
 # Open in browser
 jkit open my-job 42
+
+# Raw API request, when no command covers it (instead of curl; auth and crumb handled)
+jkit api '/computer/api/json?tree=computer[displayName,offline]'   # query sent as written
+jkit api URL/api/json --format '{{.result}}'   # full URL picks the configured host
+jkit api /api/json -i               # status line + headers (X-Jenkins = version)
+# HTTP >= 400: body still on stdout, error on stderr, exit 1
 ```
 
 ---

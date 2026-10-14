@@ -78,6 +78,7 @@ func executeCmd(t *testing.T, args ...string) (string, error) {
 	registerWaitFlags(waitCmd)
 	registerRebuildFlags(rebuildCmd)
 	registerRunningFlags(runningCmd)
+	registerAPIFlags(apiCmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()

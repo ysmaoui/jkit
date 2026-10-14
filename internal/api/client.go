@@ -250,9 +250,25 @@ func (c *Client) doWithRetry(method, rawURL string, bodyFn func() io.Reader, con
 }
 
 func (c *Client) do(ctx context.Context, method, rawURL string, bodyFn func() io.Reader, header http.Header) (*http.Response, error) {
-	// Only retry idempotent methods (GET, HEAD, OPTIONS)
+	resp, err := c.send(ctx, method, rawURL, bodyFn, header)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// send is do without the status check: any answer the server gives, error
+// statuses included, comes back as a response.
+func (c *Client) send(ctx context.Context, method, rawURL string, bodyFn func() io.Reader, header http.Header) (*http.Response, error) {
+	return c.sendWith(ctx, c.httpClient, method, rawURL, bodyFn, header)
+}
+
+func (c *Client) sendWith(ctx context.Context, hc *http.Client, method, rawURL string, bodyFn func() io.Reader, header http.Header) (*http.Response, error) {
 	maxRetries := 3
-	if method != "GET" && method != "HEAD" && method != "OPTIONS" {
+	if !isIdempotent(method) {
 		maxRetries = 0
 	}
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -268,7 +284,7 @@ func (c *Client) do(ctx context.Context, method, rawURL string, bodyFn func() io
 			req.Header[k] = v
 		}
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := hc.Do(req)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -293,13 +309,13 @@ func (c *Client) do(ctx context.Context, method, rawURL string, bodyFn func() io
 			}
 			continue
 		}
-
-		if err := checkResponse(resp); err != nil {
-			return nil, err
-		}
 		return resp, nil
 	}
 	return nil, fmt.Errorf("max retries exceeded for %s", rawURL)
+}
+
+func isIdempotent(method string) bool {
+	return method == "GET" || method == "HEAD" || method == "OPTIONS"
 }
 
 func (c *Client) setVersion(v string) {
@@ -357,6 +373,16 @@ func checkResponse(resp *http.Response) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	return StatusError(resp, body)
+}
+
+// StatusError maps a response's status to the typed error jkit reports for
+// it, nil for 2xx. body is the start of the response body, quoted in a
+// ServerError; the caller has already read it, so resp.Body is not touched.
+func StatusError(resp *http.Response, body []byte) error {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
 	msg := strings.TrimSpace(string(body))
 	host := resp.Request.URL.Scheme + "://" + resp.Request.URL.Host
 

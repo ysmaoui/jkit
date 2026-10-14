@@ -178,6 +178,18 @@ echo "[json]"
 assert_contains "list --json has name field" '"name"' \
     "$JK" list --json
 
+# api
+echo ""
+echo "[api]"
+assert_contains "api --include shows X-Jenkins" "^X-Jenkins: " \
+    "$JK" api /api/json --include
+
+assert_contains "api query with brackets reaches Jenkins" '"name" *: *"test-pipeline"' \
+    "$JK" api '/api/json?tree=jobs[name]' --json
+
+assert_fail "api 404 path exits non-zero" \
+    "$JK" api /job/no-such-job-xyz/api/json
+
 # 8. Pipeline stages
 echo ""
 echo "[stages]"
