@@ -297,3 +297,20 @@ func TestParseJenkinsURLUnderBlueOceanWithoutRoot(t *testing.T) {
 	_, err := ParseJenkinsURLUnder("https://x/jenkins/blue/organizations/jenkins/a/activity", nil)
 	assert.Error(t, err)
 }
+
+func TestParseJenkinsURLUnderSameHostKeys(t *testing.T) {
+	const raw = "https://jenkins-4.example.com/job/a/5/"
+	a, b := "https://jenkins-4.example.com", "https://jenkins-4.example.com#"
+	for _, roots := range [][]string{{a, b}, {b, a}} {
+		got, err := ParseJenkinsURLUnder(raw, roots)
+		require.NoError(t, err)
+		assert.Equal(t, a, got.Host)
+	}
+	// no exact spelling: lexically smallest, whatever the order
+	c := "https://jenkins-4.example.com/#x"
+	for _, roots := range [][]string{{b, c}, {c, b}} {
+		got, err := ParseJenkinsURLUnder(raw, roots)
+		require.NoError(t, err)
+		assert.Equal(t, b, got.Host)
+	}
+}

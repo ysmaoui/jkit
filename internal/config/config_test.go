@@ -113,6 +113,23 @@ func TestResolveHost(t *testing.T) {
 	assert.Contains(t, err.Error(), "not configured")
 }
 
+func TestNormalizeHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://x.example.com":          "https://x.example.com",
+		"https://x.example.com/":         "https://x.example.com",
+		"https://x.example.com#":         "https://x.example.com",
+		"https://x.example.com/ci/#frag": "https://x.example.com/ci",
+		" https://x.example.com/?a=b#c ": "https://x.example.com",
+	} {
+		assert.Equal(t, want, NormalizeHost(in), in)
+	}
+}
+
+func TestHostURLsSorted(t *testing.T) {
+	c := &Config{Hosts: map[string]*HostConfig{"https://b": {}, "https://a#": {}, "https://a": {}}}
+	assert.Equal(t, []string{"https://a", "https://a#", "https://b"}, c.HostURLs())
+}
+
 func TestXDGConfigPath(t *testing.T) {
 	t.Setenv("JKIT_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
