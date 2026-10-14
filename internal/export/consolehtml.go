@@ -421,8 +421,9 @@ type textRun struct{ off, n int64 }
 // returned.
 var flushedSteps = map[string]bool{"echo": true, "sh": true, "bat": true, "powershell": true, "pwsh": true}
 
-// pipelineLine finds the step function in a pipeline-new-node span's text.
-var pipelineLine = regexp.MustCompile(`^\[Pipeline\] (\S+)`)
+// pipelineLine finds the step function in a pipeline-new-node span's text,
+// after Timestamper's hidden [ISO] prefix when it is installed.
+var pipelineLine = regexp.MustCompile(`^(?:\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\] )?\[Pipeline\] (\S+)`)
 
 // stepFn returns the function a [Pipeline] line names, or "" unless text
 // holds the whole line up to its newline: a piece cut after "sh" may be the

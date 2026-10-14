@@ -269,6 +269,8 @@ func TestStepFnNeedsWholeLine(t *testing.T) {
 		"cut at end":   {[]string{"[Pipeline] sh", "\nout\n"}, ""},
 		"cut in name":  {[]string{"[Pipeline] sh", "a256\n"}, ""},
 		"later pieces": {[]string{"[Pipeline] echo\nhello\n"}, "echo"},
+		"timestamper":  {[]string{`<span style="display: none">[2026-10-14T17:56:14.939Z]</span> [Pipeline] sh` + "\n"}, "sh"},
+		"not a stamp":  {[]string{"[x] [Pipeline] sh\n"}, ""},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

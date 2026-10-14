@@ -419,7 +419,8 @@ for the last step of a parallel branch its end is the end of whichever
 branch finished first (seen: an 8s `sh` given 1040ms). A finished step's
 text is kept on four conditions:
 
-- Its `[Pipeline]` line, at the start of the `pipeline-new-node` span,
+- Its `[Pipeline]` line, at the start of the `pipeline-new-node` span or
+  right after Timestamper's hidden `[2026-10-14T17:56:14.939Z] ` prefix,
   arrived whole up to the newline (a line cut after `sh` may be `sha256`)
   and names `echo`, `sh`, `bat`, `powershell` or `pwsh`. Any other step can
   write from an agent through workflow-api's `DelayBufferedOutputStream`,
