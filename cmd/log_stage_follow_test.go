@@ -22,12 +22,14 @@ import (
 
 // scriptedStep is one step of stage 4 as of poll tick: its log so far, whether
 // it still runs, and whether it failed. A step with log "" has no log action,
-// so its log route 404s.
+// so its log route 404s. A failed step with noException has no exception text,
+// so its exceptionText route 404s.
 type scriptedStep struct {
-	id     string
-	log    string
-	active bool
-	failed bool
+	id          string
+	log         string
+	active      bool
+	failed      bool
+	noException bool
 }
 
 // stepFollowServer serves stage 4 of build 5 through PGV with step logs
@@ -85,12 +87,17 @@ func newStepFollowServer(t *testing.T, mode staplertest.Mode, steps func(tick in
 		case strings.HasSuffix(p, "/5/stages/log"):
 			for _, st := range steps(s.tick) {
 				_, _ = io.WriteString(w, st.log)
-				if st.failed {
+				if st.failed && !st.noException {
 					_, _ = io.WriteString(w, "boom\n")
 				}
 			}
 		case strings.HasSuffix(p, "/5/stages/exceptionText"):
-			if st, ok := find(r.URL.Query().Get("nodeId")); ok && st.failed {
+			st, ok := find(r.URL.Query().Get("nodeId"))
+			if ok && st.failed && st.noException {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			if ok && st.failed {
 				_, _ = fmt.Fprint(w, "boom")
 			}
 		case strings.HasSuffix(p, "/log/logText/progressiveText"):
@@ -180,6 +187,23 @@ func TestLogStageFollowReadsStepsByOffset(t *testing.T) {
 			assert.Equal(t, wantStarts[mode]["11"], srv.startsFor("11"))
 		})
 	}
+}
+
+// TestLogStageFollowFailedStepWithoutExceptionText checks a failed step whose
+// exceptionText route 404s shows its log with no exception text and no error.
+func TestLogStageFollowFailedStepWithoutExceptionText(t *testing.T) {
+	fastStagePolls(t)
+	srv := newStepFollowServer(t, staplertest.Streaming, func(int) []scriptedStep {
+		return []scriptedStep{{id: "10", log: "a1\n", failed: true, noException: true}}
+	}, func(tick int) bool { return tick < 2 })
+	setupTestConfig(t, srv.URL)
+
+	var out string
+	var err error
+	stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4", "-f") })
+	require.NoError(t, err)
+	assert.Equal(t, "a1\n", out)
+	assert.Empty(t, stderr)
 }
 
 // TestLogStageFollowKeepsHeldBackText checks the text a server holds back

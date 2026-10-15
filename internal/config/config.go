@@ -36,6 +36,15 @@ func (c *Config) ResolveHost(hostOrAlias string) (string, *HostConfig, error) {
 	return "", nil, fmt.Errorf("host %q not configured — run 'jkit auth login --host %s'", hostOrAlias, hostOrAlias)
 }
 
+// HostURLs returns the configured host keys, each a Jenkins root URL.
+func (c *Config) HostURLs() []string {
+	hosts := make([]string, 0, len(c.Hosts))
+	for h := range c.Hosts {
+		hosts = append(hosts, h)
+	}
+	return hosts
+}
+
 func Load() (*Config, error) {
 	dir, err := ConfigDir()
 	if err != nil {

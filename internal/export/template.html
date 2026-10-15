@@ -1,0 +1,781 @@
+{{define "head" -}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="generator" content="jkit export html">
+<title>{{.Title}}</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --panel: #f6f8fa;
+  --border: #d1d9e0; --line: #afb8c1; --accent: #0969da; --sel: #ddf4ff;
+  --ok: #1a7f37; --fail: #cf222e; --unstable: #9a6700; --aborted: #6e7781;
+  --skipped: #8c959f; --running: #0969da; --on-state: #ffffff;
+  --err-fg: #b0151f; --err-bg: #ffebe9; --warn-bg: #fff8c5; --warn-border: #d4a72c;
+  --mark: #ffd33d; --mark-fg: #1f2328;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --panel: #151b23;
+    --border: #3d444d; --line: #59636e; --accent: #4493f8; --sel: #12233d;
+    --ok: #3fb950; --fail: #f85149; --unstable: #d29922; --aborted: #9198a1;
+    --skipped: #656c76; --running: #4493f8; --on-state: #0d1117;
+    --err-fg: #ff7b72; --err-bg: #3c1618; --warn-bg: #3a2d0a; --warn-border: #9e6a03;
+    --mark: #d29922; --mark-fg: #0d1117;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; padding: 0 16px 2rem; background: var(--bg); color: var(--fg);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow-wrap: anywhere;
+}
+h1 { font-size: 1.35rem; margin: 0; }
+h2 { font-size: 1rem; margin: 0; }
+a { color: var(--accent); }
+button {
+  font: inherit; color: inherit; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px; padding: .3rem .7rem; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.top { padding: 1rem 0 .5rem; }
+.title-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.meta { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; margin: .5rem 0 0; color: var(--muted); }
+.meta div { display: flex; gap: .4rem; min-width: 0; }
+.meta dt { font-weight: 600; }
+.meta dd { margin: 0; color: var(--fg); min-width: 0; }
+.banner {
+  margin: .75rem 0 0; padding: .6rem .8rem; border: 1px solid var(--warn-border);
+  background: var(--warn-bg); border-radius: 6px; font-weight: 600;
+}
+.badge {
+  display: inline-block; font-size: .75rem; font-weight: 600; line-height: 1.4;
+  padding: 0 .45rem; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap;
+}
+.badge.big { font-size: .85rem; padding: .1rem .6rem; }
+.badge.warn { color: var(--unstable); }
+.badge.bad { color: var(--err-fg); }
+.badge.dim { color: var(--muted); }
+.c-ok { color: var(--ok); } .c-fail { color: var(--fail); } .c-unstable { color: var(--unstable); }
+.c-aborted, .c-unknown, .c-skipped { color: var(--muted); } .c-running, .c-paused, .c-queued { color: var(--running); }
+section { margin-top: 1rem; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
+.graph-scroll {
+  position: relative; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; padding: .75rem;
+}
+.graph, .seq { display: flex; align-items: flex-start; gap: 2rem; }
+.graph { width: max-content; }
+.stage { display: flex; flex-direction: column; gap: .5rem; position: relative; }
+.stage > .node { align-self: flex-start; }
+.branch { display: flex; align-items: flex-start; gap: 1.25rem; position: relative; }
+.branches {
+  display: flex; flex-direction: column; gap: .5rem;
+  margin-left: 1rem; padding-left: .75rem; border-left: 2px solid var(--line);
+}
+/* One line through each row at node mid-height; the opaque nodes cover it. */
+.graph, .seq { position: relative; }
+.graph::before, .seq::before, .branches > .branch::before {
+  content: ""; position: absolute; top: calc(1.4rem - 1px); left: 0; right: 0; border-top: 2px solid var(--line);
+}
+.branch > .seq::before { left: -1.25rem; }
+.branches > .branch::before { left: -.75rem; right: auto; width: .75rem; }
+.node {
+  position: relative; display: flex; align-items: center; gap: .5rem; min-height: 2.8rem;
+  min-width: 8rem; max-width: 15rem; text-align: left; background: var(--panel);
+  border-radius: 8px; padding: .3rem .65rem;
+}
+.node[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--sel); }
+.node.synthetic { border-style: dashed; }
+.node.synthetic .node-name { font-style: italic; }
+.node-text { display: flex; flex-direction: column; min-width: 0; }
+.node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.node-sub { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.icon {
+  flex: none; display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem;
+  border-radius: 50%; font-size: .75rem; font-weight: 700; line-height: 1;
+  color: var(--on-state); background: var(--aborted);
+}
+.icon.st-ok { background: var(--ok); }
+.icon.st-fail { background: var(--fail); }
+.icon.st-unstable { background: var(--unstable); }
+.icon.st-running, .icon.st-paused, .icon.st-queued { background: var(--running); }
+.icon.st-skipped, .icon.st-unknown { background: transparent; color: var(--skipped); border: 2px solid var(--skipped); }
+.icon.st-running { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .icon.st-running { animation: none; } }
+.panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+@media (min-width: 900px) { .panels { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); } }
+.panel { border: 1px solid var(--border); border-radius: 8px; padding: .75rem; min-width: 0; }
+.hint { color: var(--muted); margin: .5rem 0; }
+.steps { list-style: none; margin: 0; padding: 0; }
+.steps li + li { border-top: 1px solid var(--border); }
+.steps li { padding: .25rem 0; }
+.group-h { margin: .75rem 0 .25rem; }
+.group-h button { font-weight: 600; }
+.step-btn {
+  width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center; gap: .1rem .5rem; text-align: left; background: transparent; border-color: transparent;
+}
+.step-btn[aria-pressed="true"] { background: var(--sel); border-color: var(--accent); }
+.step-label { min-width: 0; display: flex; flex-direction: column; }
+.step-title, .step-arg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-arg { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+.step-title.mono { font-family: var(--mono); font-size: .85rem; }
+.step-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.step-badges { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: .25rem; }
+.step-badges:empty { display: none; }
+.err { color: var(--err-fg); margin: .25rem 0; white-space: pre-wrap; font-family: var(--mono); font-size: .8rem; }
+.exc {
+  margin: .25rem 0; padding: .4rem .6rem; border-left: 3px solid var(--fail); background: var(--err-bg);
+  white-space: pre-wrap; font-family: var(--mono); font-size: .8rem; max-height: 12rem; overflow: auto;
+}
+#log-h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-name {
+  margin: .4rem 0 0; font-family: var(--mono); font-size: .8rem; white-space: pre-wrap;
+  max-height: 6rem; overflow: auto; color: var(--muted);
+}
+.log-info { display: flex; flex-wrap: wrap; gap: .25rem .5rem; align-items: center; margin: .4rem 0; color: var(--muted); }
+.log-tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .5rem 0; }
+.log-tools input[type="search"] {
+  font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: .3rem .5rem; flex: 1 1 12rem; min-width: 0;
+}
+.log-tools label { display: flex; gap: .3rem; align-items: center; }
+.log {
+  position: relative; margin: .4rem 0; padding: .5rem .6rem; min-height: 6rem; max-height: 70vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  font: 12.5px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 8;
+}
+.log.nowrap { white-space: pre; overflow-wrap: normal; }
+.log mark { background: var(--mark); color: var(--mark-fg); }
+.log-info .err, .log-info .exc { flex-basis: 100%; }
+.log-status { color: var(--muted); font-size: .8rem; margin: 0; }
+footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<noscript><p class="banner">This report needs JavaScript to show stages, steps and logs.</p></noscript>
+<header class="top">
+  <div class="title-row"><h1 id="title">{{.Title}}</h1><span id="result" class="badge big"></span></div>
+  <dl id="meta" class="meta"></dl>
+  <p id="partial" class="banner" hidden></p>
+</header>
+<main>
+  <section aria-labelledby="graph-h">
+    <div class="bar"><h2 id="graph-h">Stages</h2><button type="button" id="console-btn" aria-pressed="false">Full console log</button></div>
+    <div class="graph-scroll"><div id="graph" class="graph"></div></div>
+  </section>
+  <div class="panels">
+    <section class="panel" aria-labelledby="steps-h">
+      <h2 id="steps-h">Steps</h2>
+      <div id="steps"><p class="hint">Select a stage to list its steps.</p></div>
+    </section>
+    <section class="panel" id="log-panel" aria-labelledby="log-h">
+      <h2 id="log-h">Log</h2>
+      <pre id="log-name" class="log-name" hidden></pre>
+      <div id="log-info" class="log-info"></div>
+      <div id="log-tools" class="log-tools" hidden>
+        <input type="search" id="search" placeholder="Search log" aria-label="Search log">
+        <button type="button" id="prev" aria-label="Previous match">&#8593;</button>
+        <button type="button" id="next" aria-label="Next match">&#8595;</button>
+        <span id="count" aria-live="polite"></span>
+        <label><input type="checkbox" id="wrap" checked> Wrap lines</label>
+      </div>
+      <button type="button" id="earlier" hidden>Load earlier lines</button>
+      <div id="log" class="log" tabindex="0" role="region" aria-label="Log text"><span class="hint">Select a step to read its log, or open the full console log.</span></div>
+      <button type="button" id="later" hidden>Load later lines</button>
+      <p id="log-status" class="log-status"></p>
+    </section>
+  </div>
+</main>
+<footer>Exported by jkit. Open offline; nothing is loaded from the network.</footer>
+{{end}}
+
+{{define "tail" -}}
+<script>
+"use strict";
+(function () {
+  var CHUNK_LINES = 2000;
+  var MAX_MATCHES = 100000;
+
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  var dataEl = $("snapshot");
+  var S;
+  try {
+    S = JSON.parse(dataEl.textContent);
+  } catch (e) {
+    // Chromium fails near 500 MB with "Unexpected end of JSON input"; Firefox
+    // may show an empty shell. Either way the page would be blank.
+    document.body.replaceChildren(el("p", "err", "This export could not be read by the browser. It may be too large (over about 500 MB); re-export with --max-log-bytes. (" + e.message + ")"));
+    return;
+  }
+  // The parsed copy is all that is needed; drop the raw text, it can be tens of MB.
+  dataEl.textContent = "";
+
+  var nodesById = new Map();
+  var stepsById = new Map();
+  (function index(list, parent) {
+    (list || []).forEach(function (n) {
+      nodesById.set(n.id, { node: n, parent: parent });
+      (n.steps || []).forEach(function (s) { stepsById.set(s.id, { step: s, node: n }); });
+      index(n.children, n);
+    });
+  })(S.stages, null);
+
+  var STATES = {
+    SUCCESS: ["ok", "✓", "Success"],
+    FAILURE: ["fail", "✕", "Failed"],
+    UNSTABLE: ["unstable", "!", "Unstable"],
+    ABORTED: ["aborted", "■", "Aborted"],
+    NOT_BUILT: ["skipped", "–", "Not built or skipped"],
+    IN_PROGRESS: ["running", "●", "Running"],
+    PAUSED_PENDING_INPUT: ["paused", "‖", "Paused for input"],
+    QUEUED: ["queued", "…", "Queued"]
+  };
+  function stateOf(s) { return STATES[s] || ["unknown", "?", "Unknown state"]; }
+  function icon(state) {
+    var st = stateOf(state);
+    var i = el("span", "icon st-" + st[0], st[1]);
+    i.setAttribute("role", "img");
+    i.setAttribute("aria-label", st[2]);
+    i.title = st[2];
+    return i;
+  }
+
+  function fmtDur(ms) {
+    if (!(ms > 0)) return "0s";
+    if (ms < 1000) return ms + "ms";
+    var s = Math.floor(ms / 1000);
+    if (s < 60) return s + "s";
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + "m " + (s % 60) + "s";
+    return Math.floor(m / 60) + "h " + (m % 60) + "m";
+  }
+  function fmtTime(ms) { return ms > 0 ? new Date(ms).toLocaleString() : "unknown"; }
+  function fmtBytes(n) {
+    if (n < 1024) return n + " B";
+    var u = ["KB", "MB", "GB"], v = n / 1024, i = 0;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return v.toFixed(v < 10 ? 1 : 0) + " " + u[i];
+  }
+  // A running node's recorded duration is stale; it ran at least until the export.
+  function elapsed(x) {
+    if (x.running && x.startTimeMillis > 0) return Math.max(0, S.exportedAtMillis - x.startTimeMillis);
+    return x.durationMillis;
+  }
+  function stepLabel(s) { return s.title || s.name || "(unnamed step)"; }
+
+  function renderHeader() {
+    var state = S.building ? "IN_PROGRESS" : S.result;
+    var r = $("result");
+    r.textContent = S.building ? "running" : (S.result || "unknown");
+    r.className = "badge big c-" + stateOf(state)[0];
+    var meta = $("meta");
+    function add(label, value) {
+      var d = el("div");
+      d.append(el("dt", null, label));
+      var dd = el("dd");
+      dd.append(value);
+      d.append(dd);
+      meta.append(d);
+    }
+    add("Started", fmtTime(S.startTimeMillis));
+    add(S.building ? "Running for" : "Duration",
+      fmtDur(S.building ? S.exportedAtMillis - S.startTimeMillis : S.durationMillis));
+    add("Exported", fmtTime(S.exportedAtMillis));
+    if (S.url) {
+      // Only http(s) becomes a link: anything else, such as javascript:, stays text.
+      var a = el(/^https?:\/\//i.test(S.url) ? "a" : "span", null, S.url);
+      if (a.tagName === "A") {
+        a.href = S.url;
+        a.rel = "noreferrer";
+      }
+      a.title = "Where the build was when exported. The Jenkins instance may no longer have it.";
+      add("Original URL", a);
+    }
+    if (!S.complete) {
+      var p = $("partial");
+      p.textContent = "Partial snapshot taken at " + fmtTime(S.exportedAtMillis) +
+        " while the run was in progress. Stages, steps and logs may stop short.";
+      p.hidden = false;
+    }
+  }
+
+  function nodeButton(n) {
+    var st = stateOf(n.state);
+    var b = el("button", "node" + (n.synthetic ? " synthetic" : ""));
+    b.type = "button";
+    b.dataset.id = n.id;
+    b.setAttribute("aria-pressed", "false");
+    b.append(icon(n.state));
+    var t = el("span", "node-text");
+    t.append(el("span", "node-name", n.name));
+    var sub = [];
+    if (n.startTimeMillis > 0) sub.push(fmtDur(elapsed(n)) + (n.running ? " so far" : ""));
+    else if (n.state === "NOT_BUILT") sub.push("skipped");
+    if (n.type === "UNLISTED") sub.push("not in stage graph");
+    else if (n.synthetic) sub.push("implicit");
+    t.append(el("span", "node-sub", sub.join(" · ") || "–"));
+    b.append(t);
+    b.title = n.name + " (" + st[2] + ")";
+    b.addEventListener("click", function () { select({ node: n.id }, true); });
+    return b;
+  }
+  function isParallel(list) { return list.length > 0 && list.every(function (c) { return c.type === "PARALLEL"; }); }
+  function children(n) {
+    var kids = n.children || [];
+    if (!kids.length) return null;
+    var box;
+    if (isParallel(kids)) {
+      box = el("div", "branches");
+      kids.forEach(function (c) { box.append(renderBranch(c)); });
+    } else {
+      box = el("div", "seq");
+      kids.forEach(function (c) { box.append(renderStage(c)); });
+    }
+    return box;
+  }
+  function renderStage(n) {
+    var d = el("div", "stage");
+    d.append(nodeButton(n));
+    var k = children(n);
+    if (k) d.append(k);
+    return d;
+  }
+  function renderBranch(n) {
+    var d = el("div", "branch");
+    d.append(nodeButton(n));
+    var k = children(n);
+    if (k) d.append(k);
+    return d;
+  }
+  function renderGraph() {
+    var g = $("graph");
+    if (!S.stages || !S.stages.length) {
+      g.append(el("p", "hint", "No stages recorded. The full console log has the whole output."));
+      return;
+    }
+    S.stages.forEach(function (n) { g.append(renderStage(n)); });
+  }
+
+  function stepItem(s, node) {
+    var li = el("li");
+    var b = el("button", "step-btn");
+    b.type = "button";
+    b.dataset.step = s.id;
+    b.setAttribute("aria-pressed", "false");
+    b.append(icon(s.state));
+    var lab = el("span", "step-label");
+    var title = el("span", "step-title" + (s.title ? "" : " mono"), stepLabel(s));
+    lab.append(title);
+    if (s.title && s.name) lab.append(el("span", "step-arg", s.name));
+    b.title = s.title ? s.title + (s.name ? "\n" + s.name : "") : (s.name || "");
+    b.append(lab);
+    b.append(el("span", "step-dur", fmtDur(elapsed(s)) + (s.running ? " so far" : "")));
+    var badges = el("span", "step-badges");
+    logBadges(s.log).forEach(function (x) { badges.append(x); });
+    if (s.error) badges.append(el("span", "badge bad", "read error"));
+    b.append(badges);
+    b.addEventListener("click", function () { select({ node: node.id, step: s.id }, true); });
+    li.append(b);
+    if (s.error) li.append(el("p", "err", s.error));
+    if (s.exception) li.append(el("pre", "exc", s.exception));
+    return li;
+  }
+  function logBadges(log) {
+    var out = [];
+    if (!log) return out;
+    out.push(el("span", "badge dim", log.bytes > 0 ? fmtBytes(log.bytes) : "no output"));
+    if (log.cutBytes > 0) out.push(el("span", "badge warn", "cut"));
+    if (log.partial) out.push(el("span", "badge warn", "may be incomplete"));
+    return out;
+  }
+
+  function renderSteps(n) {
+    var box = $("steps");
+    box.replaceChildren();
+    var h = el("p", "hint");
+    var info = [stateOf(n.state)[2], fmtDur(elapsed(n)) + (n.running ? " so far" : "")];
+    if (n.agent) info.push("agent " + n.agent);
+    if (n.type === "UNLISTED") info.push("steps whose stage the stage graph does not list");
+    else if (n.synthetic) info.push("implicit stage the pipeline did not declare");
+    $("steps-h").textContent = "Steps of " + n.name;
+    h.textContent = info.join(" · ");
+    box.append(h);
+    if (n.steps.length) {
+      box.append(stepList(n));
+      return;
+    }
+    var groups = [];
+    (function collect(list) {
+      list.forEach(function (c) {
+        if (c.steps.length) groups.push(c);
+        collect(c.children || []);
+      });
+    })(n.children || []);
+    if (!groups.length) {
+      box.append(el("p", "hint", n.children && n.children.length
+        ? "None of its nested stages recorded steps."
+        : "No steps recorded for this stage. The full console log may have its output."));
+      return;
+    }
+    box.append(el("p", "hint", "No steps of its own. Steps of its nested stages:"));
+    groups.forEach(function (g) {
+      var gh = el("h3", "group-h");
+      var gb = el("button", null, g.name);
+      gb.type = "button";
+      gb.addEventListener("click", function () { select({ node: g.id }, true); });
+      gh.append(gb);
+      box.append(gh);
+      box.append(stepList(g));
+    });
+  }
+  function stepList(n) {
+    var ul = el("ul", "steps");
+    n.steps.forEach(function (s) { ul.append(stepItem(s, n)); });
+    return ul;
+  }
+
+  // Above this a log is offered as a download only: decoded text is held as
+  // one string plus a line index, and browsers cap string length near 512MB.
+  var MAX_VIEW_BYTES = 256 * 1024 * 1024;
+
+  function gzipBlob(log) {
+    var b64 = log.gzipBase64, parts = [];
+    // Multiple of 4, so every slice is whole base64 quads.
+    var step = 1 << 22;
+    for (var i = 0; i < b64.length; i += step) {
+      var bin = atob(b64.slice(i, i + step));
+      var u = new Uint8Array(bin.length);
+      for (var j = 0; j < bin.length; j++) u[j] = bin.charCodeAt(j);
+      parts.push(u);
+    }
+    return new Blob(parts);
+  }
+  function gunzip(log) { return gzipBlob(log).stream().pipeThrough(new DecompressionStream("gzip")); }
+
+  // Only the open log stays decoded; any other would pin its text for the page's life.
+  var decoded = { log: null, text: null };
+  function decode(log) {
+    if (!log.gzipBase64) return Promise.resolve("");
+    if (decoded.log === log) return decoded.text;
+    var p = (async function () {
+      var reader = gunzip(log).getReader();
+      // Not fatal: a log may hold bytes that are not UTF-8; they show as U+FFFD.
+      var dec = new TextDecoder(), out = [];
+      for (;;) {
+        var r = await reader.read();
+        if (r.done) break;
+        out.push(dec.decode(r.value, { stream: true }));
+      }
+      out.push(dec.decode());
+      return out.join("");
+    })();
+    decoded = { log: log, text: p };
+    p.catch(function () { if (decoded.text === p) decoded = { log: null, text: null }; });
+    return p;
+  }
+  function logError(err) {
+    if (typeof DecompressionStream === "undefined") {
+      return "This browser cannot decompress logs (no DecompressionStream); open the file in a current Chrome, Firefox or Safari.";
+    }
+    return "Could not read this log: " + err;
+  }
+  function fileName(what) {
+    return (S.job + "-" + S.number + "-" + what).replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 120) + ".log";
+  }
+  // Decompresses into a Blob and hands it over as a download; no network involved.
+  function saveLog(log, what, button) {
+    var token = openToken;
+    button.disabled = true;
+    new Response(gunzip(log)).blob().then(function (b) {
+      var url = URL.createObjectURL(new Blob([b], { type: "text/plain;charset=utf-8" }));
+      var a = el("a");
+      a.href = url;
+      a.download = fileName(what);
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    }, function (err) {
+      if (token === openToken) $("log-info").append(el("p", "err", logError(err)));
+    }).finally(function () { button.disabled = false; });
+  }
+
+  var logEl = $("log");
+  var view = null;
+  var openToken = 0;
+
+  function lineStarts(text) {
+    var starts = [0], i = -1;
+    while ((i = text.indexOf("\n", i + 1)) !== -1) {
+      if (i + 1 < text.length) starts.push(i + 1);
+    }
+    return starts;
+  }
+  function lineEnd(k) { return k + 1 < view.starts.length ? view.starts[k + 1] : view.text.length; }
+  function chunk(lo, hi) {
+    var d = el("div", null, view.text.slice(view.starts[lo], lineEnd(hi - 1)));
+    d.dataset.lo = lo;
+    d.dataset.hi = hi;
+    return d;
+  }
+  // Only the lines in [lo, hi) are in the DOM, so a huge log never becomes one huge node.
+  function showWindow(lo, hi) {
+    view.lo = lo;
+    view.hi = hi;
+    view.marked = null;
+    logEl.replaceChildren(chunk(lo, hi));
+    updateWindowControls();
+  }
+  function updateWindowControls() {
+    var n = view.starts.length;
+    $("earlier").hidden = view.lo === 0;
+    $("later").hidden = view.hi >= n;
+    $("log-status").textContent = "Showing lines " + (view.lo + 1).toLocaleString() + "–" +
+      view.hi.toLocaleString() + " of " + n.toLocaleString();
+  }
+  $("earlier").addEventListener("click", function () {
+    if (!view || view.lo === 0) return;
+    var lo = Math.max(0, view.lo - CHUNK_LINES);
+    var before = logEl.scrollHeight;
+    logEl.prepend(chunk(lo, view.lo));
+    logEl.scrollTop += logEl.scrollHeight - before;
+    view.lo = lo;
+    updateWindowControls();
+  });
+  $("later").addEventListener("click", function () {
+    if (!view) return;
+    var hi = Math.min(view.starts.length, view.hi + CHUNK_LINES);
+    logEl.append(chunk(view.hi, hi));
+    view.hi = hi;
+    updateWindowControls();
+  });
+  $("wrap").addEventListener("change", function (e) { logEl.classList.toggle("nowrap", !e.target.checked); });
+
+  function lineOf(offset) {
+    var a = view.starts, lo = 0, hi = a.length - 1;
+    while (lo < hi) {
+      var mid = (lo + hi + 1) >> 1;
+      if (a[mid] <= offset) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
+  function unmark() {
+    var c = view.marked;
+    if (c && c.isConnected) c.textContent = view.text.slice(view.starts[+c.dataset.lo], lineEnd(+c.dataset.hi - 1));
+    view.marked = null;
+  }
+  function showMatch(i) {
+    var m = view.matches;
+    if (!m.length) return;
+    view.cur = (i + m.length) % m.length;
+    var off = m[view.cur], line = lineOf(off);
+    unmark();
+    if (line < view.lo || line >= view.hi) {
+      var lo = Math.max(0, line - CHUNK_LINES / 2);
+      showWindow(lo, Math.min(view.starts.length, lo + CHUNK_LINES));
+    }
+    var c = Array.prototype.find.call(logEl.children, function (d) { return line >= +d.dataset.lo && line < +d.dataset.hi; });
+    var start = view.starts[+c.dataset.lo], end = lineEnd(+c.dataset.hi - 1);
+    var mk = el("mark", null, view.text.slice(off, off + view.qlen));
+    c.replaceChildren(view.text.slice(start, off), mk, view.text.slice(off + view.qlen, end));
+    view.marked = c;
+    logEl.scrollTop = Math.max(0, mk.offsetTop - logEl.clientHeight / 2);
+    updateCount();
+  }
+  function updateCount() {
+    var m = view.matches, q = $("search").value;
+    if (!q) { $("count").textContent = ""; return; }
+    if (!m.length) { $("count").textContent = "No matches"; return; }
+    $("count").textContent = (view.cur + 1).toLocaleString() + " of " + m.length.toLocaleString() +
+      (m.length >= MAX_MATCHES ? "+" : "");
+  }
+  function escapeRe(q) { return q.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"); }
+  function search(q) {
+    if (!view) return;
+    unmark();
+    view.matches = [];
+    view.cur = -1;
+    view.q = q;
+    view.qlen = q.length;
+    if (q) {
+      // Case-insensitive unless the query has capitals. Without the u flag each
+      // query unit matches one text unit, so a match is always q.length long.
+      var re = new RegExp(escapeRe(q), q === q.toLowerCase() ? "gi" : "g"), m;
+      while (view.matches.length < MAX_MATCHES && (m = re.exec(view.text)) !== null) view.matches.push(m.index);
+    }
+    if (view.matches.length) showMatch(0); else updateCount();
+  }
+  var searchTimer = 0;
+  $("search").addEventListener("input", function (e) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { search(e.target.value); }, 200);
+  });
+  $("search").addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || !view) return;
+    e.preventDefault();
+    clearTimeout(searchTimer);
+    if (view.q !== e.target.value || view.cur < 0) search(e.target.value);
+    else showMatch(view.cur + (e.shiftKey ? -1 : 1));
+  });
+  $("next").addEventListener("click", function () { if (view) showMatch(view.cur + 1); });
+  $("prev").addEventListener("click", function () { if (view) showMatch(view.cur - 1); });
+
+  function resetLogPanel() {
+    ++openToken;
+    clearTimeout(searchTimer);
+    view = null;
+    $("earlier").hidden = true;
+    $("later").hidden = true;
+    $("log-tools").hidden = true;
+    $("log-status").textContent = "";
+    $("search").value = "";
+    $("count").textContent = "";
+    $("log-info").replaceChildren();
+    $("log-name").hidden = true;
+    logEl.replaceChildren();
+  }
+  function clearLog() {
+    resetLogPanel();
+    $("log-h").textContent = "Log";
+    logEl.append(el("span", "hint", "Select a step to read its log, or open the full console log."));
+  }
+  function openLog(log, heading, fullName, step) {
+    resetLogPanel();
+    var token = openToken;
+    $("log-h").textContent = heading;
+    var nameEl = $("log-name");
+    nameEl.textContent = fullName || "";
+    nameEl.hidden = !fullName;
+    var info = $("log-info");
+    logBadges(log).forEach(function (b) { info.append(b); });
+    if (log.gzipBase64) {
+      var save = el("button", null, "Save log");
+      save.type = "button";
+      save.title = "Download the whole log as a text file";
+      save.addEventListener("click", function () { saveLog(log, step ? "step-" + step.id : "console", save); });
+      info.append(save);
+    }
+    if (log.cutBytes > 0) info.append(el("span", null, log.cutBytes.toLocaleString() + " bytes cut by --max-log-bytes; a marker line shows where"));
+    if (log.partial) info.append(el("span", null, step ? "the log may stop short of what the step wrote" : "the console log may stop short"));
+    var extra = [];
+    if (step && step.error) extra.push(el("p", "err", step.error));
+    if (!step && S.consoleError) extra.push(el("p", "err", S.consoleError));
+    if (step && step.exception) extra.push(el("pre", "exc", step.exception));
+    extra.forEach(function (x) { info.append(x); });
+    if (!log.gzipBase64) {
+      logEl.append(el("span", "hint", log.bytes > 0 ? "Log text missing." : "No output."));
+      return;
+    }
+    if (log.bytes - log.cutBytes > MAX_VIEW_BYTES) {
+      logEl.append(el("span", "hint", "This log is " + fmtBytes(log.bytes - log.cutBytes) +
+        ", too large to view in the browser. Use Save log to get the whole text."));
+      return;
+    }
+    logEl.append(el("span", "hint", "Decompressing " + fmtBytes(log.bytes) + "…"));
+    decode(log).then(function (text) {
+      if (token !== openToken) return;
+      view = { text: text, starts: lineStarts(text), lo: 0, hi: 0, matches: [], cur: -1, q: "", qlen: 0, marked: null };
+      var n = view.starts.length;
+      showWindow(Math.max(0, n - CHUNK_LINES), n);
+      $("log-tools").hidden = false;
+      logEl.scrollTop = logEl.scrollHeight;
+    }, function (err) {
+      if (token !== openToken) return;
+      logEl.replaceChildren(el("p", "err", logError(err)));
+    });
+  }
+
+  var current = {};
+  function setPressed(selector, attr, value) {
+    document.querySelectorAll(selector).forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset[attr] === value));
+    });
+  }
+  function select(sel, user) {
+    if (sel.step && !sel.node && stepsById.has(sel.step)) sel.node = stepsById.get(sel.step).node.id;
+    if (sel.node && !nodesById.has(sel.node)) sel.node = null;
+    if (sel.step && !stepsById.has(sel.step)) sel.step = null;
+    if (sel.node !== current.node && sel.node) renderSteps(nodesById.get(sel.node).node);
+    setPressed(".node", "id", sel.node);
+    revealNode(sel.node);
+    setPressed(".step-btn", "step", sel.step);
+    $("console-btn").setAttribute("aria-pressed", String(!!sel.console));
+    var logChanged = sel.step !== current.step || !!sel.console !== !!current.console;
+    current = sel;
+    if (logChanged) {
+      if (sel.console) {
+        openLog(S.console, "Full console log", "", null);
+        $("log-name").textContent = "Whole build output, including steps outside stages and messages per-step logs miss.";
+        $("log-name").hidden = false;
+      } else if (sel.step) {
+        var s = stepsById.get(sel.step).step;
+        openLog(s.log || {}, "Log: " + stepLabel(s), s.title ? s.name : (s.name && (s.name.length > 60 || s.name.indexOf("\n") >= 0) ? s.name : ""), s);
+      } else {
+        clearLog();
+      }
+    }
+    if (user) {
+      var p = new URLSearchParams();
+      if (sel.node) p.set("node", sel.node);
+      if (sel.step) p.set("step", sel.step);
+      if (sel.console) p.set("console", "1");
+      try { history.replaceState(null, "", "#" + p.toString()); } catch (e) { /* some file:// setups refuse it */ }
+      if ((sel.step || sel.console) && window.innerWidth < 900) $("log-panel").scrollIntoView({ block: "start" });
+    }
+  }
+  // Scrolls only the graph's own box, never the page.
+  function revealNode(id) {
+    var b = id && document.querySelector('.node[aria-pressed="true"]');
+    if (!b) return;
+    var box = b.closest(".graph-scroll");
+    var left = b.getBoundingClientRect().left - box.getBoundingClientRect().left;
+    if (left < 0 || left + b.offsetWidth > box.clientWidth) box.scrollLeft += left - 16;
+  }
+  function fromHash() {
+    var p = new URLSearchParams(location.hash.slice(1));
+    return { node: p.get("node"), step: p.get("step"), console: p.has("console") };
+  }
+  function defaultNode() {
+    var found = null;
+    (function find(list) {
+      list.forEach(function (n) {
+        if (!found && n.state === "FAILURE" && n.steps.length) found = n;
+        find(n.children || []);
+      });
+    })(S.stages || []);
+    return found || (S.stages && S.stages[0]) || null;
+  }
+
+  $("console-btn").addEventListener("click", function () {
+    select({ node: current.node, console: true }, true);
+  });
+  window.addEventListener("hashchange", function () { select(fromHash(), false); });
+
+  renderHeader();
+  renderGraph();
+  var initial = fromHash();
+  if (!initial.node && !initial.step && !initial.console) {
+    var d = defaultNode();
+    initial = { node: d ? d.id : null };
+  }
+  select(initial, false);
+})();
+</script>
+</body>
+</html>
+{{end}}

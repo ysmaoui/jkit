@@ -71,7 +71,11 @@ func resolveContainerArgs(cmd *cobra.Command, args []string) (*api.Client, strin
 
 func resolveTarget(cmd *cobra.Command, args []string, needBuild, applyBranch bool) (*api.Client, string, int, error) {
 	if len(args) > 0 && (strings.HasPrefix(args[0], "http://") || strings.HasPrefix(args[0], "https://")) {
-		parsed, err := appctx.ParseJenkinsURL(args[0])
+		cfg, err := config.Load()
+		if err != nil {
+			return nil, "", 0, err
+		}
+		parsed, err := appctx.ParseJenkinsURLUnder(args[0], cfg.HostURLs())
 		if err != nil {
 			return nil, "", 0, err
 		}
@@ -85,10 +89,6 @@ func resolveTarget(cmd *cobra.Command, args []string, needBuild, applyBranch boo
 				return nil, "", 0, fmt.Errorf("conflicting build numbers: #%d in the URL, #%d as an argument", buildNum, n)
 			}
 			buildNum = n
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return nil, "", 0, err
 		}
 		client, err := clientFromURL(cfg, parsed.Host, clientOpts(cmd)...)
 		if err != nil {
