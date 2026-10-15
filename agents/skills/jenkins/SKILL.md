@@ -164,7 +164,8 @@ jkit inspect my-job --diff --diff-from 2026-07-24_13-06-30 --diff-to 2026-08-27_
 
 # Save a run as one offline HTML file (stages, steps, every log); needs Pipeline Graph View
 jkit export html my-job 42          # writes my-job-42.html, prints the path
-jkit export html                    # inside a pipeline: this build; steps of the running build show unfinished
+jkit export html URL -o run.html    # finished or running build (a running one is a snapshot)
+jkit export html                    # inside a pipeline: the build BUILD_URL names; its own steps show unfinished
 jkit export html my-job 42 --max-log-bytes 20000000   # shrink huge logs (file only, download stays full)
 
 # Trigger build (omitted params take their defaults)
@@ -195,10 +196,6 @@ jkit input my-job 42 --deny                   # reject the gate
 jkit artifacts URL                  # list
 jkit artifacts URL -d report.xml    # download
 
-# Offline copy of a run (stages, steps, every log) as one HTML file; prints the path
-jkit export html URL                # finished or running build
-jkit export html                    # inside a pipeline: the build BUILD_URL names
-
 # Queue
 jkit queue                          # pending builds
 jkit queue --job my-job             # filter
@@ -224,12 +221,41 @@ jkit lint path/to/Jenkinsfile
 # Open in browser
 jkit open my-job 42
 
+# Check credentials
+jkit auth status                    # default host (or --host)
+jkit auth status --all              # every configured host; flags duplicate or malformed keys
+
 # Raw API request, when no command covers it (instead of curl; auth and crumb handled)
 jkit api '/computer/api/json?tree=computer[displayName,offline]'   # query sent as written
 jkit api URL/api/json --format '{{.result}}'   # full URL picks the configured host
 jkit api /api/json -i               # status line + headers (X-Jenkins = version)
 # HTTP >= 400: body still on stdout, error on stderr, exit 1
 ```
+
+---
+
+## Which command to use
+
+- **What is building right now, across jobs:** `jkit running` (or
+  `--folder team/svc`). It reads every executor, so it also finds builds you did
+  not start. For one known build use `jkit status URL` or `jkit wait URL`.
+- **Keep a run after Jenkins deletes it, or hand a run to someone without
+  Jenkins access:** `jkit export html URL`. It downloads every log, so it is
+  slow on huge builds; for reading one failure, `jkit diagnose` and
+  `jkit log --stage` are faster. On a running build the file is a snapshot
+  (`complete: false` in `--json`). Exit 0 even when some logs could not be
+  read: check `stepErrors` and `consoleError`. The default HTTP timeout is 10m;
+  set the shell timeout to match or run it in the background.
+- **No command covers the endpoint:** `jkit api PATH`. Use it instead of curl
+  with a token: it adds auth and the CSRF crumb. Prefer a dedicated command when
+  one exists, because those add checks and typed errors. `-X POST` and other
+  methods change state with the user's own rights (`/job/X/doDelete` deletes
+  the job), so do not send one unless the user asked for that change.
+- **401, or a host or token you are not sure about:** `jkit auth status --all`.
+  It checks every configured key and names duplicate keys (e.g. `https://x` and
+  `https://x/`), shared aliases and anonymous answers. `jkit auth prune` lists
+  keys that can go; it changes `config.yml` only with `--yes`, so ask the user
+  before you pass it.
 
 ---
 
@@ -435,7 +461,7 @@ When a build is BUILDING but appears stuck:
 | Error | Fix |
 |---|---|
 | 404 Not Found | Check URL/job path. For a multibranch job, pass the branch with `--branch feature/x` (don't hand-encode it). Aiming the `job build#` form at a multibranch/folder container returns an error listing its branches — re-run with one |
-| 401 Unauthorized | Run `jkit auth login` to re-authenticate |
+| 401 Unauthorized | Run `jkit auth status --all` to see which key fails, then `jkit auth login` to re-authenticate |
 | 403 Forbidden | User lacks Jenkins permissions for this job |
 | 5xx Server Error | Retry. CLI auto-retries transient 502/503/504 |
 | No test results | JUnit plugin not configured, or build has no tests |

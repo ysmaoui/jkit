@@ -95,5 +95,13 @@ branch child the rules live on the parent, and inspect names it.
   build: wrong Jenkinsfile, wrong repo, branch never discovered, job disabled
 - When the code is suspect rather than the job, `jkit sources` is the one that
   names the actual commits, shared libraries included
+- With no URL and the question "what is building now?", run `jkit running`
+  (`--folder JOB` to narrow it) and take the URL from its output
+- If jkit itself gets 401 on every command, the problem is the local token, not
+  the build: run `jkit auth status --all` and report which host key fails
+- When no command reads what you need, `jkit api PATH` sends an authenticated
+  GET (e.g. `jkit api '/job/my-job/42/api/json?tree=actions[*]'`). Do not
+  send `-X POST` or other methods: this agent analyzes, it does not change
+  Jenkins
 
 Be extremely concise. No pleasantries.

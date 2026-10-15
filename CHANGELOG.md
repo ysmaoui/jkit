@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `jkit export html [job] [build#]` writes a pipeline run as one HTML file that
+  opens offline: stage graph, steps, every step log and the console. It works
+  on a finished or a running build, and with no arguments inside a pipeline it
+  exports the build that `BUILD_URL` names. `-o` sets the file (`-` for
+  stdout), `--max-log-bytes` cuts each log to its head and tail, and
+  `--concurrency` sets parallel downloads (1 to 8, default 4). Needs the
+  Pipeline Graph View plugin.
+- The export viewer has resizable panes, a Graph and a List view with a filter
+  and Failed only, collapsible parallel branches, up and down buttons through
+  the failed stages, and Back for each selection. It opens on the stage that
+  failed the build.
+- `jkit running` lists the builds running on every executor, oldest first.
+  `--folder` keeps one folder or job; `--json` prints
+  `{job, number, url, timestamp}`.
+- `jkit api <path|url>` sends an authenticated request and prints the response
+  body, like `gh api`. `-X` sets the method (with a CSRF crumb for methods
+  other than GET, HEAD and OPTIONS), `-H` adds headers, `-i` prints the status
+  line and headers. On HTTP 400 and above the body is printed and the exit
+  code is 1.
+- `jkit auth status --all` checks every configured host and flags keys that are
+  not normalised, duplicate, share an alias or are both marked default. Exit 1
+  on a 401, 403, anonymous answer or key problem.
+- `jkit auth prune` removes config keys that another key of the same host
+  proves redundant. Dry run unless `--yes`, which first copies `config.yml` to
+  `config.yml.bak`.
+
+### Changed
+- `jkit auth login` strips whitespace, a query, a fragment and trailing slashes
+  from the host before it saves the key.
+- `--host` also matches a configured key written with a trailing slash, query
+  or fragment. A value that matches several keys is an error naming them.
+- The API client sends credentials only to the configured host. A redirect to
+  another host, another port or from https to http gets none. A redirect from
+  http to https on the default ports keeps them.
+
+### Fixed
+- A pasted URL under a Jenkins context path (`https://x/jenkins/job/a/12/`)
+  uses the configured host with that path, its credentials and routes.
+- A pasted build URL resolves to the configured key spelled like the URL's
+  root when several keys name the same host, instead of any of them.
+
 ## [0.9.0] - 2026-10-02
 
 ### Added

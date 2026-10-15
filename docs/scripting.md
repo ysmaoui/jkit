@@ -65,8 +65,14 @@ any error, like other commands.
 | Command | Exit 0 | Exit 1 |
 |---------|--------|--------|
 | `auth status` | Auth valid | Auth invalid |
+| `auth status --all` | Every key valid, or not checkable (unreachable, timeout, other status; a warning on stderr) | Any 401, 403, anonymous answer or key problem |
+| `auth prune` | Config read (and written with `--yes`), proposals included | Config could not be read or written |
+| `api` | HTTP status below 400 | HTTP 400 and above (body still on stdout), or a request error |
 | `lint` | Jenkinsfile valid | Validation errors |
 | All others | Success | Error occurred |
+
+`jkit export html` exits 0 when the file is written, even with unreadable logs,
+1 on a fatal error, and 130 when interrupted (Ctrl+C or SIGTERM).
 
 ## Non-Interactive Auth
 
@@ -175,6 +181,32 @@ esac
 # Wait for the latest build and keep the JSON
 result=$(jkit wait my-app --json) || true
 echo "$result" | jq -r .result
+```
+
+### List Running Builds in a Folder
+
+```bash
+jkit running --folder team/svc --json | jq -r '.[] | "\(.job) #\(.number)"'
+```
+
+`timestamp` is the build start in epoch milliseconds. No running builds prints
+`[]`.
+
+### Read Any API Endpoint
+
+```bash
+# Agents that are offline; the query string is sent as written
+jkit api '/computer/api/json?tree=computer[displayName,offline]' \
+    --format '{{range .computer}}{{if .offline}}{{.displayName}}{{"\n"}}{{end}}{{end}}'
+```
+
+`jkit api` handles the token and the CSRF crumb. Use it when no command covers
+the endpoint.
+
+### Check Every Configured Host
+
+```bash
+jkit auth status --all --json | jq -r '.[] | select(.result != "valid") | .host'
 ```
 
 ### Check Latest Build Status

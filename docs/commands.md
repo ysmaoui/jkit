@@ -34,8 +34,8 @@ configured host holding it, the host is the URL's scheme and host.
 
 ```bash
 jkit status my-app 47
-jkit status https://jenkins.company.com/job/my-app/47/
-jkit status https://jenkins.company.com/job/my-app/ 47
+jkit status https://jenkins.example.com/job/my-app/47/
+jkit status https://jenkins.example.com/job/my-app/ 47
 ```
 
 Omitting the job path falls back to `.jkit.yml`, then the git remote, then the
@@ -49,7 +49,7 @@ scan instead.
 
 ```bash
 jkit log team/svc 42 --branch feature/x
-jkit log https://jenkins.company.com/job/team/job/svc/job/feature%2Fx/42/
+jkit log https://jenkins.example.com/job/team/job/svc/job/feature%2Fx/42/
 ```
 
 ---
@@ -70,13 +70,15 @@ jkit auth login [--host HOST] [--user USER] [--token TOKEN] [--alias ALIAS]
 | `--alias` | Short alias for host (e.g., `prod`, `staging`) |
 
 - Validates credentials before saving
+- Saves the host without whitespace, query, fragment or trailing slashes, so
+  `https://ci.example.com/#` and `https://ci.example.com` are one key
 - First host configured becomes the default
 - Config stored at `~/.config/jkit/config.yml` (see [configuration](configuration.md))
 
 ```bash
-jkit auth login                                        # interactive
-jkit auth login --host https://ci.co --user me --token abc  # non-interactive
-jkit auth login --host https://ci.co --user me --token abc --alias prod
+jkit auth login                                                      # interactive
+jkit auth login --host https://ci.example.com --user me --token abc  # non-interactive
+jkit auth login --host https://ci.example.com --user me --token abc --alias prod
 ```
 
 ---
@@ -306,7 +308,7 @@ Build:    #47
 Result:   SUCCESS
 Duration: 2m31s
 Started:  Jan 02 15:04:05
-URL:      https://jenkins.company.com/job/my-app/47
+URL:      https://jenkins.example.com/job/my-app/47
 
 Stages:
   Build       SUCCESS   45s
@@ -421,7 +423,7 @@ Discovery (which heads indexing picks up)
 ### `--xml --recursive`: export a whole folder subtree
 
 ```
-jkit inspect SANDBOXES --xml --recursive -d ./configs
+jkit inspect team --xml --recursive -d ./configs
 ```
 
 Writes the target's `config.xml` and one for every job and folder below it, into
@@ -431,8 +433,8 @@ job paths.
 
 ```
 configs/
-├── config.xml                      # SANDBOXES itself
-└── Gecko-vemb/
+├── config.xml                      # team itself
+└── svc/
     ├── config.xml                  # the multibranch job
     └── feature%2Fbuild/
         └── config.xml              # its branch child
@@ -442,7 +444,7 @@ Each directory is named by the job **name**, verbatim. A multibranch branch job
 is where that matters: Jenkins stores the branch `feature/build` as a job whose
 name literally contains `%2F`, so the encoded form is the real name. Written
 as-is it stays one directory entry and feeds straight back in
-(`jkit inspect SANDBOXES/Gecko-vemb/feature%2Fbuild`); decoding it into nested
+(`jkit inspect team/svc/feature%2Fbuild`); decoding it into nested
 directories would change the shape of the tree and make it indistinguishable
 from a folder `feature` holding a job `build`.
 
@@ -461,7 +463,7 @@ Wrote 26 config.xml files (412839 bytes) to ./configs
 They are unredacted, exactly as Jenkins stores them, so any credential embedded in an SCM url is now on disk there.
 
 Skipped 1:
-  SANDBOXES/private-app: cannot read config.xml for SANDBOXES/private-app: reading a job's configuration needs the Job/ExtendedRead permission
+  team/private-app: cannot read config.xml for team/private-app: reading a job's configuration needs the Job/ExtendedRead permission
 ```
 
 The traversal is the one behind `jkit list -r`. One tree query reaches 5 levels
@@ -617,7 +619,7 @@ jkit scan team/svc --json               # the parse, with its caveats
 ```
 
 ```
-Job:      SANDBOXES/Gecko-vemb (multibranch pipeline)
+Job:      team/svc (multibranch pipeline)
 Scanned:  Tue Sep 08 14:58:10 UTC 2026 (12m36s ago), SUCCESS
 Only the last scan is kept: a branch pushed after that time has not been examined yet.
     Checking branch develop
@@ -1378,7 +1380,7 @@ jkit sources my-app 42 --show-secrets   # reveal a credential embedded in a chec
 ```
 
 ```
-Job:          SANDBOXES/Gecko-vemb/feature%2Fbuild-with-hera2
+Job:          team/svc/feature%2Fbuild-cache
 Build:        #24
 
 Pipeline revision
@@ -1386,15 +1388,15 @@ Pipeline revision
   Recorded by:        jenkins.plugins.git.AbstractGitSCMSource$SCMRevisionImpl
 
 Shared libraries (3)
-  e3-sdk-global-jenkins-shared-lib @ develop  (trusted)
+  pipeline-lib @ develop  (trusted)
       commit  e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  (matched to a checkout by branch name)
-      repo    https://git.example.com/CARIAD/tools-sdk-global-jenkins-shared-lib.git
-  hera2 @ feature/bazel-remote-exec  (untrusted)
-      SHA not resolvable: no git checkout recorded the branch "feature/bazel-remote-exec"
+      repo    https://git.example.com/platform/pipeline-lib.git
+  build-tools @ feature/remote-exec  (untrusted)
+      SHA not resolvable: no git checkout recorded the branch "feature/remote-exec"
 
 Git checkouts (2, last built revision only)
-  https://git.example.com/CARIAD/tools-sdk-global-jenkins-shared-lib.git
-      e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  branch develop  -> shared library e3-sdk-global-jenkins-shared-lib
+  https://git.example.com/platform/pipeline-lib.git
+      e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  branch develop  -> shared library pipeline-lib
 ```
 
 ### Which commits are reported, and which are not
@@ -1423,8 +1425,8 @@ When the join above cannot settle a library, `jkit` falls back to the build's
 own console, where the library retriever recorded what it did:
 
 ```
-Loading library e3-sdk-global-jenkins-shared-lib@master
- > git ls-remote -- https://git.example.com/swf/tools-global-shared-lib-src.git
+Loading library pipeline-lib@master
+ > git ls-remote -- https://git.example.com/platform/pipeline-lib.git
 Found match: refs/heads/master revision 327b5c22a40ee9ef448b917b2b4a5b22e8d63239
 ```
 
@@ -1530,6 +1532,7 @@ jkit export html https://jenkins.example.com/job/team/job/svc/42/ -o svc-42.html
 jkit export html                                  # in a pipeline step: this build
 jkit export html my-app 42 -o - > run.html        # page on stdout, progress on stderr
 jkit export html my-app 42 --max-log-bytes 20000000
+jkit export html my-app 42 --concurrency 1        # one log at a time
 ```
 
 ### Viewer
@@ -1709,7 +1712,7 @@ jkit config list
 Set the default Jenkins host.
 
 ```bash
-jkit config set-default https://jenkins.prod.com
+jkit config set-default https://jenkins-prod.example.com
 jkit config set-default prod    # by alias
 ```
 
@@ -1718,7 +1721,7 @@ jkit config set-default prod    # by alias
 Remove a configured host.
 
 ```bash
-jkit config remove https://jenkins.staging.com
+jkit config remove https://jenkins-staging.example.com
 jkit config remove staging    # by alias
 ```
 
@@ -1727,7 +1730,7 @@ jkit config remove staging    # by alias
 Set or change an alias for a host.
 
 ```bash
-jkit config set-alias https://jenkins.prod.com prod
+jkit config set-alias https://jenkins-prod.example.com prod
 ```
 
 ---
@@ -1789,8 +1792,9 @@ Output:
   indented.
 - `--json`: indented JSON; an error if the body is not JSON.
 - `--format`: a Go template applied to the decoded JSON body.
-- HTTP 400 and above: the body is still printed, unformatted. The error goes
-  to stderr and the exit code is non-zero: 401 not authenticated, 403 access
+- HTTP 400 and above: the body is still printed, without `--json` or
+  `--format` (a JSON body is indented when stdout is a terminal). The error
+  goes to stderr and the exit code is 1: 401 not authenticated, 403 access
   denied, 404 not found (check the path), anything else a server error with
   its status.
 
