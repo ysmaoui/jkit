@@ -71,6 +71,7 @@ jkit/
 │   ├── export/
 │   │   ├── export.go          # Collect: build, PGV stage tree, steps and logs into a Snapshot
 │   │   ├── log.go             # Per-log sanitize, head/tail cap, gzip + base64
+│   │   ├── consolehtml.go     # Split progressiveHtml into per-node text as it streams
 │   │   ├── render.go          # Render: Snapshot JSON embedded in the HTML page
 │   │   └── template.html      # Page markup, CSS and JS (no external requests)
 │   ├── output/
@@ -148,6 +149,15 @@ GET /job/{path}/{number}/logText/progressiveText?start={byte-offset}
 # The whole console as it stands: notes stripped, line ends as stored, an
 # unfinished last line included. No offset and no size header.
 GET /job/{path}/{number}/consoleText
+# The console as HTML, each node's output in <span class="pipeline-node-{id}">
+# and each "[Pipeline] step" line in <span class="pipeline-new-node">, so one
+# download holds every step log. Only Jenkins' own file log storage writes the
+# node spans. Headers as for progressiveText, plus X-ConsoleAnnotator, which is
+# sent back to continue the markup; no multipart answer. Line ends are CRLF as
+# in a plain progressiveText answer. Timestamper writes a visible
+# <span class="timestamp"> and a hidden "[ISO]" span; AnsiColor leaves escape
+# sequences in comments around inline-style spans.
+GET /job/{path}/{number}/logText/progressiveHtml?start={byte-offset}
 # Jenkins version (X-Jenkins). Jenkins sends the header on api/json and pages
 # but not on progressiveText, so it is asked here once when no answer has
 # carried it yet.
@@ -161,8 +171,10 @@ GET /job/{path}/{number}/stages/tree
 # Seen on Jenkins 2.541.2: no PARALLEL_BLOCK node; a parallel wrapper is a
 # STAGE whose children are PARALLEL branches. isSequential is always false.
 # A running node omits totalDurationMillis. Declarative post is a synthetic
-# STAGE "Post Actions". complete is false while the run is going. Read nested
-# by GetPGVTree (export), flattened by GetPipelineStages (everything else).
+# STAGE "Post Actions". complete is false while the run is going, and stays
+# false, with no stages, for a run whose Jenkinsfile failed to compile. Read
+# nested by GetPGVTree (export), flattened by GetPipelineStages (everything
+# else).
 
 # Per-line console timestamps (Timestamper plugin, not core)
 GET /job/{path}/{number}/timestamps/?elapsed=HH:mm:ss.S&startLine=-N&appendLog
@@ -364,12 +376,117 @@ front. The page makes no network request and the export needs PGV only; there is
 no Blue Ocean fallback. The full console is stored as well, because
 `allSteps` omits steps outside any stage and block steps such as `node` and
 `catchError`, so their output exists nowhere else. Memory stays flat whatever
-the file size: `Collect` streams each encoded log into one spool file (beside
+the file size: `Collect` streams each encoded log into a spool file (beside
 the output, or in `TMPDIR` for `-o -`; unlinked at creation on Unix), and
 `Render` encodes the snapshot with a random placeholder per log, then copies the
 logs from the spool in place of the placeholders. Base64 needs no JSON escaping,
 so the bytes match a plain `json.Encoder` run. A 320 MB export peaks at about
 20 MB RSS. The cost is disk: the spool is about the size of the output.
+Step logs download in a bounded pool (`--concurrency`, default 4, at most 8),
+since export time is per-request latency. Each worker owns one spool file, so
+no lock guards the writes; the console goes to the first after the pool ends.
+Progress lines follow step order, and the first fatal error cancels the rest.
+Step logs come from one `progressiveHtml` download split into per-node
+text, while `consoleText` downloads beside it. The console is not derived from
+the annotated one, since nothing proves the two sanitize to the same bytes.
+Parallel branches interleave, so the split step text goes to an unlinked raw
+file and memory holds only each step's offset runs; each step is encoded from
+there once the download ends, then failed and aborted steps get their
+exception text from a pool of the same size. No node span, a download that
+fails or times out, or a partial answer for a complete run falls back to
+the pool, with the reason on stderr. No node span in a run with no steps is
+no reason: its text is all the build's own. Errors that stop the export
+(auth, permission, missing plugin, unreachable host, spool) do not fall
+back.
+
+A run that is not complete keeps a partial answer. Its annotated console
+can stop at the line cap or, on 2.527+, end mid-line, and nothing in the
+text says whether a node writes more after the cut, so a node span that
+closed before it proves nothing. PGV's step times prove nothing either:
+for the last step of a parallel branch its end is the end of whichever
+branch finished first (seen: an 8s `sh` given 1040ms). A finished step's
+text is kept on four conditions:
+
+- Its `[Pipeline]` line, at the start of the `pipeline-new-node` span or
+  right after Timestamper's hidden `[2026-10-14T17:56:14.939Z] ` prefix,
+  arrived whole up to the newline (a line cut after `sh` may be `sha256`)
+  and names `echo`, `sh`, `bat`, `powershell` or `pwsh`. Any other step can
+  write from an agent through workflow-api's `DelayBufferedOutputStream`,
+  flushed on a timer whose period grows to 10s, after it returned. `echo`
+  writes on the controller before it returns. The durable-task steps copy
+  the output on the controller, last-minute output included, before
+  reporting the exit, or, watching from the agent, close the agent-side
+  stream before reporting it; remoting delivers the stream's writes before
+  that later call.
+- A `pipeline-new-node` span arrived proving the step returned: the next
+  node in its block (same `enclosingId`) or that block's end (`startId` the
+  block). One CPS thread runs a block's body in sequence, so neither node
+  exists before the step returns. Parallel branches share a block but are
+  blocks themselves, never atoms.
+- The step wrote nothing after that span.
+- Its text is empty or ends a line. A durable-task step reports its exit
+  before it closes its listener, and closing writes the line end the
+  output lacked. A text that ends in a dropped comment (such as an
+  AnsiColor escape sequence) fails this too, even when empty: the output
+  went on past the last line end.
+
+Each span is held with its ids, its step function and the raw spool size
+when it arrived. Every other step goes to the pool: running ones, the one
+cut at the boundary, those whose proving span is past the cut, and every
+step of another kind. stderr says how many. The failure trace is skipped,
+as for the pool: the text it saw stops short.
+
+What remains: a durable-task step that is aborted can write after it
+returned. When the process does not stop within the stop timeout, the step
+logs `After 10s process did not stop`, fails, and the cleanup then logs a
+stack trace; while watching from the agent, output copied after that
+failure lands later still. Such a step's log can miss those lines when the
+console stops between its proof and them.
+
+The snapshot's `failureNodeId` names the stage that failed the build. The first
+stage in state FAILURE is often the wrong answer: `catchError` marks a stage
+failed and goes on. While the annotated console splits, each node's last
+`ERROR:` line is kept, and the `pipeline-new-node` spans' `startId` and
+`enclosingId` trace that node up to its stage. The node is often no step at
+all, such as a `catchError` body's closing `}`. The latest such line whose
+stage is in state FAILURE wins, so a green step echoing `ERROR:` does not, and
+`failureMessage` is that line. The build's own text written after it goes to
+`buildErrorMessage` instead: the first `ERROR:` line or qualified exception
+header such as `groovy.lang.MissingPropertyException: ...` with no node. An
+uncaught exception other than `AbortException` prints a stack trace and no
+`ERROR:` line, so the header is all there is. A header ending in a colon,
+such as a compile failure's `startup failed:`, takes the next build line as
+its detail, unless that is a stack frame or another header. The two are kept
+apart because post-pipeline code, such as a notification hitting the script
+sandbox, often throws after a `catchError` stage failed, and the stage error
+is the one to act on. But when the build threw from another stage, that stage
+takes `failureNodeId`, with an empty `failureMessage`: an uncaught `sh` or
+`error` writes its `ERROR:` line at build level, not on its node.
+Parallel branches run at once, so start times do not say which threw last.
+A branch that threw has its closing node write `Failed in branch <name>`,
+in declarative and scripted `parallel` alike. A line written after the
+caught error counts, and so does an earlier one from a branch of a
+parallel that holds the caught stage, since such a branch that threw
+fails that parallel whenever it threw. Any other earlier line belongs to a parallel that did not fail
+the build. A line also counts only when its branch is in state FAILURE and
+every stage enclosing it is FAILURE or ABORTED (`failFast` aborts the
+parallel): a failure that reached the build leaves that whole chain
+failed, while a parallel inside a `try` leaves its stage green. The first
+counted line names the branch. When the branch does not hold the caught
+stage, its failed leaf that started last is the answer; when it does, the
+failed leaf in it that started after the caught stage and lies outside it,
+as in a sequential run, else the next line decides. An enclosing branch
+writes its line after the inner one, so the first line is the innermost,
+and a branch `failFast` aborted is not FAILURE. With no counted line
+the run was sequential: the failed leaf that started last, if it started
+after the caught stage and lies outside it, threw. A `buildErrorMessage` equal to
+`failureMessage` is dropped, since a stage that echoes its error and
+rethrows would show it twice. `failureNodeId` falls back to the failed leaf
+stage that started last when no node's `ERROR:` line traces to a failed
+stage, when the pool read the logs (`consoleText` carries no node to
+trace), and when the run was not complete (the traced text may stop
+short). `failureMessage` is then empty, so the page never shows an error
+under a stage that did not write it.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its

@@ -1,0 +1,103 @@
+Started by user <a href='/user/admin' class='jenkins-table__link model-link model-link--float'>admin</a>
+<span class="pipeline-new-node" nodeId="2" startId="2">[Pipeline] Start of Pipeline
+</span><span class="pipeline-new-node" nodeId="3" startId="3" enclosingId="2">[Pipeline] node
+</span><span class="pipeline-node-3">Running on <a href='/computer/(built-in)/' class='jenkins-table__link model-link model-link--float'>Jenkins</a> in /var/jenkins_home/workspace/console-pipeline
+</span><span class="pipeline-new-node" nodeId="4" startId="4" enclosingId="3">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="5" startId="5" enclosingId="4">[Pipeline] timestamps
+</span><span class="pipeline-new-node" nodeId="6" startId="6" enclosingId="5">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="7" startId="7" enclosingId="6">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="8" startId="8" enclosingId="7" label="Text">[Pipeline] { (Text)
+</span><span class="pipeline-new-node" nodeId="9" enclosingId="8">[Pipeline] echo
+</span><span class="pipeline-node-9"><span class="timestamp"><b>11:13:15</b> </span><span style="display: none">[2026-10-12T11:13:15.743Z]</span> a &lt; b &amp;&amp; c &gt; "d" 'e'
+</span><span class="pipeline-new-node" nodeId="10" enclosingId="8">[Pipeline] sh
+</span><span class="pipeline-node-10"><span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.036Z]</span> + printf two\nlines\n
+<span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.036Z]</span> two
+<span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.036Z]</span> lines
+<span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.036Z]</span> + printf no newline at end
+<span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.038Z]</span> no newline at end
+</span><span class="pipeline-new-node" nodeId="11" startId="11" enclosingId="8">[Pipeline] ansiColor
+</span><span class="pipeline-new-node" nodeId="12" startId="12" enclosingId="11">[Pipeline] {
+</span><span class="pipeline-node-12"><span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.070Z]</span> <div style="display:none" data-ansicolor-action="4263cd35-4c7a-42aa-b243-4287c2ce9137"></div>
+</span><span class="pipeline-new-node" nodeId="13" enclosingId="12">[Pipeline] echo
+</span><span class="pipeline-node-13"><span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.100Z]</span> <!--[31m--><span style="color: #CD0000;">red text<!--[0m--></span> plain
+</span><span class="pipeline-new-node" nodeId="14" startId="12">[Pipeline] }
+</span><span class="pipeline-node-14"><span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.107Z]</span> <div style="display:none" data-ansicolor-action="51955302-6844-4c23-a3ae-c101d6187ecb"></div>
+</span><span class="pipeline-new-node" nodeId="15" startId="11">[Pipeline] // ansiColor
+</span><span class="pipeline-new-node" nodeId="16" enclosingId="8">[Pipeline] writeFile
+</span><span class="pipeline-new-node" nodeId="17" startId="8">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="18" startId="7">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="19" startId="19" enclosingId="6">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="20" startId="20" enclosingId="19" label="Flaky">[Pipeline] { (Flaky)
+</span><span class="pipeline-new-node" nodeId="21" startId="21" enclosingId="20">[Pipeline] catchError
+</span><span class="pipeline-new-node" nodeId="22" startId="22" enclosingId="21">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="23" enclosingId="22">[Pipeline] sh
+</span><span class="pipeline-node-23"><span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.525Z]</span> + echo about to fail
+<span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.525Z]</span> about to fail
+<span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.525Z]</span> + exit 3
+</span><span class="pipeline-new-node" nodeId="24" startId="22">[Pipeline] }
+</span><span class="pipeline-node-24"><span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.556Z]</span> ERROR: script returned exit code 3
+</span><span class="pipeline-new-node" nodeId="25" startId="21">[Pipeline] // catchError
+</span><span class="pipeline-new-node" nodeId="26" startId="20">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="27" startId="19">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="28" startId="28" enclosingId="6">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="29" startId="29" enclosingId="28" label="Fan Out">[Pipeline] { (Fan Out)
+</span><span class="pipeline-new-node" nodeId="30" startId="30" enclosingId="29">[Pipeline] parallel
+</span><span class="pipeline-new-node" nodeId="32" startId="32" enclosingId="30" label="Branch: Branch A">[Pipeline] { (Branch: Branch A)
+</span><span class="pipeline-new-node" nodeId="33" startId="33" enclosingId="30" label="Branch: Branch B">[Pipeline] { (Branch: Branch B)
+</span><span class="pipeline-new-node" nodeId="34" startId="34" enclosingId="32">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="35" startId="35" enclosingId="34" label="Branch A">[Pipeline] { (Branch A)
+</span><span class="pipeline-new-node" nodeId="36" startId="36" enclosingId="33">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="37" startId="37" enclosingId="36" label="Branch B">[Pipeline] { (Branch B)
+</span><span class="pipeline-new-node" nodeId="38" startId="38" enclosingId="37">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="39" startId="39" enclosingId="38" label="B1">[Pipeline] { (B1)
+</span><span class="pipeline-new-node" nodeId="40" enclosingId="35">[Pipeline] echo
+</span><span class="pipeline-node-40"><span class="timestamp"><b>11:13:16</b> </span><span style="display: none">[2026-10-12T11:13:16.792Z]</span> in branch A
+</span><span class="pipeline-new-node" nodeId="41" enclosingId="35">[Pipeline] sh
+</span><span class="pipeline-new-node" nodeId="42" enclosingId="39">[Pipeline] sh
+</span><span class="pipeline-node-41"><span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.058Z]</span> + echo A1
+<span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.058Z]</span> A1
+<span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.058Z]</span> + sleep 1
+</span><span class="pipeline-node-42"><span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.091Z]</span> + echo B1
+<span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.091Z]</span> B1
+<span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.091Z]</span> + sleep 1
+</span><span class="pipeline-node-41"><span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.971Z]</span> + echo A2
+<span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.971Z]</span> A2
+<span class="timestamp"><b>11:13:17</b> </span><span style="display: none">[2026-10-12T11:13:17.971Z]</span> + sleep 1
+</span><span class="pipeline-node-42"><span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.002Z]</span> + echo B2
+<span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.003Z]</span> B2
+<span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.003Z]</span> + sleep 1
+</span><span class="pipeline-node-41"><span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.883Z]</span> + echo A3
+<span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.883Z]</span> A3
+<span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.883Z]</span> + sleep 1
+</span><span class="pipeline-node-42"><span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.915Z]</span> + echo B3
+<span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.915Z]</span> B3
+<span class="timestamp"><b>11:13:18</b> </span><span style="display: none">[2026-10-12T11:13:18.915Z]</span> + sleep 1
+</span><span class="pipeline-new-node" nodeId="43" startId="35">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="44" startId="34">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="45" startId="32">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="46" startId="39">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="47" startId="38">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="48" startId="48" enclosingId="37">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="49" startId="49" enclosingId="48" label="B2">[Pipeline] { (B2)
+</span><span class="pipeline-new-node" nodeId="50" enclosingId="49">[Pipeline] echo
+</span><span class="pipeline-node-50"><span class="timestamp"><b>11:13:20</b> </span><span style="display: none">[2026-10-12T11:13:20.345Z]</span> in B2
+</span><span class="pipeline-new-node" nodeId="51" startId="49">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="52" startId="48">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="53" startId="37">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="54" startId="36">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="55" startId="33">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="56" startId="30">[Pipeline] // parallel
+</span><span class="pipeline-new-node" nodeId="57" startId="29">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="58" startId="28">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="59" startId="59" enclosingId="6">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="60" startId="60" enclosingId="59" label="Declarative: Post Actions">[Pipeline] { (Declarative: Post Actions)
+</span><span class="pipeline-new-node" nodeId="61" enclosingId="60">[Pipeline] echo
+</span><span class="pipeline-node-61"><span class="timestamp"><b>11:13:20</b> </span><span style="display: none">[2026-10-12T11:13:20.611Z]</span> post always
+</span><span class="pipeline-new-node" nodeId="62" startId="60">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="63" startId="59">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="64" startId="6">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="65" startId="5">[Pipeline] // timestamps
+</span><span class="pipeline-new-node" nodeId="66" startId="4">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="67" startId="3">[Pipeline] // node
+</span><span class="pipeline-new-node" nodeId="68" startId="2">[Pipeline] End of Pipeline
+</span>Finished: SUCCESS

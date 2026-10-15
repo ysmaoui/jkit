@@ -139,13 +139,23 @@ func (t *verboseTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return resp, nil
 }
 
+// maxIdleConnsPerHost covers concurrent export step-log readers; the stdlib
+// default of 2 forces a new TLS connection per request on HTTP/1.1 hosts.
+const maxIdleConnsPerHost = 8
+
+func newBaseTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = maxIdleConnsPerHost
+	return t
+}
+
 func NewClient(host, user, token string, opts ...ClientOption) *Client {
 	host = strings.TrimRight(host, "/")
 	jar, _ := cookiejar.New(nil)
 	c := &Client{
 		httpClient: &http.Client{
 			Transport: &authTransport{
-				base:  http.DefaultTransport,
+				base:  newBaseTransport(),
 				user:  user,
 				token: token,
 			},

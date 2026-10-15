@@ -1,0 +1,53 @@
+[
+ {
+  "id": "5",
+  "name": "Parallel",
+  "type": "PARALLEL_BLOCK",
+  "state": "FAILURE",
+  "startTimeMillis": 1791874997810,
+  "children": [
+   {
+    "id": "7",
+    "name": "O1",
+    "type": "PARALLEL",
+    "state": "FAILURE",
+    "startTimeMillis": 1791874997815,
+    "children": [
+     {
+      "id": "10",
+      "name": "X",
+      "type": "STAGE",
+      "state": "FAILURE",
+      "startTimeMillis": 1791874997832,
+      "children": []
+     },
+     {
+      "id": "25",
+      "name": "Z",
+      "type": "STAGE",
+      "state": "FAILURE",
+      "startTimeMillis": 1791874997942,
+      "children": []
+     }
+    ]
+   },
+   {
+    "id": "8",
+    "name": "O2",
+    "type": "PARALLEL",
+    "state": "SUCCESS",
+    "startTimeMillis": 1791874997817,
+    "children": [
+     {
+      "id": "12",
+      "name": "Q",
+      "type": "STAGE",
+      "state": "SUCCESS",
+      "startTimeMillis": 1791874997842,
+      "children": []
+     }
+    ]
+   }
+  ]
+ }
+]

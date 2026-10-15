@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -45,6 +47,20 @@ type fakeRun struct {
 	holdHeaders map[string]bool
 	// failException is the status a step's exceptionText answers.
 	failException map[string]int
+	// delay holds a step log's response back this long.
+	delay map[string]time.Duration
+	// pairException holds each exceptionText response until a second one is in
+	// flight, so maxInflight reaches 2 only when requests overlap.
+	pairException         bool
+	inflight, maxInflight atomic.Int32
+	// consoleHTML is the progressiveHtml body, which 404s when empty.
+	// consoleHTMLMore sets X-More-Data, as for a running build.
+	consoleHTML     string
+	consoleHTMLMore bool
+	// htmlHits and stepLogHits count requests to those routes.
+	htmlHits, stepLogHits atomic.Int32
+	// consoleHits counts requests to consoleText.
+	consoleHits atomic.Int32
 }
 
 func loadRun(t *testing.T, phase, kind string) *fakeRun {
@@ -68,6 +84,7 @@ func loadRun(t *testing.T, phase, kind string) *fakeRun {
 
 		holdHeaders:   map[string]bool{},
 		failException: map[string]int{},
+		delay:         map[string]time.Duration{},
 	}
 }
 
@@ -82,11 +99,44 @@ func stallBody(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// waitException holds a pairException response until two have overlapped, the
+// client leaves or 1s passes. It reports false when the client left.
+func (f *fakeRun) waitException(r *http.Request) bool {
+	if !f.pairException {
+		return true
+	}
+	n := f.inflight.Add(1)
+	defer f.inflight.Add(-1)
+	for {
+		m := f.maxInflight.Load()
+		if n <= m || f.maxInflight.CompareAndSwap(m, n) {
+			break
+		}
+	}
+	deadline := time.After(time.Second)
+	for f.maxInflight.Load() < 2 {
+		select {
+		case <-r.Context().Done():
+			return false
+		case <-deadline:
+			return true
+		case <-time.After(time.Millisecond):
+		}
+	}
+	return true
+}
+
 func (f *fakeRun) serve(t *testing.T, opts ...api.ClientOption) *api.Client {
 	t.Helper()
 	prefix := "/job/" + f.job + "/1/"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
+		if p == prefix+"consoleText" {
+			f.consoleHits.Add(1)
+		}
+		if p == prefix+"stages/exceptionText" && !f.waitException(r) {
+			return
+		}
 		switch {
 		case p == "/api/json":
 			staplertest.WriteRoot(w, f.mode)
@@ -111,11 +161,35 @@ func (f *fakeRun) serve(t *testing.T, opts ...api.ClientOption) *api.Client {
 			w.WriteHeader(f.failLog["console"])
 		case p == prefix+"consoleText":
 			staplertest.ConsoleText(w, f.console)
+		case p == prefix+"logText/progressiveHtml":
+			f.htmlHits.Add(1)
+			switch {
+			case f.stall["html"]:
+				stallBody(w, r)
+			case f.failLog["html"] != 0:
+				w.WriteHeader(f.failLog["html"])
+			case f.consoleHTML == "":
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				w.Header().Set("X-Text-Size", strconv.Itoa(len(f.consoleHTML)))
+				if f.consoleHTMLMore {
+					w.Header().Set("X-More-Data", "true")
+				}
+				_, _ = io.WriteString(w, f.consoleHTML)
+			}
 		case strings.HasPrefix(p, prefix+"execution/node/"):
 			id, rest, _ := strings.Cut(strings.TrimPrefix(p, prefix+"execution/node/"), "/")
 			if rest == "" {
 				_, _ = io.WriteString(w, "<html>flow node</html>")
 				return
+			}
+			f.stepLogHits.Add(1)
+			if d := f.delay[id]; d > 0 {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(d):
+				}
 			}
 			if f.holdHeaders[id] {
 				<-r.Context().Done()

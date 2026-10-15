@@ -11,6 +11,7 @@ import (
 	"net"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/ysmaoui/jkit/internal/api"
@@ -36,11 +37,23 @@ type Snapshot struct {
 	// steps outside any stage and of block steps such as node, which the step
 	// listing leaves out.
 	Console Log `json:"console"`
-	spool   *spool
+	spools  []*spool
 	// ConsoleError is why the console could not be read in full. Console then
 	// holds what arrived, marked Partial. It sits here rather than on Log
 	// because Step.Error is the same kind of note and Log is only text.
 	ConsoleError string `json:"consoleError"`
+	// FailureNodeID is the stage or branch that failed the build, empty when
+	// the build did not fail or no stage did. A catchError stage marked
+	// FAILURE is not it when a later error stopped the build.
+	FailureNodeID string `json:"failureNodeId"`
+	// FailureMessage is the "ERROR:" line that named FailureNodeID, empty
+	// when FailureNodeID is only the fallback leaf. It is read only with the
+	// annotated console.
+	FailureMessage string `json:"failureMessage"`
+	// BuildErrorMessage is the build's own error or exception line written
+	// after FailureMessage, set when the build itself threw. It belongs to no
+	// stage and is read only with the annotated console.
+	BuildErrorMessage string `json:"buildErrorMessage"`
 }
 
 // Node is a stage or parallel branch. A parallel wrapper is a STAGE whose
@@ -109,14 +122,40 @@ type Options struct {
 	// MaxLogBytes caps each log, keeping half from the head and half from the
 	// tail. 0 keeps everything.
 	MaxLogBytes int64
-	// Progress, when set, is called before each log is read: step i of
-	// total with the node holding it, then the console with node and step
-	// nil.
+	// Progress, when set, is called as each log's read starts, from one
+	// goroutine and in step order: step i of total with the node holding it,
+	// then the console with node and step nil.
 	Progress func(i, total int, node *Node, step *Step)
 	// SpoolDir is where the encoded logs wait for Render, os.TempDir when
 	// empty. It needs about as much free space as the HTML file.
 	SpoolDir string
+	// Concurrency is how many step logs are read at once, 1 when below 1.
+	// Each reader writes its own spool file.
+	Concurrency int
+	// LogSource picks where step logs come from.
+	LogSource LogSource
+	// Notice, when set, gets one line naming the log source read, why the
+	// annotated console was given up, or how many step logs of a run not
+	// complete it held whole. It runs on the goroutine that calls
+	// Progress, so a printer may share state between the two without a lock.
+	Notice func(msg string)
 }
+
+// LogSource is where Collect reads step logs from.
+type LogSource string
+
+const (
+	// LogSourceAuto is LogSourceConsole.
+	LogSourceAuto LogSource = ""
+	// LogSourceConsole splits one annotated-console download into step
+	// logs, and falls back to LogSourceSteps when it cannot. For a running
+	// run it keeps only the logs the download proves whole and reads the
+	// other steps on their own: a running run's annotated console can stop
+	// short, or on newer Jenkins end mid-line.
+	LogSourceConsole LogSource = "console"
+	// LogSourceSteps reads each step's log on its own, Concurrency at once.
+	LogSourceSteps LogSource = "steps"
+)
 
 // timeoutHint is added to a log read that timed out: one log is one HTTP
 // response, and the client timeout covers reading its body.
@@ -148,11 +187,18 @@ func Collect(ctx context.Context, client *api.Client, jobPath string, number int
 	if err != nil {
 		return nil, fmt.Errorf("reading stage tree: %w", err)
 	}
-	snap.Complete = treeComplete && runComplete && !build.Building
+	// PGV never calls a tree complete when the run has no flow node, as when
+	// the Jenkinsfile failed to compile.
+	snap.Complete = !build.Building && runComplete && (treeComplete || len(tree) == 0 && len(steps) == 0)
 	snap.Stages = buildTree(tree, steps)
 
-	if snap.spool, err = newSpool(opts.SpoolDir); err != nil {
-		return nil, err
+	for range max(opts.Concurrency, 1) {
+		sp, err := newSpool(opts.SpoolDir)
+		if err != nil {
+			_ = snap.Close()
+			return nil, err
+		}
+		snap.spools = append(snap.spools, sp)
 	}
 	if err := collectLogs(ctx, client, jobPath, number, opts, snap); err != nil {
 		_ = snap.Close()
@@ -161,29 +207,44 @@ func Collect(ctx context.Context, client *api.Client, jobPath string, number int
 	return snap, nil
 }
 
-// Close removes the spool file that holds the logs. The Snapshot cannot be
+// Close removes the spool files that hold the logs. The Snapshot cannot be
 // rendered after.
 func (s *Snapshot) Close() error {
-	if s.spool == nil {
-		return nil
+	var err error
+	for _, sp := range s.spools {
+		err = cmp.Or(sp.close(), err)
 	}
-	return s.spool.close()
+	s.spools = nil
+	return err
 }
 
 func collectLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, snap *Snapshot) error {
-	if err := fillStepLogs(ctx, client, jobPath, number, opts, snap.spool, snap.Stages); err != nil {
+	if opts.LogSource != LogSourceSteps {
+		return collectFromConsole(ctx, client, jobPath, number, opts, snap)
+	}
+	if err := fillStepLogs(ctx, client, jobPath, number, opts, snap.spools, snap.Stages, nil); err != nil {
 		return err
 	}
-
+	// The plain console has no node attribution to trace an error line by.
+	snap.markFailure(nil)
 	if opts.Progress != nil {
 		opts.Progress(0, 0, nil, nil)
 	}
+	return readConsole(ctx, client, jobPath, number, opts.MaxLogBytes, snap.spools[0], snap)
+}
+
+// readConsole reads the plain console into snap.Console on sp. Only an error
+// that stops the export is returned.
+func readConsole(ctx context.Context, client *api.Client, jobPath string, number int, maxBytes int64, sp *spool, snap *Snapshot) error {
 	var err error
-	snap.Console, err = encodeLog(snap.spool, opts.MaxLogBytes, func(w io.Writer) error {
+	snap.Console, err = encodeLog(sp, maxBytes, func(w io.Writer) error {
 		body, err := client.OpenConsoleText(jobPath, number)
 		if err != nil {
 			return err
 		}
+		// OpenConsoleText takes no context, so a cancel closes the body.
+		stop := context.AfterFunc(ctx, func() { _ = body.Close() })
+		defer stop()
 		defer func() { _ = body.Close() }()
 		if _, err := io.Copy(w, body); err != nil {
 			return fmt.Errorf("reading console: %w", err)
@@ -301,23 +362,61 @@ func (s *Snapshot) EachStep(fn func(*Node, *Step)) {
 	})
 }
 
-func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, sp *spool, nodes []Node) error {
-	total, done := 0, 0
-	walk(nodes, func(n *Node) { total += len(n.Steps) })
-	var fatal error
+// fillStepLogs reads the logs of the steps not in skip with one worker per
+// spool, each worker the only writer of its spool. Progress runs in step
+// order once a worker has taken the step. The first fatal error cancels the
+// reads still going.
+func fillStepLogs(ctx context.Context, client *api.Client, jobPath string, number int, opts Options, spools []*spool, nodes []Node, skip map[*Step]bool) error {
+	type job struct {
+		node *Node
+		step *Step
+	}
+	var jobs []job
 	walk(nodes, func(n *Node) {
 		for i := range n.Steps {
-			if fatal != nil {
-				return
+			if !skip[&n.Steps[i]] {
+				jobs = append(jobs, job{n, &n.Steps[i]})
 			}
-			done++
-			if opts.Progress != nil {
-				opts.Progress(done, total, n, &n.Steps[i])
-			}
-			fatal = fillStep(ctx, client, jobPath, number, opts, sp, &n.Steps[i])
 		}
 	})
-	return fatal
+
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		mu    sync.Mutex
+		fatal error
+		wg    sync.WaitGroup
+	)
+	queue := make(chan *Step)
+	for _, sp := range spools {
+		wg.Go(func() {
+			for s := range queue {
+				if err := fillStep(workCtx, client, jobPath, number, opts, sp, s); err != nil {
+					mu.Lock()
+					fatal = cmp.Or(fatal, err)
+					mu.Unlock()
+					cancel()
+				}
+			}
+		})
+	}
+dispatch:
+	for i, j := range jobs {
+		if workCtx.Err() != nil {
+			break
+		}
+		select {
+		case queue <- j.step:
+		case <-workCtx.Done():
+			break dispatch
+		}
+		if opts.Progress != nil {
+			opts.Progress(i+1, len(jobs), j.node, j.step)
+		}
+	}
+	close(queue)
+	wg.Wait()
+	return cmp.Or(fatal, ctx.Err())
 }
 
 // fillStep reads one step's log and exception text. A failure that would
@@ -338,7 +437,12 @@ func fillStep(ctx context.Context, client *api.Client, jobPath string, number in
 		s.Error = withTimeoutHint(err).Error()
 		s.Log.Partial = true
 	}
+	return fillException(ctx, client, jobPath, number, s)
+}
 
+// fillException reads the exception text of a failed or aborted step, the
+// only states that carry one.
+func fillException(ctx context.Context, client *api.Client, jobPath string, number int, s *Step) error {
 	if s.State != "FAILURE" && s.State != "ABORTED" {
 		return nil
 	}

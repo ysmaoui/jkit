@@ -1,0 +1,37 @@
+Started by user <a href='/user/admin' class='jenkins-table__link model-link model-link--float'>admin</a>
+<span class="pipeline-new-node" nodeId="2" startId="2">[Pipeline] Start of Pipeline
+</span><span class="pipeline-new-node" nodeId="3" startId="3" enclosingId="2">[Pipeline] node
+</span><span class="pipeline-node-3">Running on <a href='/computer/(built-in)/' class='jenkins-table__link model-link model-link--float'>Jenkins</a> in /var/jenkins_home/workspace/p15
+</span><span class="pipeline-new-node" nodeId="4" startId="4" enclosingId="3">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="5" startId="5" enclosingId="4">[Pipeline] parallel
+</span><span class="pipeline-new-node" nodeId="7" startId="7" enclosingId="5" label="Branch: Y">[Pipeline] { (Branch: Y)
+</span><span class="pipeline-new-node" nodeId="8" startId="8" enclosingId="5" label="Branch: X">[Pipeline] { (Branch: X)
+</span><span class="pipeline-new-node" nodeId="9" startId="9" enclosingId="7">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="10" startId="10" enclosingId="9" label="Y1">[Pipeline] { (Y1)
+</span><span class="pipeline-new-node" nodeId="11" startId="11" enclosingId="8">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="12" startId="12" enclosingId="11" label="X1">[Pipeline] { (X1)
+</span><span class="pipeline-new-node" nodeId="13" enclosingId="10">[Pipeline] sleep
+</span><span class="pipeline-node-13">Sleeping for 1 sec
+</span><span class="pipeline-new-node" nodeId="14" enclosingId="12">[Pipeline] sleep
+</span><span class="pipeline-node-14">Sleeping for 3 sec
+</span><span class="pipeline-new-node" nodeId="15" enclosingId="10">[Pipeline] error
+</span><span class="pipeline-new-node" nodeId="16" startId="10">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="17" startId="9">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="18" startId="7">[Pipeline] }
+</span><span class="pipeline-node-18">Failed in branch Y
+</span><span class="pipeline-new-node" nodeId="19" startId="19" enclosingId="12">[Pipeline] catchError
+</span><span class="pipeline-new-node" nodeId="20" startId="20" enclosingId="19">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="21" enclosingId="20">[Pipeline] error
+</span><span class="pipeline-new-node" nodeId="22" startId="20">[Pipeline] }
+</span><span class="pipeline-node-22">ERROR: caught
+Setting overall build result to FAILURE
+</span><span class="pipeline-new-node" nodeId="23" startId="19">[Pipeline] // catchError
+</span><span class="pipeline-new-node" nodeId="24" startId="12">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="25" startId="11">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="26" startId="8">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="27" startId="5">[Pipeline] // parallel
+</span><span class="pipeline-new-node" nodeId="28" startId="4">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="29" startId="3">[Pipeline] // node
+</span><span class="pipeline-new-node" nodeId="30" startId="2">[Pipeline] End of Pipeline
+</span>ERROR: real
+Finished: FAILURE

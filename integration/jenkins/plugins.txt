@@ -6,3 +6,5 @@ blueocean-rest
 blueocean-pipeline-api-impl
 cloudbees-folder
 pipeline-graph-view
+timestamper
+ansicolor

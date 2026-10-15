@@ -74,7 +74,7 @@ func ParseJenkinsURLUnder(raw string, roots []string) (*ParsedURL, error) {
 		if p != "" && path != p && !strings.HasPrefix(path, p+"/") {
 			continue
 		}
-		if !found || len(p) > len(prefix) {
+		if !found || len(p) > len(prefix) || (len(p) == len(prefix) && preferRoot(r, host, u.Scheme+"://"+u.Host+p)) {
 			host, prefix, found = r, p, true
 		}
 	}
@@ -87,6 +87,17 @@ func ParseJenkinsURLUnder(raw string, roots []string) (*ParsedURL, error) {
 	}
 	parsed.Host = host
 	return parsed, nil
+}
+
+// preferRoot breaks ties between roots that parse to the same scheme, host and
+// path, such as "https://x" and "https://x#" (url.Parse drops the fragment).
+// The key spelled exactly like the URL's own root wins, else the lexically
+// smallest, so the pick never depends on config map order.
+func preferRoot(cand, cur, exact string) bool {
+	if cand == exact || cur == exact {
+		return cand == exact && cur != exact
+	}
+	return cand < cur
 }
 
 // unescapeJobSegment turns one EscapedPath segment of a classic URL into a job
