@@ -86,15 +86,145 @@ jkit auth login --host https://ci.co --user me --token abc --alias prod
 Show authentication status.
 
 ```
-jkit auth status [--host HOST]
+jkit auth status [--host HOST | --all]
 ```
 
-Exits 0 if valid, 1 if invalid.
+| Flag | Description |
+|------|-------------|
+| `--all` | Check every configured host, one row per config key |
+
+Without `--all`, checks the default host, or `--host`. `--host` takes a
+configured key, the same URL with a trailing slash, query or fragment, or an
+alias. A URL that matches several keys only after normalising is an error
+naming them. Exits 0 if valid, 1 if invalid.
 
 ```
-Host:  https://jenkins.company.com
+Host:  https://jenkins.example.com
 User:  jane
 Auth:  valid
+```
+
+With `--all`, every host in `config.yml` gets one `GET /whoAmI/api/json`,
+8 at a time, with a 10 second timeout, no retry and no redirect following. A
+2xx answer counts as valid only when it names a non-anonymous user. The table
+goes to stdout, progress and warnings to stderr. Tokens are never printed.
+
+```
+HOST                     ALIAS  USER  DEFAULT  RESULT               NOTES
+https://ci.example.com   prod   jane  yes      valid                duplicate of https://ci.example.com/; alias 'prod' shared with https://qa.example.com
+https://ci.example.com/  -      jane           valid                not normalised: https://ci.example.com; duplicate of https://ci.example.com
+https://qa.example.com   prod   jane           invalid token (401)  alias 'prod' shared with https://ci.example.com
+https://st.example.com   -      jane           timeout
+```
+
+RESULT is `valid`, `invalid token (401)`, `forbidden (403)`, `anonymous` (a
+2xx answer that is anonymous or not whoAmI JSON, e.g. a login page),
+`unreachable`, `timeout` or `HTTP <code>` (a redirect shows as its 3xx code).
+NOTES lists key problems found without a request: a key that `jkit auth login`
+would have written differently (trailing slash, query, fragment, spaces), keys
+that name the same host, an alias shared by several keys, and more than one key
+marked default. It also notes `authenticated as NAME` when Jenkins reports a
+user other than the configured one; that note alone does not fail the run.
+
+Exit code 1 if any host answers 401 or 403, is `anonymous`, or has a key
+problem. Hosts that are unreachable, time out or answer any other status do not
+fail the run; a warning on stderr gives their count.
+
+`--json` prints an array sorted by host. `result` is `valid`, `invalid`,
+`forbidden`, `anonymous`, `unreachable`, `timeout` or `http_<code>`;
+`status_code` is 0 when no answer came back.
+
+```json
+[
+  {
+    "host": "https://ci.example.com",
+    "alias": "prod",
+    "user": "jane",
+    "default": true,
+    "result": "valid",
+    "status_code": 200,
+    "problems": []
+  }
+]
+```
+
+`--format` applies a Go template to the same array, e.g.
+`--format '{{range .}}{{.Host}} {{.Result}}{{"\n"}}{{end}}'`.
+
+---
+
+## `jkit auth prune`
+
+Remove config keys that another key of the same host proves redundant.
+
+```
+jkit auth prune [--yes]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--yes` | Apply the removals, after copying `config.yml` to `config.yml.bak` |
+
+Runs the same check as `auth status --all`, once. Without `--yes` it only
+prints what it would do and writes nothing. A key goes only when another key
+that normalises to the same host stays, is configured for the same user
+(ignoring case), answers `valid` as that user, and is usable as written, which
+means it differs from the normalised host by trailing slashes at most. A key
+with a query, fragment or spaces checks valid against the normalised URL but
+breaks every other command, so it never stands in for another key. Removed:
+
+- a key not in normal form (trailing slash, query, fragment, spaces) whose
+  normalised twin is such a key;
+- a key whose token gets 401 while such a key exists for the same host.
+
+Nothing else is removed: not a host that is unreachable, times out, answers
+403, 5xx or any other code, or is `anonymous`; not a 401 key without a valid
+twin; not a key whose valid twin belongs to another user; never the last key
+for a host. Those keys get a `keep` line with a command to fix them by hand. A
+key that is not a URL at all (e.g. `/`) gets `jkit config remove`.
+
+If a removed key was the default, the key that justified the removal becomes
+the default. An alias moves the same way unless that key has its own, which it
+keeps; a `note` line names the dropped alias.
+
+With `--yes` and something to remove, the current `config.yml` is copied to
+`config.yml.bak` (replacing an older one), then the new config is written.
+Both files are mode 0600 and each is written through a rename. A symlinked
+`config.yml` stays a symlink: its target is rewritten and the backup sits next
+to the link. The rewrite keeps only the `hosts` entries, so comments and other
+top-level keys are gone from `config.yml`; the backup still has them. If
+`config.yml` changed while hosts were checked, nothing is written and the
+command fails. Exit code 0 unless the config cannot be read or written;
+proposals are not failures.
+
+```
+$ jkit auth prune
+remove https://ci.example.com#  (not normalised; twin https://ci.example.com is valid)
+move   default https://ci.example.com# -> https://ci.example.com
+keep   https://qa.example.com  (invalid token, no valid twin; run: jkit auth login --host https://qa.example.com)
+keep   https://st.example.com/  (not normalised, no twin; run: jkit auth login --host https://st.example.com, then jkit config remove 'https://st.example.com/')
+dry run: re-run with --yes to apply
+```
+
+The last line goes to stderr, with progress. Tokens are never printed.
+
+`--json` prints one object; `backup` is present only when a backup was
+written. `field` is `default` or `alias`. `--format` applies a Go template to
+the same object, e.g. `--format '{{range .Removals}}{{.Host}}{{"\n"}}{{end}}'`.
+
+```json
+{
+  "dry_run": true,
+  "removals": [
+    {"host": "https://ci.example.com#", "reason": "not normalised; twin https://ci.example.com is valid"}
+  ],
+  "reports": [
+    {"host": "https://qa.example.com", "reason": "invalid token, no valid twin", "suggestion": "jkit auth login --host https://qa.example.com"}
+  ],
+  "moves": [
+    {"from": "https://ci.example.com#", "to": "https://ci.example.com", "field": "default"}
+  ]
+}
 ```
 
 ---

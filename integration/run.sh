@@ -121,6 +121,12 @@ assert_success "auth login" \
 assert_contains "auth status shows valid" "valid" \
     "$JK" auth status
 
+assert_contains "auth status --all shows valid" '"result": "valid"' \
+    "$JK" auth status --all --json
+
+assert_contains "auth prune proposes nothing" "nothing to remove" \
+    "$JK" auth prune
+
 # 2. List jobs
 echo ""
 echo "[list]"
