@@ -79,8 +79,8 @@ func TestGetBuildSourcesReadsLibrariesCheckoutsAndRevision(t *testing.T) {
 	src, _ := fetchSources(t, sourcesRun(
 		revisionAction("jenkins.plugins.git.AbstractGitSCMSource$SCMRevisionImpl", "65e714a6"),
 		buildDataAction("https://git/sdk.git", "e3fc9e5c", "develop"),
-		librariesAction(library("e3-sdk", "develop", true), library("hera2", "feature/bazel", false)),
-		buildDataAction("https://git/hera-2.git", "52d790ee", "feature/bazel"),
+		librariesAction(library("sdk", "develop", true), library("build-tools", "feature/bazel", false)),
+		buildDataAction("https://git/build-tools.git", "52d790ee", "feature/bazel"),
 	))
 
 	require.Len(t, src.PipelineRevisions, 1)
@@ -93,7 +93,7 @@ func TestGetBuildSourcesReadsLibrariesCheckoutsAndRevision(t *testing.T) {
 	assert.False(t, src.Libraries[1].Trusted)
 
 	require.Len(t, src.Checkouts, 2)
-	assert.Equal(t, "e3-sdk", src.Checkouts[0].Library)
+	assert.Equal(t, "sdk", src.Checkouts[0].Library)
 	assert.Empty(t, src.Warnings)
 }
 

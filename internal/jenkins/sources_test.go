@@ -17,23 +17,23 @@ func checkout(remote, sha string, branches ...string) GitCheckout {
 }
 
 func TestResolveLibrarySHAsMatchesUniqueBranch(t *testing.T) {
-	libs := []SharedLibrary{lib("hera2", "develop")}
-	checkouts := []GitCheckout{checkout("https://git/hera-2.git", "52d790ee", "develop")}
+	libs := []SharedLibrary{lib("build-tools", "develop")}
+	checkouts := []GitCheckout{checkout("https://git/build-tools.git", "52d790ee", "develop")}
 
 	ResolveLibrarySHAs(libs, checkouts)
 
 	assert.Equal(t, LibraryMatchedBranch, libs[0].Resolution)
 	assert.Equal(t, "52d790ee", libs[0].SHA1)
-	assert.Equal(t, "https://git/hera-2.git", libs[0].RemoteURL)
-	assert.Equal(t, "hera2", checkouts[0].Library, "the checkout should name the library it was attributed to")
+	assert.Equal(t, "https://git/build-tools.git", libs[0].RemoteURL)
+	assert.Equal(t, "build-tools", checkouts[0].Library, "the checkout should name the library it was attributed to")
 }
 
 // Two libraries on one branch name make every checkout ambiguous between them.
 // Attributing the checkout to either would be a coin flip printed as a fact.
 func TestResolveLibrarySHAsRefusesSharedBranchName(t *testing.T) {
-	libs := []SharedLibrary{lib("hera2", "develop"), lib("premium", "develop")}
+	libs := []SharedLibrary{lib("build-tools", "develop"), lib("premium", "develop")}
 	checkouts := []GitCheckout{
-		checkout("https://git/hera-2.git", "52d790ee", "develop"),
+		checkout("https://git/build-tools.git", "52d790ee", "develop"),
 		checkout("https://git/premium.git", "37cecaf2", "develop"),
 	}
 
@@ -51,9 +51,9 @@ func TestResolveLibrarySHAsRefusesSharedBranchName(t *testing.T) {
 // The library's own repository plus a pipeline checkout of a different repo on
 // the same branch name. Nothing distinguishes them, so neither is claimed.
 func TestResolveLibrarySHAsRefusesTwoCheckoutsOnOneBranch(t *testing.T) {
-	libs := []SharedLibrary{lib("hera2", "develop")}
+	libs := []SharedLibrary{lib("build-tools", "develop")}
 	checkouts := []GitCheckout{
-		checkout("https://git/hera-2.git", "52d790ee", "develop"),
+		checkout("https://git/build-tools.git", "52d790ee", "develop"),
 		checkout("https://git/the-app.git", "aaaabbbb", "develop"),
 	}
 
@@ -67,23 +67,23 @@ func TestResolveLibrarySHAsRefusesTwoCheckoutsOnOneBranch(t *testing.T) {
 // Two BuildData for one repository at one commit is the git plugin recording
 // the same checkout twice. The answer does not depend on which one is read.
 func TestResolveLibrarySHAsAcceptsDuplicateIdenticalCheckouts(t *testing.T) {
-	libs := []SharedLibrary{lib("hera2", "develop")}
+	libs := []SharedLibrary{lib("build-tools", "develop")}
 	checkouts := []GitCheckout{
-		checkout("https://git/hera-2.git", "52d790ee", "develop"),
-		checkout("https://git/hera-2.git", "52d790ee", "develop"),
+		checkout("https://git/build-tools.git", "52d790ee", "develop"),
+		checkout("https://git/build-tools.git", "52d790ee", "develop"),
 	}
 
 	ResolveLibrarySHAs(libs, checkouts)
 
 	assert.Equal(t, LibraryMatchedBranch, libs[0].Resolution)
 	assert.Equal(t, "52d790ee", libs[0].SHA1)
-	assert.Equal(t, "hera2", checkouts[1].Library)
+	assert.Equal(t, "build-tools", checkouts[1].Library)
 }
 
 // A version that is already a commit id is not a join at all.
 func TestResolveLibrarySHAsPinsCommitVersion(t *testing.T) {
 	sha := "e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0"
-	libs := []SharedLibrary{lib("hera2", sha)}
+	libs := []SharedLibrary{lib("build-tools", sha)}
 
 	ResolveLibrarySHAs(libs, nil)
 
@@ -94,9 +94,9 @@ func TestResolveLibrarySHAsPinsCommitVersion(t *testing.T) {
 
 func TestResolveLibrarySHAsRejectsAbbreviatedHashAsCommit(t *testing.T) {
 	// Seven hex characters is also a legal branch name, so it is not evidence.
-	libs := []SharedLibrary{lib("hera2", "e3fc9e5")}
+	libs := []SharedLibrary{lib("build-tools", "e3fc9e5")}
 
-	ResolveLibrarySHAs(libs, []GitCheckout{checkout("https://git/hera-2.git", "52d790ee", "develop")})
+	ResolveLibrarySHAs(libs, []GitCheckout{checkout("https://git/build-tools.git", "52d790ee", "develop")})
 
 	assert.Equal(t, LibraryUnresolved, libs[0].Resolution)
 	assert.Empty(t, libs[0].SHA1)
@@ -105,8 +105,8 @@ func TestResolveLibrarySHAsRejectsAbbreviatedHashAsCommit(t *testing.T) {
 // A tag never reaches the branch list, so it stays unresolved rather than
 // borrowing the SHA of whatever else the build checked out.
 func TestResolveLibrarySHAsLeavesTagUnresolved(t *testing.T) {
-	libs := []SharedLibrary{lib("hera2", "v1.4.2")}
-	checkouts := []GitCheckout{checkout("https://git/hera-2.git", "52d790ee", "develop")}
+	libs := []SharedLibrary{lib("build-tools", "v1.4.2")}
+	checkouts := []GitCheckout{checkout("https://git/build-tools.git", "52d790ee", "develop")}
 
 	ResolveLibrarySHAs(libs, checkouts)
 
@@ -119,8 +119,8 @@ func TestResolveLibrarySHAsLeavesTagUnresolved(t *testing.T) {
 // "develop". Normalising them would also fold an unrelated pipeline checkout
 // into the library's evidence.
 func TestResolveLibrarySHAsDoesNotNormaliseRefNames(t *testing.T) {
-	libs := []SharedLibrary{lib("hera2", "develop")}
-	checkouts := []GitCheckout{checkout("https://git/hera-2.git", "52d790ee", "refs/remotes/origin/develop")}
+	libs := []SharedLibrary{lib("build-tools", "develop")}
+	checkouts := []GitCheckout{checkout("https://git/build-tools.git", "52d790ee", "refs/remotes/origin/develop")}
 
 	ResolveLibrarySHAs(libs, checkouts)
 
@@ -131,7 +131,7 @@ func TestResolveLibrarySHAsDoesNotNormaliseRefNames(t *testing.T) {
 // "No checkout at all" and "no checkout on that branch" are different failures
 // and lead the reader somewhere different.
 func TestResolveLibrarySHAsDistinguishesNoCheckoutData(t *testing.T) {
-	libs := []SharedLibrary{lib("hera2", "develop")}
+	libs := []SharedLibrary{lib("build-tools", "develop")}
 
 	ResolveLibrarySHAs(libs, nil)
 
@@ -141,8 +141,8 @@ func TestResolveLibrarySHAsDistinguishesNoCheckoutData(t *testing.T) {
 
 // A commit that is the head of several branches carries all their names.
 func TestResolveLibrarySHAsMatchesAnyRecordedBranchName(t *testing.T) {
-	libs := []SharedLibrary{lib("hera2", "develop")}
-	checkouts := []GitCheckout{checkout("https://git/hera-2.git", "52d790ee", "main", "develop")}
+	libs := []SharedLibrary{lib("build-tools", "develop")}
+	checkouts := []GitCheckout{checkout("https://git/build-tools.git", "52d790ee", "main", "develop")}
 
 	ResolveLibrarySHAs(libs, checkouts)
 

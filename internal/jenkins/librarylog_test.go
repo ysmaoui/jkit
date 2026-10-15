@@ -31,11 +31,11 @@ func TestLibraryLogScannerReadsARealConsole(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ name, url, sha string }{
-		{"e3-sdk-global-jenkins-shared-lib",
-			"https://cariad.ghe.com/swf/tools-global-jenkins-shared-lib-src.git",
+		{"global-pipeline-lib",
+			"https://github.example.com/platform/global-pipeline-lib-src.git",
 			"327b5c22a40ee9ef448b917b2b4a5b22e8d63239"},
 		{"pipeline-generic-shared-lib-premium",
-			"https://cariad.ghe.com/swf/tools-premium-jenkins-shared-lib-src.git",
+			"https://github.example.com/platform/premium-pipeline-lib-src.git",
 			"f5d759ea6d051759908fedaf684e52bdfbdf0c2c"},
 	} {
 		got, ok := s.Evidence(tc.name, "master")

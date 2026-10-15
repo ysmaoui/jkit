@@ -84,14 +84,14 @@ func runExport(t *testing.T, srv *httptest.Server, dir string, args ...string) (
 	setupTestConfig(t, srv.URL)
 	var err error
 	stderr := captureStderr(t, func() {
-		_, err = executeCmd(t, append([]string{"inspect", "SANDBOXES", "--xml", "--recursive", "-d", dir}, args...)...)
+		_, err = executeCmd(t, append([]string{"inspect", "team", "--xml", "--recursive", "-d", dir}, args...)...)
 	})
 	return stderr, err
 }
 
 func TestInspectExportMirrorsTheFolderTree(t *testing.T) {
 	srv := exportServer(t, []map[string]any{
-		job("Gecko-vemb", multibranchClass, job("feature%2Fbuild", pipelineClass)),
+		job("svc", multibranchClass, job("feature%2Fbuild", pipelineClass)),
 		job("team folder", folderClass, job("my app", pipelineClass)),
 	}, nil)
 	defer srv.Close()
@@ -103,11 +103,11 @@ func TestInspectExportMirrorsTheFolderTree(t *testing.T) {
 	// The path each file records is the one the request went out on, so this
 	// asserts the directory layout and the wire encoding at the same time.
 	for wantDir, wantPath := range map[string]string{
-		"":                                     "/job/SANDBOXES/config.xml",
-		"Gecko-vemb":                           "/job/SANDBOXES/job/Gecko-vemb/config.xml",
-		"Gecko-vemb/feature%2Fbuild":           "/job/SANDBOXES/job/Gecko-vemb/job/feature%252Fbuild/config.xml",
-		"team folder":                          "/job/SANDBOXES/job/team%20folder/config.xml",
-		filepath.Join("team folder", "my app"): "/job/SANDBOXES/job/team%20folder/job/my%20app/config.xml",
+		"":                                     "/job/team/config.xml",
+		"svc":                                  "/job/team/job/svc/config.xml",
+		"svc/feature%2Fbuild":                  "/job/team/job/svc/job/feature%252Fbuild/config.xml",
+		"team folder":                          "/job/team/job/team%20folder/config.xml",
+		filepath.Join("team folder", "my app"): "/job/team/job/team%20folder/job/my%20app/config.xml",
 	} {
 		body, readErr := os.ReadFile(filepath.Join(dir, wantDir, "config.xml"))
 		require.NoError(t, readErr, "no config.xml exported for %q", wantDir)
@@ -117,7 +117,7 @@ func TestInspectExportMirrorsTheFolderTree(t *testing.T) {
 	// A branch job's name carries the slash already encoded, and the encoded
 	// form is the name: decoding it here would nest the branch under a
 	// directory indistinguishable from a folder called "feature".
-	_, statErr := os.Stat(filepath.Join(dir, "Gecko-vemb", "feature"))
+	_, statErr := os.Stat(filepath.Join(dir, "svc", "feature"))
 	assert.True(t, os.IsNotExist(statErr), "%%2F must not be decoded into nested directories")
 
 	assert.Contains(t, stderr, "Wrote 5 config.xml files")
@@ -129,7 +129,7 @@ func TestInspectExportMirrorsTheFolderTree(t *testing.T) {
 // the whole reason it is the job name verbatim.
 func TestInspectExportedBranchDirectoryRoundTrips(t *testing.T) {
 	srv := exportServer(t, []map[string]any{
-		job("Gecko-vemb", multibranchClass, job("feature%2Fbuild", pipelineClass)),
+		job("svc", multibranchClass, job("feature%2Fbuild", pipelineClass)),
 	}, nil)
 	defer srv.Close()
 	dir := t.TempDir()
@@ -137,7 +137,7 @@ func TestInspectExportedBranchDirectoryRoundTrips(t *testing.T) {
 	_, err := runExport(t, srv, dir)
 	require.NoError(t, err)
 
-	entries, err := os.ReadDir(filepath.Join(dir, "Gecko-vemb"))
+	entries, err := os.ReadDir(filepath.Join(dir, "svc"))
 	require.NoError(t, err)
 	var branchDir string
 	for _, e := range entries {
@@ -148,9 +148,9 @@ func TestInspectExportedBranchDirectoryRoundTrips(t *testing.T) {
 	require.NotEmpty(t, branchDir)
 
 	setupTestConfig(t, srv.URL)
-	out, err := executeCmd(t, "inspect", "SANDBOXES/Gecko-vemb/"+branchDir, "--xml")
+	out, err := executeCmd(t, "inspect", "team/svc/"+branchDir, "--xml")
 	require.NoError(t, err)
-	assert.Equal(t, "<config>/job/SANDBOXES/job/Gecko-vemb/job/feature%252Fbuild/config.xml</config>", out)
+	assert.Equal(t, "<config>/job/team/job/svc/job/feature%252Fbuild/config.xml</config>", out)
 }
 
 // Job names are user data on the Jenkins side and this writes files with them.
@@ -190,7 +190,7 @@ func TestInspectExportReportsPerJobFailuresWithoutStopping(t *testing.T) {
 			job("locked", pipelineClass),
 			job("readable", pipelineClass),
 		},
-		map[string]bool{"/job/SANDBOXES/job/locked/config.xml": true})
+		map[string]bool{"/job/team/job/locked/config.xml": true})
 	defer srv.Close()
 	dir := t.TempDir()
 
@@ -200,7 +200,7 @@ func TestInspectExportReportsPerJobFailuresWithoutStopping(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "locked", "config.xml"))
 	assert.Contains(t, stderr, "Wrote 2 config.xml files")
 	assert.Contains(t, stderr, "Skipped 1:")
-	assert.Contains(t, stderr, "SANDBOXES/locked")
+	assert.Contains(t, stderr, "team/locked")
 
 	var exitErr *jenkins.ExitError
 	require.True(t, errors.As(err, &exitErr), "a partial export must exit non-zero: %v", err)

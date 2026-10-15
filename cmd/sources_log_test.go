@@ -47,9 +47,9 @@ func newSourcesLogServer(t *testing.T, actions []map[string]any, console string)
 // in either action saying which checkout is whose.
 func ambiguousActions() []map[string]any {
 	return []map[string]any{
-		gitBuildData("https://git.example.com/swf/tools-global-shared-lib-src.git",
+		gitBuildData("https://git.example.com/platform/global-lib-src.git",
 			"327b5c22a40ee9ef448b917b2b4a5b22e8d63239", "master"),
-		gitBuildData("https://git.example.com/swf/tools-premium-shared-lib-src.git",
+		gitBuildData("https://git.example.com/platform/premium-lib-src.git",
 			"f5d759ea6d051759908fedaf684e52bdfbdf0c2c", "master"),
 		libraries(
 			map[string]any{"name": "global-lib", "version": "master", "trusted": true},
@@ -59,10 +59,10 @@ func ambiguousActions() []map[string]any {
 }
 
 const ambiguousConsole = `[2026-09-13T19:00:07.813Z] Loading library global-lib@master
-[2026-09-13T19:00:08.278Z]  > git ls-remote -- https://git.example.com/swf/tools-global-shared-lib-src.git # timeout=10
+[2026-09-13T19:00:08.278Z]  > git ls-remote -- https://git.example.com/platform/global-lib-src.git # timeout=10
 [2026-09-13T19:00:08.678Z] Found match: refs/heads/master revision 327b5c22a40ee9ef448b917b2b4a5b22e8d63239
 [2026-09-13T19:00:09.845Z] Loading library premium-lib@master
-[2026-09-13T19:00:09.859Z]  > git ls-remote -- https://git.example.com/swf/tools-premium-shared-lib-src.git # timeout=10
+[2026-09-13T19:00:09.859Z]  > git ls-remote -- https://git.example.com/platform/premium-lib-src.git # timeout=10
 [2026-09-13T19:00:10.228Z] Found match: refs/heads/master revision f5d759ea6d051759908fedaf684e52bdfbdf0c2c
 `
 
@@ -85,13 +85,13 @@ func TestSourcesResolvesAmbiguousLibrariesFromTheLog(t *testing.T) {
 // libraries all match a checkout by branch name must not pay for it.
 func TestSourcesReadsNoLogWhenEverythingResolves(t *testing.T) {
 	actions := []map[string]any{
-		gitBuildData("https://git.example.com/CARIAD/tools-sdk-global-jenkins-shared-lib.git",
+		gitBuildData("https://git.example.com/platform/sdk-pipeline-lib.git",
 			"e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0", "develop"),
-		gitBuildData("https://git.example.com/CARIAD/tools-hera-2.git",
+		gitBuildData("https://git.example.com/platform/build-tools.git",
 			"52d790ee106971aca82863770dbb464f503de21a", "feature/bazel-remote-exec"),
 		libraries(
-			map[string]any{"name": "e3-sdk-global-jenkins-shared-lib", "version": "develop", "trusted": true},
-			map[string]any{"name": "hera2", "version": "feature/bazel-remote-exec", "trusted": false},
+			map[string]any{"name": "global-pipeline-lib", "version": "develop", "trusted": true},
+			map[string]any{"name": "build-tools", "version": "feature/bazel-remote-exec", "trusted": false},
 		),
 	}
 	srv := newSourcesLogServer(t, actions, "")
@@ -120,7 +120,7 @@ func TestSourcesKeepsRefusalWhenTheLogSaysNothing(t *testing.T) {
 func TestSourcesRefusesALibraryResolvedTwice(t *testing.T) {
 	console := ambiguousConsole +
 		"[2026-09-13T19:05:00.000Z] Loading library global-lib@master\n" +
-		"[2026-09-13T19:05:00.100Z]  > git ls-remote -- https://git.example.com/swf/tools-global-shared-lib-src.git # timeout=10\n" +
+		"[2026-09-13T19:05:00.100Z]  > git ls-remote -- https://git.example.com/platform/global-lib-src.git # timeout=10\n" +
 		"[2026-09-13T19:05:00.200Z] Found match: refs/heads/master revision " + strings.Repeat("c", 40) + "\n"
 	newSourcesLogServer(t, ambiguousActions(), console)
 
@@ -190,8 +190,8 @@ func TestSourcesJSONCarriesTheLogResolution(t *testing.T) {
 // turn up.
 func TestSourcesRedactsACredentialFromTheLog(t *testing.T) {
 	console := strings.Replace(ambiguousConsole,
-		"https://git.example.com/swf/tools-global-shared-lib-src.git",
-		"https://bob:s3cr3t-token@git.example.com/swf/tools-global-shared-lib-src.git", 1)
+		"https://git.example.com/platform/global-lib-src.git",
+		"https://bob:s3cr3t-token@git.example.com/platform/global-lib-src.git", 1)
 	newSourcesLogServer(t, ambiguousActions(), console)
 
 	out, err := executeCmd(t, "sources", "my-app", "45")

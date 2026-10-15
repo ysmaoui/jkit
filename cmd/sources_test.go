@@ -58,13 +58,13 @@ func liveShapedActions() []map[string]any {
 			"_class": "jenkins.plugins.git.AbstractGitSCMSource$SCMRevisionImpl",
 			"hash":   "65e714a68fcf8ec58ee7e162c7ae8348696b7a4f",
 		}},
-		gitBuildData("https://git.example.com/CARIAD/tools-sdk-global-jenkins-shared-lib.git",
+		gitBuildData("https://git.example.com/platform/sdk-pipeline-lib.git",
 			"e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0", "develop"),
-		gitBuildData("https://git.example.com/CARIAD/tools-hera-2.git",
+		gitBuildData("https://git.example.com/platform/build-tools.git",
 			"52d790ee106971aca82863770dbb464f503de21a", "feature/bazel-remote-exec"),
 		libraries(
-			map[string]any{"name": "e3-sdk-global-jenkins-shared-lib", "version": "develop", "trusted": true},
-			map[string]any{"name": "hera2", "version": "feature/bazel-remote-exec", "trusted": false},
+			map[string]any{"name": "global-pipeline-lib", "version": "develop", "trusted": true},
+			map[string]any{"name": "build-tools", "version": "feature/bazel-remote-exec", "trusted": false},
 			map[string]any{"name": "premium", "version": "feature/prepare-for-bazel", "trusted": true},
 		),
 	}
@@ -77,10 +77,10 @@ func TestSourcesCommand(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, out, "65e714a68fcf8ec58ee7e162c7ae8348696b7a4f")
-	assert.Contains(t, out, "e3-sdk-global-jenkins-shared-lib @ develop  (trusted)")
+	assert.Contains(t, out, "global-pipeline-lib @ develop  (trusted)")
 	assert.Contains(t, out, "commit  e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  (matched to a checkout by branch name)")
-	assert.Contains(t, out, "hera2 @ feature/bazel-remote-exec  (untrusted)")
-	assert.Contains(t, out, "-> shared library hera2")
+	assert.Contains(t, out, "build-tools @ feature/bazel-remote-exec  (untrusted)")
+	assert.Contains(t, out, "-> shared library build-tools")
 }
 
 // The library with no checkout to point at prints the gap and the reason for
@@ -114,7 +114,7 @@ func TestSourcesCommandNotesMovingLibraries(t *testing.T) {
 func TestSourcesCommandLabelsPinnedLibrary(t *testing.T) {
 	const sha = "e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0"
 	sourcesTestServer(t, []map[string]any{
-		libraries(map[string]any{"name": "hera2", "version": sha, "trusted": false}),
+		libraries(map[string]any{"name": "build-tools", "version": sha, "trusted": false}),
 	})
 
 	out, err := executeCmd(t, "sources", "my-app", "24")
@@ -160,21 +160,21 @@ func TestSourcesCommandBuildWithoutCheckouts(t *testing.T) {
 
 func TestSourcesCommandRedactsRemoteCredentials(t *testing.T) {
 	actions := []map[string]any{
-		libraries(map[string]any{"name": "hera2", "version": "develop", "trusted": false}),
-		gitBuildData("https://bot:s3cr3t@git.example.com/CARIAD/tools-hera-2.git", "52d790ee", "develop"),
+		libraries(map[string]any{"name": "build-tools", "version": "develop", "trusted": false}),
+		gitBuildData("https://bot:s3cr3t@git.example.com/platform/build-tools.git", "52d790ee", "develop"),
 	}
 	sourcesTestServer(t, actions)
 
 	out, err := executeCmd(t, "sources", "my-app", "24")
 	require.NoError(t, err)
 	assert.NotContains(t, out, "s3cr3t")
-	assert.Contains(t, out, "git.example.com/CARIAD/tools-hera-2.git")
+	assert.Contains(t, out, "git.example.com/platform/build-tools.git")
 }
 
 func TestSourcesCommandShowSecrets(t *testing.T) {
 	actions := []map[string]any{
-		libraries(map[string]any{"name": "hera2", "version": "develop", "trusted": false}),
-		gitBuildData("https://bot:s3cr3t@git.example.com/CARIAD/tools-hera-2.git", "52d790ee", "develop"),
+		libraries(map[string]any{"name": "build-tools", "version": "develop", "trusted": false}),
+		gitBuildData("https://bot:s3cr3t@git.example.com/platform/build-tools.git", "52d790ee", "develop"),
 	}
 	sourcesTestServer(t, actions)
 
