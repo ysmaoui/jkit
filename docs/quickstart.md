@@ -18,26 +18,28 @@ Interactive:
 
 ```bash
 jkit auth login
-# Jenkins host URL: https://jenkins.company.com
+# Jenkins host URL: https://jenkins.example.com
 # Username: jane
 # API token: ****
-# ✓ Logged in to https://jenkins.company.com as jane
+# ✓ Logged in to https://jenkins.example.com as jane
 ```
 
 Non-interactive (CI/scripts):
 
 ```bash
-jkit auth login --host https://jenkins.company.com --user jane --token $JENKINS_TOKEN
+jkit auth login --host https://jenkins.example.com --user jane --token $JENKINS_TOKEN
 ```
 
 Verify:
 
 ```bash
 jkit auth status
-# Host:  https://jenkins.company.com
+# Host:  https://jenkins.example.com
 # User:  jane
 # Auth:  valid
 ```
+
+With several hosts configured, `jkit auth status --all` checks every one.
 
 ## First Commands
 
@@ -53,7 +55,9 @@ jkit log my-app --grep ERROR     # filter log lines
 jkit log my-app --stage "Build"  # one stage's log
 jkit test my-app --failed        # show failed tests
 jkit abort my-app                # abort running build
+jkit running                     # builds running now, on the whole instance
 jkit diagnose my-app             # analyze failed build
+jkit export html my-app 42       # build #42 as one offline HTML file
 jkit open my-app                 # open in browser
 jkit lint                        # validate ./Jenkinsfile
 ```
@@ -70,7 +74,7 @@ Create `.jkit.yml` for explicit control:
 
 ```yaml
 job: team/backend/my-service
-host: https://jenkins.company.com  # optional
+host: https://jenkins.example.com  # optional
 ```
 
 Then just:
