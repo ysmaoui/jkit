@@ -45,6 +45,7 @@ cmd/
   diff.go                   # jkit diff
   queue.go                  # jkit queue / jkit queue cancel
   wait.go                   # jkit wait
+  export.go                 # jkit export html
   config.go                 # jkit config list/set-default/remove/set-alias
   completion.go             # jkit completion
   factory.go                # clientFromCmd — creates API client from cobra flags
@@ -63,6 +64,10 @@ internal/
     steplog.go              # StageStepFollower: --stage -f, each step read from its last offset
     progressive.go          # ProgressiveLog: progressiveText followed poll by poll
     consoletail.go          # GetBuildLogTail, ConsoleTailLines: console tail per Stapler version
+  export/
+    export.go               # Collect: run, stage tree, steps and logs into a Snapshot
+    log.go                  # per-log sanitize, head/tail cap, gzip + base64
+    render.go               # Render: Snapshot embedded in template.html
   config/
     config.go               # YAML config load/save, XDG path resolution
   context/
@@ -73,6 +78,10 @@ internal/
     errors.go               # Typed errors: AuthError, NotFoundError, PermissionError, etc.
     stage_tree.go           # BuildStageTree — flat stages to depth-annotated tree
     branchname.go           # BranchJobName: branch name to the job name branch-api gives it
+  export/
+    export.go               # Collect: a run's PGV stage tree, steps, step logs and console as one Snapshot
+    log.go                  # Log encoding: sanitize line-wise, head/tail cap, gzip, base64
+    render.go               # Render: Snapshot as one offline HTML page (template.html, embedded)
   output/
     formatter.go            # Table, JSON, Go template output
     color.go                # ANSI color for build statuses
@@ -134,6 +143,7 @@ Return typed errors from `internal/jenkins/errors.go`:
 |-------|------|---------|
 | `AuthError` | 401 | `not authenticated to {host} — run 'jkit auth login'` |
 | `NotFoundError` | 404 | `{resource} not found on {host} — run 'jkit list'` |
+| `PluginMissingError` | 404 on a plugin route, pipeline build exists | `{route} not served on {host} — the {plugin} plugin is not installed or too old` |
 | `PermissionError` | 403 | `access denied for {resource} on {host}` |
 | `UnreachableError` | network | `cannot reach {host} — check network or VPN` |
 | `ServerError` | 5xx | `Jenkins error HTTP {code} on {path}` |

@@ -50,7 +50,8 @@ jkit/
 │   ├── input.go               # jkit input (list / --approve / --deny)
 │   ├── queue.go               # jkit queue
 │   ├── list.go                # jkit list [--folder]
-│   └── artifacts.go           # jkit artifacts <job> [build#]
+│   ├── artifacts.go           # jkit artifacts <job> [build#]
+│   └── export.go              # jkit export html [job] [build#] [-o FILE] [--max-log-bytes N]
 ├── internal/
 │   ├── api/
 │   │   ├── client.go          # Jenkins HTTP client (auth, retries, error handling)
@@ -67,6 +68,11 @@ jkit/
 │   ├── context/
 │   │   ├── resolver.go        # Git repo → Jenkins job resolution
 │   │   └── resolver_test.go
+│   ├── export/
+│   │   ├── export.go          # Collect: build, PGV stage tree, steps and logs into a Snapshot
+│   │   ├── log.go             # Per-log sanitize, head/tail cap, gzip + base64
+│   │   ├── render.go          # Render: Snapshot JSON embedded in the HTML page
+│   │   └── template.html      # Page markup, CSS and JS (no external requests)
 │   ├── output/
 │   │   ├── formatter.go       # Table, JSON, and template output
 │   │   ├── color.go           # Terminal color utilities
@@ -152,6 +158,11 @@ GET /job/{path}/{number}/stages/tree
 # Returns: { status, data: { complete, stages: [ {id, name, state, type,
 #           pauseDurationMillis, startTimeMillis, totalDurationMillis,
 #           children[], isSequential, synthetic, placeholder, agent, url } ] } }
+# Seen on Jenkins 2.541.2: no PARALLEL_BLOCK node; a parallel wrapper is a
+# STAGE whose children are PARALLEL branches. isSequential is always false.
+# A running node omits totalDurationMillis. Declarative post is a synthetic
+# STAGE "Post Actions". complete is false while the run is going. Read nested
+# by GetPGVTree (export), flattened by GetPipelineStages (everything else).
 
 # Per-line console timestamps (Timestamper plugin, not core)
 GET /job/{path}/{number}/timestamps/?elapsed=HH:mm:ss.S&startLine=-N&appendLog
@@ -173,15 +184,29 @@ GET /job/{path}/{number}/stages/steps?nodeId={id}
 # Returns: { status, data: { runIsComplete, steps: [ {id, name, state, type,
 #           title, stageId, pauseDurationMillis, startTimeMillis,
 #           totalDurationMillis} ] } }, sorted by ID. state as in stages/tree.
+GET /job/{path}/{number}/stages/allSteps
+# Returns: { status, data: { runIsComplete, steps: [ ... ] } }, every step of
+# the run in the shape of stages/steps above, each with its stageId. PGV only.
+# A 404 here or on exceptionText is a PluginMissingError only after the
+# build's api/json answers with a WorkflowRun _class; otherwise it is a
+# container job, a missing job (the job's api/json 404s too) or build, or a
+# build that is not a pipeline run. Not chronological. Leaves out steps
+# outside any stage and block steps (node, catchError), so their output
+# ("Running on ...", "ERROR: script returned exit code 3") is only in
+# consoleText. A step in a parallel branch without a nested stage has the
+# PARALLEL node's id as stageId.
 GET /job/{path}/{number}/stages/exceptionText?nodeId={stepId}
 # Plain text; empty for a step without an error. Only fetched for a step in
-# state failure or aborted, which is where an ErrorAction lives.
+# state failure or aborted, which is where an ErrorAction lives. `log --stage
+# -f` takes a 404 as no text, as the stage log would show none.
 
 # One step's log (core + workflow-support, no plugin). progressiveText from a
 # start= offset, read as the console is (see "progressiveText offsets"). A step
 # that has written nothing has no LogAction yet and 404s. On Jenkins 2.509 to
 # 2.533, a step that passes the 10000-line cap while running is shown to its
 # end once it completes; if the stage ends first, -f fails naming the step.
+# CopyStepLog reads it once to its last line end, with no size cap, and
+# reports such a step as partial.
 GET /job/{path}/{number}/execution/node/{stepId}/log/logText/progressiveText?start={byte-offset}
 # The flow node page. Probed once, on the first step log 404, to tell a step
 # without a log from a server where this route is missing or blocked.
@@ -329,6 +354,22 @@ gives explicit `PARALLEL_BLOCK` typing for nested parallel stages — no
 client-side heuristics. On instances with neither plugin available,
 pipeline-detail commands degrade gracefully (basic build info still works via
 the classic `/api/json` endpoints).
+
+**`export html` is one file with the data inside it.** `Collect` reads the PGV
+stage tree, `stages/allSteps` and each step's `stages/log`, and `Render` embeds the
+resulting snapshot as a JSON block in a single HTML page. Each log is sanitized,
+optionally capped, gzipped and base64-encoded, and the page decodes it on demand
+with `DecompressionStream`, so a 200 MB log does not become a 200 MB DOM string up
+front. The page makes no network request and the export needs PGV only; there is
+no Blue Ocean fallback. The full console is stored as well, because
+`allSteps` omits steps outside any stage and block steps such as `node` and
+`catchError`, so their output exists nowhere else. Memory stays flat whatever
+the file size: `Collect` streams each encoded log into one spool file (beside
+the output, or in `TMPDIR` for `-o -`; unlinked at creation on Unix), and
+`Render` encodes the snapshot with a random placeholder per log, then copies the
+logs from the spool in place of the placeholders. Base64 needs no JSON escaping,
+so the bytes match a plain `json.Encoder` run. A 320 MB export peaks at about
+20 MB RSS. The cost is disk: the spool is about the size of the output.
 
 **Input steps do not use `/wfapi`, and that is not an oversight.**
 `pipeline-rest-api` does expose `/wfapi/pendingInputActions`, but its
@@ -812,7 +853,7 @@ thing. Getting this wrong scales with every elevated command added.
 - Jenkinsfile generation or scaffolding (beyond linting)
 - Job definition writes (create/update `config.xml`) — use jobDSL instead
 - Pipeline replay and anything requiring rights beyond a normal build user
-- Visual/TUI dashboard (keep it CLI-first, not a terminal UI app)
+- Visual/TUI dashboard (keep it CLI-first, not a terminal UI app). `jkit export html` is not this: it writes one static file, runs no server and no TUI, and the viewer is the user's browser.
 - Plugin system for `jkit` itself (premature — revisit after v1.0)
 - Groovy script execution
 - Credential management within Jenkins

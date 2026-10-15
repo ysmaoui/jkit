@@ -85,6 +85,30 @@ jkit run my-app --wait
 rm -rf "$JKIT_CONFIG_DIR"
 ```
 
+## Export a run from a pipeline
+
+`jkit export html` with no arguments exports the build named by `BUILD_URL`. Log in
+first, since jkit reads credentials only from its config file. See
+[`jkit export html`](commands.md#jkit-export-html) for the full `post` block.
+
+```bash
+set +x
+export JKIT_CONFIG_DIR=$(mktemp -d)
+trap 'rm -rf "$JKIT_CONFIG_DIR"' EXIT
+jkit auth login --host "$JENKINS_URL" --user "$JENKINS_USER" --token "$JENKINS_TOKEN"
+jkit export html -o run.html --json
+# {
+#   "path": "run.html",
+#   "bytes": 1048576,
+#   "complete": false,
+#   "stepErrors": 0,
+#   "consoleError": false
+# }
+```
+
+Exit 0 means the file was written, even if some logs are recorded as unreadable
+(`stepErrors`, `consoleError`). Check those fields if you need every log.
+
 ## Debugging
 
 Use `--verbose` to see HTTP requests and responses:

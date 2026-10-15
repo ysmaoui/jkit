@@ -2,6 +2,13 @@ services:
   jenkins:
     build:
       context: ./jenkins
+      args:
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        https_proxy: ${https_proxy:-}
+        http_proxy: ${http_proxy:-}
+        no_proxy: ${no_proxy:-}
     ports:
       - "${JENKINS_PORT:-9090}:8080"
     healthcheck:

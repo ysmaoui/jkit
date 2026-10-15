@@ -86,6 +86,31 @@ func (c *Client) getPipelineStagesPGV(jobPath string, number int) ([]jenkins.Sta
 	return stages, nil
 }
 
+// GetPGVTree returns PGV's nested stage tree as sent, the start node
+// included, and data.complete. A 404 names what is missing; see
+// explainPGV404. Unlike GetPipelineStages it never falls back to Blue Ocean.
+func (c *Client) GetPGVTree(ctx context.Context, jobPath string, number int) (stages []jenkins.PGVStage, complete bool, err error) {
+	path := fmt.Sprintf("%s/%d/stages/tree", NormalizeJobPath(jobPath), number)
+	resp, err := c.getContext(ctx, path, nil, nil)
+	if err != nil {
+		var nfe *jenkins.NotFoundError
+		if errors.As(err, &nfe) {
+			return nil, false, c.explainPGV404(ctx, jobPath, number, "stages/tree", err)
+		}
+		return nil, false, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var pgv jenkins.PGVResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pgv); err != nil {
+		return nil, false, fmt.Errorf("decoding PGV tree: %w", err)
+	}
+	if pgv.Status != "ok" {
+		return nil, false, fmt.Errorf("PGV status %q", pgv.Status)
+	}
+	return pgv.Data.Stages, pgv.Data.Complete, nil
+}
+
 func (c *Client) getPipelineStagesBlueOcean(jobPath string, number int) ([]jenkins.Stage, error) {
 	segments := normalizeBluePath(jobPath)
 	path := fmt.Sprintf("/blue/rest/organizations/jenkins/pipelines/%s/runs/%d/nodes/", segments, number)

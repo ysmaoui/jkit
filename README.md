@@ -24,6 +24,7 @@ jkit env my-app                  # a build's injected env vars
 jkit input my-app --approve      # answer a paused "Promote to prod?" gate
 jkit disable my-app              # stop it building, without touching its config
 jkit lint                        # validate ./Jenkinsfile
+jkit export html my-app 42       # offline HTML of a run, survives Jenkins cleanup
 jkit open my-app                 # open in browser
 ```
 

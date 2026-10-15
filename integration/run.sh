@@ -11,13 +11,14 @@ JK="$PROJECT_DIR/jkit"
 
 export JKIT_CONFIG_DIR=$(mktemp -d)
 export NO_COLOR=1
+WORK_DIR=$(mktemp -d)
 
 PASS=0
 FAIL=0
 ERRORS=""
 
 cleanup() {
-    rm -rf "$JKIT_CONFIG_DIR"
+    rm -rf "$JKIT_CONFIG_DIR" "$WORK_DIR"
     echo ""
     echo "================================"
     echo "Results: $PASS passed, $FAIL failed"
@@ -100,6 +101,13 @@ sleep 10
 # Build binary
 echo "Building jkit..."
 (cd "$PROJECT_DIR" && go build -o jkit .)
+
+# export-pipeline runs jkit inside the controller. The chmod undoes a
+# restrictive host umask: the container's jenkins user owns nothing copied in.
+echo "Copying a linux jkit into the Jenkins container..."
+(cd "$PROJECT_DIR" && GOOS=linux CGO_ENABLED=0 go build -o "$WORK_DIR/jkit" .)
+chmod 755 "$WORK_DIR/jkit"
+docker compose -f "$SCRIPT_DIR/docker-compose.yml" cp "$WORK_DIR/jkit" jenkins:/usr/local/bin/jkit
 
 echo ""
 echo "Running integration tests..."
@@ -189,6 +197,31 @@ assert_contains "stages test-pipeline 1 lists Deploy stage" "Deploy *STAGE *SUCC
 
 assert_success "wait on finished test-pipeline Build stage" \
     "$JK" wait test-pipeline 1 --stage Build --max-wait 1m
+
+# 9. Export. export-pipeline exports itself mid-run and archives the result.
+echo ""
+echo "[export]"
+assert_success "run export-pipeline --wait (exports itself mid-run)" \
+    "$JK" run export-pipeline --wait
+
+assert_success "export html export-pipeline 1" \
+    "$JK" export html export-pipeline 1 -o "$WORK_DIR/export.html"
+
+assert_success "export file is non-empty" \
+    test -s "$WORK_DIR/export.html"
+
+assert_success "fetch PGV allSteps of export-pipeline 1" \
+    curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" -o "$WORK_DIR/allSteps.json" \
+    "$JENKINS_URL/job/export-pipeline/1/stages/allSteps"
+
+assert_success "finished export holds every stage, step and log" \
+    go -C "$PROJECT_DIR" run ./integration/exportcheck finished "$WORK_DIR/export.html" "$WORK_DIR/allSteps.json"
+
+assert_success "download in-pipeline snapshot artifact" \
+    "$JK" artifacts export-pipeline 1 -d snapshot.html -o "$WORK_DIR/snapshot.html"
+
+assert_success "in-pipeline snapshot is partial, exporting step running" \
+    go -C "$PROJECT_DIR" run ./integration/exportcheck live "$WORK_DIR/snapshot.html"
 
 echo ""
 echo "Done."
