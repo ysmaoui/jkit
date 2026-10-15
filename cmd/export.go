@@ -54,7 +54,8 @@ and must download within it.`,
 	Example: `  jkit export html my-app 42
   jkit export html my-app -o last.html
   jkit export html                      # inside a pipeline: this build
-  jkit export html my-app 42 --max-log-bytes 20000000`,
+  jkit export html my-app 42 --max-log-bytes 20000000
+  jkit export html my-app 42 --concurrency 1   # one log at a time`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runExportHTML,
 }
@@ -69,6 +70,33 @@ func init() {
 func registerExportHTMLFlags(c *cobra.Command) {
 	c.Flags().StringP("output", "o", "", "File to write (default <job>-<build#>.html in the current directory, / in the job path as _); - for stdout")
 	c.Flags().Int64("max-log-bytes", 0, "Keep at most this many bytes of each log, half from the head and half from the tail (plain bytes, 0 = no limit). Shrinks the file, not the download")
+	c.Flags().Int("concurrency", defaultExportConcurrency, fmt.Sprintf("Downloads to run at once (step logs, error texts), 1 to %d", maxExportConcurrency))
+	// Hidden: for comparing the two sources, not for daily use.
+	c.Flags().String("log-source", "auto", "Where step logs come from: auto, console (the annotated console) or steps (one request per step)")
+	_ = c.Flags().MarkHidden("log-source")
+}
+
+func exportLogSource(s string) (export.LogSource, error) {
+	switch s {
+	case "auto":
+		return export.LogSourceAuto, nil
+	case "console":
+		return export.LogSourceConsole, nil
+	case "steps":
+		return export.LogSourceSteps, nil
+	}
+	return "", fmt.Errorf("--log-source must be auto, console or steps, got %q", s)
+}
+
+// Export time is mostly per-request latency. On a 3142-step build 8 readers
+// were no faster than 4. The cap keeps the load on the controller modest.
+const (
+	defaultExportConcurrency = 4
+	maxExportConcurrency     = 8
+)
+
+func exportConcurrency(n int) int {
+	return min(max(n, 1), maxExportConcurrency)
 }
 
 type exportResult struct {
@@ -82,9 +110,15 @@ type exportResult struct {
 func runExportHTML(cmd *cobra.Command, args []string) error {
 	dest, _ := cmd.Flags().GetString("output")
 	maxLog, _ := cmd.Flags().GetInt64("max-log-bytes")
+	concurrency, _ := cmd.Flags().GetInt("concurrency")
 	isJSON, _ := cmd.Flags().GetBool("json")
 	if maxLog < 0 {
 		return fmt.Errorf("--max-log-bytes must be 0 or more, got %d", maxLog)
+	}
+	sourceFlag, _ := cmd.Flags().GetString("log-source")
+	logSource, err := exportLogSource(sourceFlag)
+	if err != nil {
+		return err
 	}
 	tmpl, _ := cmd.Flags().GetString("format")
 	if dest == "-" && (isJSON || tmpl != "") {
@@ -128,20 +162,23 @@ func runExportHTML(cmd *cobra.Command, args []string) error {
 		defer out.abort()
 	}
 
-	progress := func(i, total int, n *export.Node, s *export.Step) {
-		if s == nil {
-			_, _ = fmt.Fprintln(os.Stderr, "fetching console log")
-			return
-		}
-		_, _ = fmt.Fprintf(os.Stderr, "fetching step %d/%d: %s\n", i, total, stepLabel(n, s))
-	}
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	progress := newExportProgress(os.Stderr, verbose)
 	// The spool goes beside the output, where the output needs room anyway.
 	// TMPDIR may be a small tmpfs, which the spool would fill or keep in RAM.
 	spoolDir := ""
 	if out != nil {
 		spoolDir = filepath.Dir(dest)
 	}
-	snap, err := export.Collect(ctx, client, jobPath, buildNum, export.Options{MaxLogBytes: maxLog, Progress: progress, SpoolDir: spoolDir})
+	snap, err := export.Collect(ctx, client, jobPath, buildNum, export.Options{
+		MaxLogBytes: maxLog,
+		Progress:    progress.report,
+		SpoolDir:    spoolDir,
+		Concurrency: exportConcurrency(concurrency),
+		LogSource:   logSource,
+		Notice:      progress.notice,
+	})
+	progress.clear()
 	if snap != nil {
 		defer func() { _ = snap.Close() }()
 	}
@@ -274,7 +311,7 @@ func stepLabel(n *export.Node, s *export.Step) string {
 	if r := []rune(name); len(r) > 60 {
 		name = string(r[:59]) + "…"
 	}
-	return n.Name + " › " + name
+	return collapseWS(n.Name) + " › " + name
 }
 
 func formatBytes(n int64) string {

@@ -1,0 +1,50 @@
+Started by user <a href='/user/admin' class='jenkins-table__link model-link model-link--float'>admin</a>
+<span class="pipeline-new-node" nodeId="2" startId="2">[Pipeline] Start of Pipeline
+</span><span class="pipeline-new-node" nodeId="3" startId="3" enclosingId="2">[Pipeline] node
+</span><span class="pipeline-node-3">Running on <a href='/computer/(built-in)/' class='jenkins-table__link model-link model-link--float'>Jenkins</a> in /var/jenkins_home/workspace/p18
+</span><span class="pipeline-new-node" nodeId="4" startId="4" enclosingId="3">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="5" startId="5" enclosingId="4">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="6" startId="6" enclosingId="5" label="A">[Pipeline] { (A)
+</span><span class="pipeline-new-node" nodeId="7" startId="7" enclosingId="6">[Pipeline] catchError
+</span><span class="pipeline-new-node" nodeId="8" startId="8" enclosingId="7">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="9" enclosingId="8">[Pipeline] error
+</span><span class="pipeline-new-node" nodeId="10" startId="8">[Pipeline] }
+</span><span class="pipeline-node-10">ERROR: caught
+Setting overall build result to FAILURE
+</span><span class="pipeline-new-node" nodeId="11" startId="7">[Pipeline] // catchError
+</span><span class="pipeline-new-node" nodeId="12" startId="6">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="13" startId="5">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="14" startId="14" enclosingId="4">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="15" startId="15" enclosingId="14" label="P">[Pipeline] { (P)
+</span><span class="pipeline-new-node" nodeId="16" startId="16" enclosingId="15">[Pipeline] parallel
+</span><span class="pipeline-new-node" nodeId="18" startId="18" enclosingId="16" label="Branch: Y">[Pipeline] { (Branch: Y)
+</span><span class="pipeline-new-node" nodeId="19" startId="19" enclosingId="16" label="Branch: Z">[Pipeline] { (Branch: Z)
+</span><span class="pipeline-new-node" nodeId="20" startId="20" enclosingId="18">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="21" startId="21" enclosingId="20" label="Y1">[Pipeline] { (Y1)
+</span><span class="pipeline-new-node" nodeId="22" startId="22" enclosingId="19">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="23" startId="23" enclosingId="22" label="Z1">[Pipeline] { (Z1)
+</span><span class="pipeline-new-node" nodeId="24" enclosingId="21">[Pipeline] error
+</span><span class="pipeline-new-node" nodeId="25" startId="21">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="26" enclosingId="23">[Pipeline] echo
+</span><span class="pipeline-node-26">z
+</span><span class="pipeline-new-node" nodeId="27" startId="23">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="28" startId="20">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="29" startId="22">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="30" startId="18">[Pipeline] }
+</span><span class="pipeline-node-30">Failed in branch Y
+</span><span class="pipeline-new-node" nodeId="31" startId="19">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="32" startId="16">[Pipeline] // parallel
+</span><span class="pipeline-new-node" nodeId="33" enclosingId="15">[Pipeline] echo
+</span><span class="pipeline-node-33">swallowed
+</span><span class="pipeline-new-node" nodeId="34" startId="15">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="35" startId="14">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="36" startId="36" enclosingId="4">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="37" startId="37" enclosingId="36" label="B">[Pipeline] { (B)
+</span><span class="pipeline-new-node" nodeId="38" enclosingId="37">[Pipeline] error
+</span><span class="pipeline-new-node" nodeId="39" startId="37">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="40" startId="36">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="41" startId="4">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="42" startId="3">[Pipeline] // node
+</span><span class="pipeline-new-node" nodeId="43" startId="2">[Pipeline] End of Pipeline
+</span>ERROR: real
+Finished: FAILURE

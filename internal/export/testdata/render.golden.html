@@ -46,7 +46,7 @@ button:hover { border-color: var(--accent); }
 .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
 .meta { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; margin: .5rem 0 0; color: var(--muted); }
 .meta div { display: flex; gap: .4rem; min-width: 0; }
-.meta dt { font-weight: 600; }
+.meta dt { font-weight: 600; overflow-wrap: normal; white-space: nowrap; }
 .meta dd { margin: 0; color: var(--fg); min-width: 0; }
 .banner {
   margin: .75rem 0 0; padding: .6rem .8rem; border: 1px solid var(--warn-border);
@@ -63,10 +63,85 @@ button:hover { border-color: var(--accent); }
 .c-ok { color: var(--ok); } .c-fail { color: var(--fail); } .c-unstable { color: var(--unstable); }
 .c-aborted, .c-unknown, .c-skipped { color: var(--muted); } .c-running, .c-paused, .c-queued { color: var(--running); }
 section { margin-top: 1rem; }
+#steps { max-height: 75vh; overflow: auto; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
 .graph-scroll {
-  position: relative; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; padding: .75rem;
+  position: relative; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: .75rem;
+  height: var(--graph-h, auto); max-height: var(--graph-h, 18rem);
 }
+ 
+.gwrap { position: relative; }
+.gmore { position: absolute; top: .5rem; z-index: 3; font-size: .8rem; padding: .15rem .5rem; box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+#graph-left { left: .5rem; }
+.tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.tools > span { display: inline-flex; gap: .25rem; align-items: center; }
+.failnav { color: var(--err-fg); }
+.tog {
+  flex: none; width: 1.4rem; height: 1.4rem; padding: 0; margin-top: .7rem; margin-right: -.75rem;
+  border-radius: 4px; font-size: .7rem; line-height: 1; z-index: 1;
+}
+.branch.collapsed > .seq, .branch.collapsed > .branches { display: none; }
+.strip {
+  display: none; align-self: center; gap: 3px; padding: 4px 6px; z-index: 1;
+  background: var(--panel); border-radius: 6px;
+}
+.branch.collapsed > .strip { display: inline-flex; }
+ 
+.branch.collapsed { display: grid; grid-template-columns: auto auto; justify-content: start; column-gap: 1.25rem; row-gap: .3rem; }
+.branch.collapsed > .strip { grid-column: 2; justify-self: start; flex-wrap: wrap; }
+.dot { flex: none; width: 12px; height: 12px; border-radius: 3px; padding: 0; border: 0; background: var(--aborted); }
+.dot.st-ok { background: var(--ok); }
+.dot.st-fail { background: var(--fail); }
+.dot.st-unstable { background: var(--unstable); }
+.dot.st-running, .dot.st-paused, .dot.st-queued { background: var(--running); }
+.dot.st-skipped, .dot.st-unknown { background: transparent; border: 2px solid var(--skipped); }
+.seg { display: inline-flex; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button + button { margin-left: -1px; border-radius: 0 6px 6px 0; }
+.seg button[aria-pressed="true"] { position: relative; background: var(--sel); border-color: var(--accent); }
+ 
+.graph-scroll.list { height: var(--graph-h, 18rem); min-height: 9rem; padding-top: 0; }
+ 
+#stage-list { max-width: 60rem; }
+#sl-empty:empty { margin: 0; }
+.sl-tools {
+  position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: .4rem .75rem; align-items: center;
+  padding: .75rem 0 .5rem; background: var(--bg);
+}
+.sl-tools input[type="search"] {
+  font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: .3rem .5rem; flex: 1 1 12rem; min-width: 0;
+}
+.sl-tools label { display: flex; gap: .3rem; align-items: center; white-space: nowrap; }
+.sl-tree, .sl-tree ul { list-style: none; margin: 0; padding: 0; }
+.sl-tree ul { padding-left: 1.1rem; }
+.sl-item.collapsed > ul, .sl-item.out { display: none; }
+.sl-row { display: flex; align-items: center; gap: .15rem; }
+.sl-chev { flex: none; width: 1.4rem; height: 1.4rem; padding: 0; border-color: transparent; background: transparent; font-size: .7rem; line-height: 1; }
+.sl-sel {
+  flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center; gap: .5rem; text-align: left; padding: .15rem .4rem; background: transparent; border-color: transparent;
+}
+.sl-sel:hover { background: var(--panel); }
+.sl-sel[aria-pressed="true"] { background: var(--sel); border-color: var(--accent); }
+.sl-sel.synthetic .sl-name { font-style: italic; }
+.sl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-sum { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; max-width: 12rem; }
+.sl-sum .dot { width: 8px; height: 8px; border-radius: 2px; }
+.sl-sum .dot.st-skipped, .sl-sum .dot.st-unknown { border-width: 1.5px; }
+.sl-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+ 
+@media (max-width: 599px) {
+  .sl-sum { max-width: 5rem; }
+  .sl-item:not(.collapsed) > .sl-row .sl-sum { display: none; }
+}
+.splitter { touch-action: none; user-select: none; display: grid; place-items: center; }
+.splitter::after { content: ""; border-radius: 2px; background: var(--line); }
+.splitter:hover::after, .splitter:focus-visible::after, .splitter.drag::after { background: var(--accent); }
+.splitter.h { height: 14px; margin: 2px 0; cursor: row-resize; }
+.splitter.h::after { width: 3rem; height: 4px; }
+.splitter.v { display: none; cursor: col-resize; }
+.splitter.v::after { width: 4px; height: 3rem; }
 .graph, .seq { display: flex; align-items: flex-start; gap: 2rem; }
 .graph { width: max-content; }
 .stage { display: flex; flex-direction: column; gap: .5rem; position: relative; }
@@ -89,6 +164,7 @@ section { margin-top: 1rem; }
   border-radius: 8px; padding: .3rem .65rem;
 }
 .node[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--sel); }
+.node.branch-node { max-width: 24rem; }
 .node.synthetic { border-style: dashed; }
 .node.synthetic .node-name { font-style: italic; }
 .node-text { display: flex; flex-direction: column; min-width: 0; }
@@ -108,7 +184,10 @@ section { margin-top: 1rem; }
 @keyframes pulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .icon.st-running { animation: none; } }
 .panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-@media (min-width: 900px) { .panels { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); } }
+@media (min-width: 900px) {
+  .panels { grid-template-columns: minmax(0, var(--steps-w, 40%)) 14px minmax(0, 1fr); gap: 0; }
+  .splitter.v { display: grid; }
+}
 .panel { border: 1px solid var(--border); border-radius: 8px; padding: .75rem; min-width: 0; }
 .hint { color: var(--muted); margin: .5rem 0; }
 .steps { list-style: none; margin: 0; padding: 0; }
@@ -128,6 +207,12 @@ section { margin-top: 1rem; }
 .step-dur { color: var(--muted); font-size: .8rem; white-space: nowrap; }
 .step-badges { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: .25rem; }
 .step-badges:empty { display: none; }
+.fail-cap { margin: .5rem 0 0; color: var(--err-fg); font-size: .75rem; font-weight: 600; }
+.fail-cap + .fail-msg { margin-top: .15rem; }
+.fail-msg {
+  margin: .25rem 0 .5rem; padding: .2rem .5rem; border-left: 3px solid var(--fail); color: var(--muted);
+  white-space: pre-wrap; font-family: var(--mono); font-size: .75rem; max-height: 6rem; overflow: auto;
+}
 .err { color: var(--err-fg); margin: .25rem 0; white-space: pre-wrap; font-family: var(--mono); font-size: .8rem; }
 .exc {
   margin: .25rem 0; padding: .4rem .6rem; border-left: 3px solid var(--fail); background: var(--err-bg);
@@ -167,14 +252,32 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
 </header>
 <main>
   <section aria-labelledby="graph-h">
-    <div class="bar"><h2 id="graph-h">Stages</h2><button type="button" id="console-btn" aria-pressed="false">Full console log</button></div>
-    <div class="graph-scroll"><div id="graph" class="graph"></div></div>
+    <div class="bar"><h2 id="graph-h">Stages</h2><div class="tools">
+      <span id="mode" class="seg" role="group" aria-label="Stage view" hidden><button type="button" id="mode-graph" aria-pressed="true">Graph</button><button
+        type="button" id="mode-list" aria-pressed="false">List</button></span>
+      <span id="failnav" class="failnav" hidden><span id="fail-pos" aria-live="polite"></span>
+        <button type="button" id="fail-prev" aria-label="Previous failed stage" title="Previous failed stage">&#8593;</button>
+        <button type="button" id="fail-next" aria-label="Next failed stage" title="Next failed stage">&#8595;</button></span>
+      <span id="branch-tools" hidden><button type="button" id="collapse-all">Collapse branches</button>
+        <button type="button" id="expand-all">Expand branches</button></span>
+      <button type="button" id="console-btn" aria-pressed="false">Full console log</button>
+    </div></div>
+    <div class="gwrap"><button type="button" id="graph-left" class="gmore" hidden></button><button type="button" id="graph-right" class="gmore" hidden></button>
+    <div class="graph-scroll" id="graph-scroll"><div id="graph" class="graph"></div>
+      <div id="stage-list" hidden><div id="sl-tools" class="sl-tools">
+        <input type="search" id="sl-filter" placeholder="Filter stages" aria-label="Filter stages">
+        <label><input type="checkbox" id="sl-failed"> Failed only</label></div>
+        <ul id="sl-tree" class="sl-tree" aria-label="Stages"></ul><p id="sl-empty" class="hint" aria-live="polite"></p></div></div></div>
   </section>
+  <div id="graph-split" class="splitter h" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="graph-scroll"
+    aria-label="Resize stages pane" title="Resize stages pane (drag or arrow keys; double-click resets)"></div>
   <div class="panels">
-    <section class="panel" aria-labelledby="steps-h">
+    <section class="panel" id="steps-panel" aria-labelledby="steps-h">
       <h2 id="steps-h">Steps</h2>
       <div id="steps"><p class="hint">Select a stage to list its steps.</p></div>
     </section>
+    <div id="panels-split" class="splitter v" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="steps-panel"
+      aria-label="Resize steps and log columns" title="Resize steps and log columns (drag or arrow keys; double-click resets)"></div>
     <section class="panel" id="log-panel" aria-labelledby="log-h">
       <h2 id="log-h">Log</h2>
       <pre id="log-name" class="log-name" hidden></pre>
@@ -194,7 +297,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   </div>
 </main>
 <footer>Exported by jkit. Open offline; nothing is loaded from the network.</footer>
-<script type="application/json" id="snapshot">{"job":"team/app/main","number":42,"result":"","building":true,"startTimeMillis":1791791176000,"durationMillis":0,"url":"https://jenkins.example.com/job/team/job/app/job/main/42/","exportedAtMillis":1791791271000,"complete":false,"stages":[{"id":"6","name":"Build","type":"STAGE","state":"SUCCESS","synthetic":false,"running":false,"startTimeMillis":1791791176100,"durationMillis":12300,"agent":"linux-1","children":[],"steps":[{"id":"8","name":"make build\n./scripts/check.sh --all --verbose --with-a-very-long-argument-list-that-needs-truncation","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791176200,"durationMillis":12000,"log":{"gzipBase64":"H4sIAAAAAAAA/0rPV0gqzcxJUdDT19PT48rP5gIEAAD///KF5rASAAAA","bytes":18,"cutBytes":0,"partial":false},"exception":"","error":""},{"id":"9","name":"echo \"\u003c/script\u003e\u003c!-- \u003cb\u003ebold\u003c/b\u003e \u0026 'quotes'\"","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791188300,"durationMillis":20,"log":{"gzipBase64":"H4sIAAAAAAAA/7LRL04uyiwosbNR1NVVsEmyS8rPSbHRT7JTUFNQLyzNL0ktVucCBAAA//9lrDOsJQAAAA==","bytes":37,"cutBytes":0,"partial":false},"exception":"","error":""}]},{"id":"11","name":"Test","type":"STAGE","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791188500,"durationMillis":1000,"agent":"","children":[{"id":"14","name":"unit","type":"PARALLEL","state":"FAILURE","synthetic":false,"running":false,"startTimeMillis":1791791188600,"durationMillis":30000,"agent":"","children":[],"steps":[{"id":"16","name":"go test ./...","title":"","state":"FAILURE","running":false,"startTimeMillis":1791791188700,"durationMillis":29000,"log":{"gzipBase64":"H4sIAAAAAAAA/9LV1VVwc/T0sVIISS0uiVDQMNAzMCjW5AKJcQECAAD//xWBD8EdAAAA","bytes":29,"cutBytes":0,"partial":false},"exception":"script returned exit code 1","error":""},{"id":"17","name":"boom","title":"Error signal","state":"FAILURE","running":false,"startTimeMillis":1791791217800,"durationMillis":0,"log":{"gzipBase64":"","bytes":0,"cutBytes":0,"partial":false},"exception":"boom","error":""}]},{"id":"15","name":"integration","type":"PARALLEL","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791188600,"durationMillis":0,"agent":"","children":[{"id":"20","name":"Setup","type":"STAGE","state":"SUCCESS","synthetic":false,"running":false,"startTimeMillis":1791791188700,"durationMillis":3000,"agent":"","children":[],"steps":[{"id":"22","name":"docker compose up -d","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791188800,"durationMillis":2900,"log":{"gzipBase64":"H4sIAAAAAAAA/3LOzytJzMxLLVJISVIILkksKklN4QIEAAD//xRRXaoVAAAA","bytes":21,"cutBytes":0,"partial":false},"exception":"","error":""}]},{"id":"25","name":"Run","type":"STAGE","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791191800,"durationMillis":0,"agent":"","children":[],"steps":[{"id":"27","name":"./run-it.sh","title":"","state":"IN_PROGRESS","running":true,"startTimeMillis":1791791191900,"durationMillis":0,"log":{"gzipBase64":"H4sIAAAAAAAA/youSSwqycxLV8jMK0lNL0osyczPUygqzeMqT8wEi6flFykUpxaVZSancgECAAD//2OLB1gtAAAA","bytes":45,"cutBytes":0,"partial":true},"exception":"","error":""}]}],"steps":[]}],"steps":[]},{"id":"40","name":"Package","type":"STAGE","state":"NOT_BUILT","synthetic":false,"running":false,"startTimeMillis":0,"durationMillis":0,"agent":"","children":[],"steps":[]},{"id":"55","name":"Post Actions","type":"STAGE","state":"SUCCESS","synthetic":true,"running":false,"startTimeMillis":1791791266000,"durationMillis":4000,"agent":"","children":[],"steps":[{"id":"57","name":"**/*.log","title":"Archive the artifacts","state":"SUCCESS","running":false,"startTimeMillis":1791791266100,"durationMillis":3000,"log":{"gzipBase64":"H4sIAAAAAAAA/+zSOxLCQAwD0D6n8BWyJVdhKCATwMBQwMKE29ODP5LrlCs9NTveP6azvvV+kqPeZhl+3stfYCRWZGZ26KRe7OZ+ETRRFXZxmbRZnfY5AARCIIMhUKEMdjgkJEMpy2H8s7aXq/aNjK21UQ6fPj9levXdekfrHfGa5bTnB4VFZVLa1EbF1TJ8AwAA//8b4oFP1AcAAA==","bytes":14200,"cutBytes":12221,"partial":false},"exception":"","error":""},{"id":"58","name":"","title":"Delete workspace when build is done","state":"SUCCESS","running":false,"startTimeMillis":1791791269200,"durationMillis":100,"log":{"gzipBase64":"","bytes":0,"cutBytes":0,"partial":false},"exception":"","error":"Jenkins error HTTP 500 on /job/team/job/app/job/main/42/pipeline-overview/log"}]},{"id":"60","name":"Node 60","type":"UNLISTED","state":"","synthetic":true,"running":false,"startTimeMillis":0,"durationMillis":0,"agent":"","children":[],"steps":[{"id":"61","name":"cleanup","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791270000,"durationMillis":10,"log":{"gzipBase64":"H4sIAAAAAAAA/0rOSU3MS03hAgQAAP//8lCa/wgAAAA=","bytes":8,"cutBytes":0,"partial":false},"exception":"","error":""}]}],"console":{"gzipBase64":"H4sIAAAAAAAA/wouSSwqSU1RSKpUKC1OLVJITMnNzOOKDsgsSM3JzEuNVQArUMhPU4AJcZUnFuVl5qVbKSQnlqZnlIC0JieWJGe4FhXlF3EBAgAA//8gvHdVUQAAAA==","bytes":81,"cutBytes":0,"partial":true},"consoleError":"reading console: context deadline exceeded; raise it with --timeout"}
+<script type="application/json" id="snapshot">{"job":"team/app/main","number":42,"result":"","building":true,"startTimeMillis":1791791176000,"durationMillis":0,"url":"https://jenkins.example.com/job/team/job/app/job/main/42/","exportedAtMillis":1791791271000,"complete":false,"stages":[{"id":"6","name":"Build","type":"STAGE","state":"SUCCESS","synthetic":false,"running":false,"startTimeMillis":1791791176100,"durationMillis":12300,"agent":"linux-1","children":[],"steps":[{"id":"8","name":"make build\n./scripts/check.sh --all --verbose --with-a-very-long-argument-list-that-needs-truncation","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791176200,"durationMillis":12000,"log":{"gzipBase64":"H4sIAAAAAAAA/0rPV0gqzcxJUdDT19PT48rP5gIEAAD///KF5rASAAAA","bytes":18,"cutBytes":0,"partial":false},"exception":"","error":""},{"id":"9","name":"echo \"\u003c/script\u003e\u003c!-- \u003cb\u003ebold\u003c/b\u003e \u0026 'quotes'\"","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791188300,"durationMillis":20,"log":{"gzipBase64":"H4sIAAAAAAAA/7LRL04uyiwosbNR1NVVsEmyS8rPSbHRT7JTUFNQLyzNL0ktVucCBAAA//9lrDOsJQAAAA==","bytes":37,"cutBytes":0,"partial":false},"exception":"","error":""}]},{"id":"11","name":"Test","type":"STAGE","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791188500,"durationMillis":1000,"agent":"","children":[{"id":"14","name":"unit","type":"PARALLEL","state":"FAILURE","synthetic":false,"running":false,"startTimeMillis":1791791188600,"durationMillis":30000,"agent":"","children":[],"steps":[{"id":"16","name":"go test ./...","title":"","state":"FAILURE","running":false,"startTimeMillis":1791791188700,"durationMillis":29000,"log":{"gzipBase64":"H4sIAAAAAAAA/9LV1VVwc/T0sVIISS0uiVDQMNAzMCjW5AKJcQECAAD//xWBD8EdAAAA","bytes":29,"cutBytes":0,"partial":false},"exception":"script returned exit code 1","error":""},{"id":"17","name":"boom","title":"Error signal","state":"FAILURE","running":false,"startTimeMillis":1791791217800,"durationMillis":0,"log":{"gzipBase64":"","bytes":0,"cutBytes":0,"partial":false},"exception":"boom","error":""}]},{"id":"15","name":"integration","type":"PARALLEL","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791188600,"durationMillis":0,"agent":"","children":[{"id":"20","name":"Setup","type":"STAGE","state":"SUCCESS","synthetic":false,"running":false,"startTimeMillis":1791791188700,"durationMillis":3000,"agent":"","children":[],"steps":[{"id":"22","name":"docker compose up -d","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791188800,"durationMillis":2900,"log":{"gzipBase64":"H4sIAAAAAAAA/3LOzytJzMxLLVJISVIILkksKklN4QIEAAD//xRRXaoVAAAA","bytes":21,"cutBytes":0,"partial":false},"exception":"","error":""}]},{"id":"25","name":"Run","type":"STAGE","state":"IN_PROGRESS","synthetic":false,"running":true,"startTimeMillis":1791791191800,"durationMillis":0,"agent":"","children":[],"steps":[{"id":"27","name":"./run-it.sh","title":"","state":"IN_PROGRESS","running":true,"startTimeMillis":1791791191900,"durationMillis":0,"log":{"gzipBase64":"H4sIAAAAAAAA/youSSwqycxLV8jMK0lNL0osyczPUygqzeMqT8wEi6flFykUpxaVZSancgECAAD//2OLB1gtAAAA","bytes":45,"cutBytes":0,"partial":true},"exception":"","error":""}]}],"steps":[]}],"steps":[]},{"id":"40","name":"Package","type":"STAGE","state":"NOT_BUILT","synthetic":false,"running":false,"startTimeMillis":0,"durationMillis":0,"agent":"","children":[],"steps":[]},{"id":"55","name":"Post Actions","type":"STAGE","state":"SUCCESS","synthetic":true,"running":false,"startTimeMillis":1791791266000,"durationMillis":4000,"agent":"","children":[],"steps":[{"id":"57","name":"**/*.log","title":"Archive the artifacts","state":"SUCCESS","running":false,"startTimeMillis":1791791266100,"durationMillis":3000,"log":{"gzipBase64":"H4sIAAAAAAAA/+zSOxLCQAwD0D6n8BWyJVdhKCATwMBQwMKE29ODP5LrlCs9NTveP6azvvV+kqPeZhl+3stfYCRWZGZ26KRe7OZ+ETRRFXZxmbRZnfY5AARCIIMhUKEMdjgkJEMpy2H8s7aXq/aNjK21UQ6fPj9levXdekfrHfGa5bTnB4VFZVLa1EbF1TJ8AwAA//8b4oFP1AcAAA==","bytes":14200,"cutBytes":12221,"partial":false},"exception":"","error":""},{"id":"58","name":"","title":"Delete workspace when build is done","state":"SUCCESS","running":false,"startTimeMillis":1791791269200,"durationMillis":100,"log":{"gzipBase64":"","bytes":0,"cutBytes":0,"partial":false},"exception":"","error":"Jenkins error HTTP 500 on /job/team/job/app/job/main/42/pipeline-overview/log"}]},{"id":"60","name":"Node 60","type":"UNLISTED","state":"","synthetic":true,"running":false,"startTimeMillis":0,"durationMillis":0,"agent":"","children":[],"steps":[{"id":"61","name":"cleanup","title":"","state":"SUCCESS","running":false,"startTimeMillis":1791791270000,"durationMillis":10,"log":{"gzipBase64":"H4sIAAAAAAAA/0rOSU3MS03hAgQAAP//8lCa/wgAAAA=","bytes":8,"cutBytes":0,"partial":false},"exception":"","error":""}]}],"console":{"gzipBase64":"H4sIAAAAAAAA/wouSSwqSU1RSKpUKC1OLVJITMnNzOOKDsgsSM3JzEuNVQArUMhPU4AJcZUnFuVl5qVbKSQnlqZnlIC0JieWJGe4FhXlF3EBAgAA//8gvHdVUQAAAA==","bytes":81,"cutBytes":0,"partial":true},"consoleError":"reading console: context deadline exceeded; raise it with --timeout","failureNodeId":"14","failureMessage":"script returned exit code 1","buildErrorMessage":"java.lang.IllegalStateException: notify failed"}
 </script>
 <script>
 "use strict";
@@ -276,7 +379,21 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
   function stepLabel(s) { return s.title || s.name || "(unnamed step)"; }
 
+  
+  function failMsg(id, caption, title, text) {
+    var cap = el("p", "fail-cap", caption);
+    cap.id = id;
+    var fm = el("pre", "fail-msg", text);
+    fm.title = title;
+    fm.setAttribute("aria-labelledby", id);
+    return [cap, fm];
+  }
   function renderHeader() {
+    
+    if (S.buildErrorMessage) {
+      $("meta").after.apply($("meta"), failMsg("build-err-cap", "Build error",
+        S.building ? "Build-level error so far. The build was still running at export." : "The error that stopped the build", S.buildErrorMessage));
+    }
     var state = S.building ? "IN_PROGRESS" : S.result;
     var r = $("result");
     r.textContent = S.building ? "running" : (S.result || "unknown");
@@ -312,6 +429,14 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     }
   }
 
+  function nodeSub(n) {
+    var sub = [];
+    if (n.startTimeMillis > 0) sub.push(fmtDur(elapsed(n)) + (n.running ? " so far" : ""));
+    else if (n.state === "NOT_BUILT") sub.push("skipped");
+    if (n.type === "UNLISTED") sub.push("not in stage graph");
+    else if (n.synthetic) sub.push("implicit");
+    return sub.join(" · ") || "–";
+  }
   function nodeButton(n) {
     var st = stateOf(n.state);
     var b = el("button", "node" + (n.synthetic ? " synthetic" : ""));
@@ -321,12 +446,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     b.append(icon(n.state));
     var t = el("span", "node-text");
     t.append(el("span", "node-name", n.name));
-    var sub = [];
-    if (n.startTimeMillis > 0) sub.push(fmtDur(elapsed(n)) + (n.running ? " so far" : ""));
-    else if (n.state === "NOT_BUILT") sub.push("skipped");
-    if (n.type === "UNLISTED") sub.push("not in stage graph");
-    else if (n.synthetic) sub.push("implicit");
-    t.append(el("span", "node-sub", sub.join(" · ") || "–"));
+    t.append(el("span", "node-sub", nodeSub(n)));
     b.append(t);
     b.title = n.name + " (" + st[2] + ")";
     b.addEventListener("click", function () { select({ node: n.id }, true); });
@@ -353,12 +473,66 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     if (k) d.append(k);
     return d;
   }
+  var branchEls = new Map();
+  function descendants(n, out) {
+    (n.children || []).forEach(function (c) { out.push(c); descendants(c, out); });
+    return out;
+  }
+  
   function renderBranch(n) {
     var d = el("div", "branch");
-    d.append(nodeButton(n));
+    var b = nodeButton(n);
+    b.classList.add("branch-node");
+    d.append(b);
     var k = children(n);
-    if (k) d.append(k);
+    if (!k) return d;
+    k.id = "branch-" + branchEls.size;
+    var t = el("button", "tog");
+    t.type = "button";
+    t.setAttribute("aria-controls", k.id);
+    t.setAttribute("aria-label", "Branch " + n.name);
+    t.addEventListener("click", function () { setCollapsed(d, !d.classList.contains("collapsed")); });
+    d.prepend(t);
+    var strip = el("span", "strip");
+    descendants(n, []).forEach(function (c) {
+      var st = stateOf(c.state);
+      var dot = el("button", "dot st-" + st[0]);
+      dot.type = "button";
+      
+      dot.tabIndex = -1;
+      dot.title = c.name + " (" + st[2] + ")";
+      dot.setAttribute("aria-label", dot.title);
+      dot.addEventListener("click", function () { select({ node: c.id }, true); });
+      strip.append(dot);
+    });
+    d.append(strip, k);
+    branchEls.set(n.id, d);
+    setCollapsed(d, false);
     return d;
+  }
+  function setCollapsed(d, c) {
+    d.classList.toggle("collapsed", c);
+    var t = d.firstChild;
+    t.textContent = c ? "▸" : "▾";
+    t.setAttribute("aria-expanded", String(!c));
+  }
+  function ancestorIds(id) {
+    var out = new Set();
+    for (var e = nodesById.get(id); e && e.parent; e = nodesById.get(e.parent.id)) out.add(e.parent.id);
+    return out;
+  }
+  
+  function collapseAll(c) {
+    var keep = c && current.node ? ancestorIds(current.node) : new Set();
+    branchEls.forEach(function (d, id) { setCollapsed(d, c && !keep.has(id)); });
+    revealNode(current.node);
+  }
+  function expandTo(id) {
+    ancestorIds(id).forEach(function (a) {
+      var d = branchEls.get(a);
+      if (d && d.classList.contains("collapsed")) setCollapsed(d, false);
+      if (listItems.has(a)) setListCollapsed(listItems.get(a), false);
+    });
   }
   function renderGraph() {
     var g = $("graph");
@@ -367,6 +541,197 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       return;
     }
     S.stages.forEach(function (n) { g.append(renderStage(n)); });
+  }
+
+  
+  var listItems = new Map();
+  function renderList() {
+    (function add(list, ul) {
+      list.forEach(function (n) {
+        var st = stateOf(n.state), kids = n.children || [];
+        var li = el("li", "sl-item"), row = el("div", "sl-row");
+        var chev = el(kids.length ? "button" : "span", "sl-chev");
+        var b = el("button", "sl-sel" + (n.synthetic ? " synthetic" : ""));
+        b.type = "button";
+        b.dataset.id = n.id;
+        b.tabIndex = -1;
+        b.setAttribute("aria-pressed", "false");
+        b.title = n.name + " (" + st[2] + ")";
+        b.append(icon(n.state), el("span", "sl-name", n.name));
+        
+        var sum = el("span", "sl-sum");
+        sum.setAttribute("aria-hidden", "true");
+        kids.forEach(function (c) {
+          var cs = stateOf(c.state), d = el("span", "dot st-" + cs[0]);
+          d.title = c.name + " (" + cs[2] + ")";
+          sum.append(d);
+        });
+        b.append(sum, el("span", "sl-dur", nodeSub(n)));
+        b.addEventListener("click", function () { select({ node: n.id }, true); });
+        row.append(chev, b);
+        li.append(row);
+        listItems.set(n.id, li);
+        if (kids.length) {
+          var sub = el("ul");
+          sub.id = "sl-kids-" + listItems.size;
+          chev.type = "button";
+          
+          chev.tabIndex = -1;
+          chev.setAttribute("aria-controls", sub.id);
+          chev.setAttribute("aria-label", "Nested stages of " + n.name);
+          
+          chev.addEventListener("mousedown", function (e) { e.preventDefault(); });
+          chev.addEventListener("click", function () {
+            setListCollapsed(li, !li.classList.contains("collapsed"));
+            syncListStop();
+          });
+          add(kids, sub);
+          li.append(sub);
+          setListCollapsed(li, false);
+        }
+        ul.append(li);
+      });
+    })(S.stages || [], $("sl-tree"));
+    $("sl-filter").addEventListener("input", applyFilter);
+    $("sl-failed").addEventListener("change", applyFilter);
+    $("sl-tree").addEventListener("focusin", function (e) {
+      if (!e.target.classList.contains("sl-sel")) return;
+      listFocus = e.target.dataset.id;
+      syncListStop();
+    });
+    $("sl-tree").addEventListener("keydown", listKey);
+    syncListStop();
+  }
+  
+  
+  
+  var listFocus = null, listStop = null;
+  
+  function rowShown(li) {
+    for (; li.classList.contains("sl-item"); li = li.parentElement.parentElement) {
+      if (li.classList.contains("out") || li.parentElement.parentElement.classList.contains("collapsed")) return false;
+    }
+    return true;
+  }
+  function shownRows() {
+    var out = [];
+    listItems.forEach(function (li) { if (rowShown(li)) out.push(li.firstChild.lastChild); });
+    return out;
+  }
+  
+  function syncListStop() {
+    var pick = [listFocus, current.node].map(function (id) { return id && listItems.get(id); })
+      .filter(function (li) { return li && rowShown(li); })[0];
+    var b = pick ? pick.firstChild.lastChild : shownRows()[0] || null;
+    if (b === listStop) return;
+    var hadFocus = !!listStop && document.activeElement === listStop;
+    if (listStop) listStop.tabIndex = -1;
+    listStop = b;
+    if (!b) return;
+    b.tabIndex = 0;
+    
+    if (hadFocus) focusRow(b);
+  }
+  function focusRow(b) {
+    listFocus = b.dataset.id;
+    syncListStop();
+    b.focus({ preventScroll: true });
+    
+    var box = $("graph-scroll"), inset = $("sl-tools").offsetHeight;
+    var r = b.getBoundingClientRect(), top = r.top - box.getBoundingClientRect().top - box.clientTop;
+    if (top < inset) box.scrollTop += top - inset;
+    else if (top + r.height > box.clientHeight) box.scrollTop += top + r.height - box.clientHeight;
+  }
+  function listKey(e) {
+    var b = e.target;
+    if (!b.classList.contains("sl-sel") || e.altKey || e.ctrlKey || e.metaKey) return;
+    var li = b.parentElement.parentElement, kids = li.lastChild.tagName === "UL" ? li.lastChild : null;
+    var open = !!kids && !li.classList.contains("collapsed");
+    var rows = shownRows(), i = rows.indexOf(b), to = null, up = li.parentElement.parentElement;
+    if (e.key === "ArrowDown") to = rows[i + 1];
+    else if (e.key === "ArrowUp") to = rows[i - 1];
+    else if (e.key === "Home") to = rows[0];
+    else if (e.key === "End") to = rows[rows.length - 1];
+    else if (e.key === "ArrowRight" && open) to = rows[i + 1] && kids.contains(rows[i + 1]) ? rows[i + 1] : null;
+    else if (e.key === "ArrowRight") { if (kids) setListCollapsed(li, false); }
+    else if (e.key === "ArrowLeft" && open) setListCollapsed(li, true);
+    else if (e.key === "ArrowLeft") to = up.classList.contains("sl-item") ? up.firstChild.lastChild : null;
+    else return;
+    e.preventDefault();
+    if (to) focusRow(to);
+    else syncListStop();
+  }
+  function setListCollapsed(li, c) {
+    li.classList.toggle("collapsed", c);
+    var t = li.firstChild.firstChild;
+    t.textContent = c ? "▸" : "▾";
+    t.setAttribute("aria-expanded", String(!c));
+  }
+  function listCollapseAll(c) {
+    var keep = c && current.node ? ancestorIds(current.node) : new Set();
+    listItems.forEach(function (li, id) { if (li.lastChild.tagName === "UL") setListCollapsed(li, c && !keep.has(id)); });
+    syncListStop();
+    revealNode(current.node);
+  }
+  function filterActive() { return !!$("sl-filter").value.trim() || $("sl-failed").checked; }
+  
+  var preFilter = null;
+  
+  
+  function applyFilter() {
+    var q = $("sl-filter").value.trim().toLowerCase(), failedOnly = $("sl-failed").checked;
+    var keep = null, matches = 0;
+    function show(id) {
+      keep.add(id);
+      ancestorIds(id).forEach(function (a) {
+        keep.add(a);
+        setListCollapsed(listItems.get(a), false);
+      });
+    }
+    
+    function textMatch(id) {
+      if (!q) return true;
+      if (nodesById.get(id).node.name.toLowerCase().indexOf(q) >= 0) return true;
+      if (!failedOnly) return false;
+      return Array.from(ancestorIds(id)).some(function (a) { return nodesById.get(a).node.name.toLowerCase().indexOf(q) >= 0; });
+    }
+    if (q || failedOnly) {
+      if (!preFilter) {
+        preFilter = new Set();
+        listItems.forEach(function (li, id) { if (li.classList.contains("collapsed")) preFilter.add(id); });
+      }
+      keep = new Set();
+      nodesById.forEach(function (e, id) {
+        if (failedOnly && failedLeaves.indexOf(e.node) < 0) return;
+        if (!textMatch(id)) return;
+        matches++;
+        show(id);
+      });
+      if (current.node && listItems.has(current.node)) show(current.node);
+    } else if (preFilter) {
+      var was = preFilter;
+      preFilter = null;
+      listItems.forEach(function (li, id) { if (li.lastChild.tagName === "UL") setListCollapsed(li, was.has(id)); });
+      if (current.node) ancestorIds(current.node).forEach(function (a) { setListCollapsed(listItems.get(a), false); });
+    }
+    listItems.forEach(function (li, id) { li.classList.toggle("out", !!keep && !keep.has(id)); });
+    
+    $("sl-empty").textContent = keep && !matches ? "No stages match." : "";
+    syncListStop();
+    revealNode(current.node);
+  }
+  var mode = "graph";
+  function setMode(m, user) {
+    mode = m;
+    var list = m === "list";
+    $("graph").hidden = list;
+    $("stage-list").hidden = !list;
+    $("graph-scroll").classList.toggle("list", list);
+    $("mode-graph").setAttribute("aria-pressed", String(!list));
+    $("mode-list").setAttribute("aria-pressed", String(list));
+    if (user) saveLayout({ mode: m });
+    relayout();
+    revealNode(current.node);
   }
 
   function stepItem(s, node) {
@@ -413,6 +778,21 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     $("steps-h").textContent = "Steps of " + n.name;
     h.textContent = info.join(" · ");
     box.append(h);
+    
+    if (n.id === S.failureNodeId && S.building) {
+      box.append(el("p", "hint so-far", "Latest failed stage so far. The build was still running at export, so this may not be the failure that ends it."));
+    }
+    if (n.id === S.failureNodeId && S.failureMessage) {
+      box.append.apply(box, failMsg("stage-err-cap", "Stage error", "The error that failed this stage", S.failureMessage));
+    }
+    if (failedLeaves.indexOf(n) >= 0 && !n.steps.some(function (s) { return s.state === "FAILURE"; })) {
+      var note = el("p", "hint", "No step of this stage failed; the console log may show why it did. ");
+      var q = el("button", null, "Search console for “" + n.name + "”");
+      q.type = "button";
+      q.addEventListener("click", function () { openConsole(n.name); });
+      note.append(q);
+      box.append(note);
+    }
     if (n.steps.length) {
       box.append(stepList(n));
       return;
@@ -516,6 +896,7 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   var logEl = $("log");
   var view = null;
   var openToken = 0;
+  var searchOnOpen = "";
 
   function lineStarts(text) {
     var starts = [0], i = -1;
@@ -653,6 +1034,8 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     logEl.append(el("span", "hint", "Select a step to read its log, or open the full console log."));
   }
   function openLog(log, heading, fullName, step) {
+    var query = searchOnOpen;
+    searchOnOpen = "";
     resetLogPanel();
     var token = openToken;
     $("log-h").textContent = heading;
@@ -692,6 +1075,10 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       showWindow(Math.max(0, n - CHUNK_LINES), n);
       $("log-tools").hidden = false;
       logEl.scrollTop = logEl.scrollHeight;
+      if (query) {
+        $("search").value = query;
+        search(query);
+      }
     }, function (err) {
       if (token !== openToken) return;
       logEl.replaceChildren(el("p", "err", logError(err)));
@@ -699,22 +1086,34 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
   }
 
   var current = {};
+  
+  var failWalk = false;
   function setPressed(selector, attr, value) {
     document.querySelectorAll(selector).forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.dataset[attr] === value));
     });
   }
+  
   function select(sel, user) {
+    if (user !== "replace") failWalk = false;
     if (sel.step && !sel.node && stepsById.has(sel.step)) sel.node = stepsById.get(sel.step).node.id;
     if (sel.node && !nodesById.has(sel.node)) sel.node = null;
     if (sel.step && !stepsById.has(sel.step)) sel.step = null;
     if (sel.node !== current.node && sel.node) renderSteps(nodesById.get(sel.node).node);
+    if (sel.node) expandTo(sel.node);
     setPressed(".node", "id", sel.node);
+    setPressed(".sl-sel", "id", sel.node);
     revealNode(sel.node);
     setPressed(".step-btn", "step", sel.step);
     $("console-btn").setAttribute("aria-pressed", String(!!sel.console));
     var logChanged = sel.step !== current.step || !!sel.console !== !!current.console;
     current = sel;
+    var fi = sel.node ? failedLeaves.indexOf(nodesById.get(sel.node).node) : -1;
+    if (failedLeaves.length) $("fail-pos").textContent = (fi >= 0 ? (fi + 1) + " of " : "") + failedLeaves.length + " failed";
+    if (filterActive()) applyFilter();
+    
+    if (!$("sl-tree").contains(document.activeElement)) listFocus = null;
+    syncListStop();
     if (logChanged) {
       if (sel.console) {
         openLog(S.console, "Full console log", "", null);
@@ -728,22 +1127,91 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
       }
     }
     if (user) {
-      var p = new URLSearchParams();
-      if (sel.node) p.set("node", sel.node);
-      if (sel.step) p.set("step", sel.step);
-      if (sel.console) p.set("console", "1");
-      try { history.replaceState(null, "", "#" + p.toString()); } catch (e) {   }
-      if ((sel.step || sel.console) && window.innerWidth < 900) $("log-panel").scrollIntoView({ block: "start" });
+      writeHash(sel, user !== "replace");
+      if (sel.step || sel.console) {
+        
+        
+        var r = logEl.getBoundingClientRect();
+        if (r.bottom < 48 || r.top > window.innerHeight - 200) $("log-panel").scrollIntoView({ block: "start" });
+      }
     }
   }
   
-  function revealNode(id) {
-    var b = id && document.querySelector('.node[aria-pressed="true"]');
-    if (!b) return;
-    var box = b.closest(".graph-scroll");
-    var left = b.getBoundingClientRect().left - box.getBoundingClientRect().left;
-    if (left < 0 || left + b.offsetWidth > box.clientWidth) box.scrollLeft += left - 16;
+  function writeHash(sel, push) {
+    var p = new URLSearchParams();
+    if (sel.node) p.set("node", sel.node);
+    if (sel.step) p.set("step", sel.step);
+    if (sel.console) p.set("console", "1");
+    var h = "#" + p.toString();
+    if (push && h === location.hash) return;
+    try { history[push ? "pushState" : "replaceState"](null, "", h); } catch (e) {   }
   }
+  
+  function revealNode(id) {
+    var b = id && document.querySelector((mode === "list" ? ".sl-sel" : ".node") + '[aria-pressed="true"]');
+    
+    if (!b || !b.getClientRects().length) return;
+    var box = $("graph-scroll");
+    
+    var inset = mode === "list" ? $("sl-tools").offsetHeight : 0;
+    var r = b.getBoundingClientRect(), g = box.getBoundingClientRect();
+    var left = r.left - g.left, top = r.top - g.top;
+    if (left < 0 || left + r.width > box.clientWidth) box.scrollLeft += left - 16;
+    if (top < inset || top + r.height > box.clientHeight) box.scrollTop += top - inset - 16;
+  }
+  function openConsole(q) {
+    if (current.console && view) {
+      $("search").value = q;
+      search(q);
+      return;
+    }
+    searchOnOpen = q;
+    
+    if (current.console) current = { node: current.node, step: current.step };
+    select({ node: current.node, console: true }, true);
+  }
+
+  
+  var failedLeaves = [];
+  (function find(list) {
+    list.forEach(function (n) {
+      var before = failedLeaves.length;
+      find(n.children || []);
+      if (n.state === "FAILURE" && failedLeaves.length === before) failedLeaves.push(n);
+    });
+  })(S.stages || []);
+  function stepFail(dir) {
+    var i = failedLeaves.indexOf(current.node ? nodesById.get(current.node).node : null);
+    var len = failedLeaves.length;
+    var j = i < 0 ? (dir > 0 ? 0 : len - 1) : (i + dir + len) % len;
+    var wasCollapsed = !!document.querySelector(".branch.collapsed");
+    
+    var listWasCollapsed = mode === "list" && !filterActive() && !!document.querySelector(".sl-item.collapsed");
+    
+    select({ node: failedLeaves[j].id }, failWalk ? "replace" : true);
+    failWalk = true;
+    
+    if (wasCollapsed) collapseAll(true);
+    if (listWasCollapsed) listCollapseAll(true);
+  }
+  function setupTools() {
+    if (failedLeaves.length) {
+      $("failnav").hidden = false;
+      $("fail-pos").textContent = failedLeaves.length + " failed";
+      $("fail-prev").addEventListener("click", function () { stepFail(-1); });
+      $("fail-next").addEventListener("click", function () { stepFail(1); });
+    }
+    if (listItems.size) {
+      $("mode").hidden = false;
+      $("mode-graph").addEventListener("click", function () { setMode("graph", true); });
+      $("mode-list").addEventListener("click", function () { setMode("list", true); });
+    }
+    if (!branchEls.size) return;
+    $("branch-tools").hidden = false;
+    $("collapse-all").addEventListener("click", function () { (mode === "list" ? listCollapseAll : collapseAll)(true); });
+    $("expand-all").addEventListener("click", function () { (mode === "list" ? listCollapseAll : collapseAll)(false); });
+  }
+
   function fromHash() {
     var p = new URLSearchParams(location.hash.slice(1));
     return { node: p.get("node"), step: p.get("step"), console: p.has("console") };
@@ -759,19 +1227,193 @@ footer { margin-top: 2rem; color: var(--muted); font-size: .8rem; }
     return found || (S.stages && S.stages[0]) || null;
   }
 
+  var LAYOUT_KEY = "jkit.export.layout";
+  var KEY_STEP = 32;
+  var MIN_PANE = 80;
+  
+  var MIN_LIST_PANE = 144;
+  var relayout = function () {};
+  var root = document.documentElement;
+  
+  function loadLayout() {
+    try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function saveLayout(patch) {
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(Object.assign(loadLayout(), patch))); } catch (e) {   }
+  }
+  
+  
+  
+  function splitter(sep, dir, get, set, reset, persist) {
+    var start = 0, startSize = 0, moved = false;
+    function syncValue() { sep.setAttribute("aria-valuenow", Math.round(get())); }
+    sep.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0) return;
+      sep.setPointerCapture(e.pointerId);
+      sep.classList.add("drag");
+      start = dir === "y" ? e.clientY : e.clientX;
+      startSize = get();
+      moved = false;
+      
+      e.preventDefault();
+      sep.focus();
+    });
+    sep.addEventListener("pointermove", function (e) {
+      if (!sep.hasPointerCapture(e.pointerId)) return;
+      set(startSize + (dir === "y" ? e.clientY : e.clientX) - start);
+      moved = true;
+      syncValue();
+    });
+    sep.addEventListener("lostpointercapture", function () {
+      sep.classList.remove("drag");
+      if (moved) persist(get());
+    });
+    sep.addEventListener("keydown", function (e) {
+      var back = dir === "y" ? "ArrowUp" : "ArrowLeft", fwd = dir === "y" ? "ArrowDown" : "ArrowRight";
+      var to = e.key === back ? get() - KEY_STEP : e.key === fwd ? get() + KEY_STEP :
+        e.key === "Home" ? 0 : e.key === "End" ? Infinity : null;
+      if (to === null) return;
+      e.preventDefault();
+      persist(set(to));
+      syncValue();
+    });
+    sep.addEventListener("dblclick", function () {
+      reset();
+      persist(null);
+      syncValue();
+    });
+    syncValue();
+    return syncValue;
+  }
+  function setupLayout() {
+    var gs = $("graph-scroll"), panels = document.querySelector(".panels"), steps = $("steps-panel");
+    var gsep = $("graph-split"), psep = $("panels-split");
+    
+    
+    var saved = loadLayout();
+    var wantGraph = saved.graphH > 0 ? saved.graphH : null;
+    var wantPct = saved.stepsPct > 0 ? saved.stepsPct : null;
+    function clamp(v, max, min) {
+      min = min || MIN_PANE;
+      return Math.max(min, Math.min(v, Math.max(min, max)));
+    }
+    
+    function graphMin() { return mode === "list" ? MIN_LIST_PANE : MIN_PANE; }
+    function graphMax() { return window.innerHeight - 120; }
+    function stepsMax() { return panels.clientWidth - 120; }
+    function sideBySide() { return getComputedStyle(psep).display !== "none"; }
+    function apply() {
+      if (wantGraph) root.style.setProperty("--graph-h", Math.round(clamp(wantGraph, graphMax(), graphMin())) + "px");
+      
+      
+      if (wantPct && sideBySide()) {
+        var w = panels.clientWidth;
+        root.style.setProperty("--steps-w", (clamp(wantPct / 100 * w, stepsMax()) / w * 100).toFixed(2) + "%");
+      }
+      gsep.setAttribute("aria-valuemin", graphMin());
+      gsep.setAttribute("aria-valuemax", Math.round(Math.max(graphMin(), graphMax())));
+      psep.setAttribute("aria-valuemax", Math.round(Math.max(MIN_PANE, stepsMax())));
+    }
+    function setGraph(px) {
+      wantGraph = Math.round(clamp(px, graphMax(), graphMin()));
+      apply();
+      return wantGraph;
+    }
+    
+    function setSteps(px) {
+      px = clamp(px, stepsMax());
+      wantPct = px / panels.clientWidth * 100;
+      apply();
+      return px;
+    }
+    psep.setAttribute("aria-valuemin", MIN_PANE);
+    apply();
+    var syncGraph = splitter(gsep, "y", function () { return gs.getBoundingClientRect().height; }, setGraph,
+      function () { wantGraph = null; root.style.removeProperty("--graph-h"); },
+      function (px) { saveLayout({ graphH: px && Math.round(px) }); });
+    var syncSteps = splitter(psep, "x", function () { return steps.getBoundingClientRect().width; }, setSteps,
+      function () { wantPct = null; root.style.removeProperty("--steps-w"); },
+      function (px) { saveLayout({ stepsPct: px && +(px / panels.clientWidth * 100).toFixed(2) }); });
+    relayout = function () {
+      apply();
+      syncGraph();
+    };
+    var pending = 0;
+    window.addEventListener("resize", function () {
+      if (pending) return;
+      pending = requestAnimationFrame(function () {
+        pending = 0;
+        apply();
+        syncGraph();
+        syncSteps();
+      });
+    });
+  }
+
   $("console-btn").addEventListener("click", function () {
     select({ node: current.node, console: true }, true);
   });
-  window.addEventListener("hashchange", function () { select(fromHash(), false); });
+  
+  function followHash() {
+    var h = fromHash();
+    if (h.node === (current.node || null) && h.step === (current.step || null) && h.console === !!current.console) return;
+    select(h, false);
+  }
+  window.addEventListener("popstate", followHash);
+  window.addEventListener("hashchange", followHash);
 
   renderHeader();
   renderGraph();
+  renderList();
+  setupLayout();
+  setupTools();
+  
+  
+  var gs = $("graph-scroll");
+  if ($("graph").scrollWidth > 3 * gs.clientWidth) collapseAll(true);
+  
+  function markOverflow() {
+    var g = gs.getBoundingClientRect(), lo = g.left + gs.clientLeft, hi = lo + gs.clientWidth, before = 0, after = 0;
+    if (mode === "graph") document.querySelectorAll("#graph > .stage > .node").forEach(function (n) {
+      var r = n.getBoundingClientRect();
+      if (r.left < lo - 1) before++;
+      else if (r.right > hi + 1) after++;
+    });
+    var l = $("graph-left"), rt = $("graph-right"), had = document.activeElement;
+    l.hidden = mode !== "graph" || gs.scrollLeft <= 2;
+    rt.hidden = mode !== "graph" || gs.scrollLeft + gs.clientWidth >= gs.scrollWidth - 2;
+    
+    rt.style.right = (gs.offsetWidth - gs.clientWidth - gs.clientLeft + 8) + "px";
+    l.textContent = "← " + (before ? before + " more" : "More");
+    rt.textContent = (after ? after + " more" : "More") + " →";
+    
+    function name(n, dir) { return (n ? n + " more stage" + (n > 1 ? "s" : "") : "More stages") + ", scroll " + dir; }
+    l.setAttribute("aria-label", name(before, "left"));
+    rt.setAttribute("aria-label", name(after, "right"));
+    
+    if (rt.hidden && had === rt && !l.hidden) l.focus();
+    if (l.hidden && had === l && !rt.hidden) rt.focus();
+  }
+  $("graph-left").addEventListener("click", function () { gs.scrollBy({ left: -gs.clientWidth * .8, behavior: "smooth" }); });
+  $("graph-right").addEventListener("click", function () { gs.scrollBy({ left: gs.clientWidth * .8, behavior: "smooth" }); });
+  gs.addEventListener("scroll", markOverflow, { passive: true });
+  
+  if (window.ResizeObserver) {
+    var ro = new ResizeObserver(markOverflow);
+    ro.observe(gs);
+    ro.observe($("graph"));
+  }
+  markOverflow();
+  
+  var savedMode = loadLayout().mode;
+  if (listItems.size) setMode(savedMode === "list" || savedMode === "graph" ? savedMode : window.innerWidth < 600 ? "list" : "graph", false);
   var initial = fromHash();
   if (!initial.node && !initial.step && !initial.console) {
-    var d = defaultNode();
+    var d = nodesById.has(S.failureNodeId) ? nodesById.get(S.failureNodeId).node : defaultNode();
     initial = { node: d ? d.id : null };
   }
   select(initial, false);
+  if (initial.node || initial.step || initial.console) writeHash(current, false);
 })();
 </script>
 </body>

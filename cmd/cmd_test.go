@@ -1724,3 +1724,20 @@ func TestScanBranchDoesNotRewriteTheJobPath(t *testing.T) {
 		assert.NotContains(t, p, "/job/develop", "scan filters the container's log; it must not append the branch to the path")
 	}
 }
+
+func TestAuthLoginStripsFragmentFromHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{})
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	t.Setenv("JKIT_CONFIG_DIR", dir)
+
+	_, err := executeCmd(t, "auth", "login", "--host", srv.URL+"/#", "--user", "u", "--token", "t")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), srv.URL+":")
+	assert.NotContains(t, string(data), "#")
+}

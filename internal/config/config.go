@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -42,7 +44,17 @@ func (c *Config) HostURLs() []string {
 	for h := range c.Hosts {
 		hosts = append(hosts, h)
 	}
+	sort.Strings(hosts)
 	return hosts
+}
+
+// NormalizeHost trims whitespace, any fragment or query, and trailing slashes
+// from a host URL. A fragment or query makes a second config key for the same
+// Jenkins that url.Parse cannot tell apart from the first.
+func NormalizeHost(host string) string {
+	host, _, _ = strings.Cut(strings.TrimSpace(host), "#")
+	host, _, _ = strings.Cut(host, "?")
+	return strings.TrimRight(host, "/")
 }
 
 func Load() (*Config, error) {

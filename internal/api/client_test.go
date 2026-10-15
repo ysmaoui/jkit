@@ -228,3 +228,9 @@ func TestNormalizeJobPathSpecialChars(t *testing.T) {
 		})
 	}
 }
+
+func TestNewBaseTransport(t *testing.T) {
+	tr := newBaseTransport()
+	assert.GreaterOrEqual(t, tr.MaxIdleConnsPerHost, 8)
+	assert.NotNil(t, tr.Proxy)
+}

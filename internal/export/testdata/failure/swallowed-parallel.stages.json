@@ -1,0 +1,61 @@
+[
+ {
+  "id": "6",
+  "name": "A",
+  "type": "STAGE",
+  "state": "FAILURE",
+  "startTimeMillis": 1791875017810,
+  "children": []
+ },
+ {
+  "id": "15",
+  "name": "P",
+  "type": "STAGE",
+  "state": "SUCCESS",
+  "startTimeMillis": 1791875017877,
+  "children": [
+   {
+    "id": "18",
+    "name": "Y",
+    "type": "PARALLEL",
+    "state": "FAILURE",
+    "startTimeMillis": 1791875017891,
+    "children": [
+     {
+      "id": "21",
+      "name": "Y1",
+      "type": "STAGE",
+      "state": "FAILURE",
+      "startTimeMillis": 1791875017916,
+      "children": []
+     }
+    ]
+   },
+   {
+    "id": "19",
+    "name": "Z",
+    "type": "PARALLEL",
+    "state": "SUCCESS",
+    "startTimeMillis": 1791875017893,
+    "children": [
+     {
+      "id": "23",
+      "name": "Z1",
+      "type": "STAGE",
+      "state": "SUCCESS",
+      "startTimeMillis": 1791875017925,
+      "children": []
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "37",
+  "name": "B",
+  "type": "STAGE",
+  "state": "FAILURE",
+  "startTimeMillis": 1791875018062,
+  "children": []
+ }
+]
