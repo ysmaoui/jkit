@@ -34,6 +34,22 @@ func ColorStatus(status string) string {
 	}
 }
 
+// ColorAuthResult colours an auth check label by severity: green for good,
+// red for rejected, yellow otherwise.
+func ColorAuthResult(label string, good, bad bool) string {
+	if noColor() {
+		return label
+	}
+	switch {
+	case good:
+		return green.Render(label)
+	case bad:
+		return red.Render(label)
+	default:
+		return yellow.Render(label)
+	}
+}
+
 func noColor() bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return true

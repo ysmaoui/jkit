@@ -11,7 +11,9 @@ func FlattenPGVTree(stages []PGVStage) []Stage {
 	return out
 }
 
-const pgvPipelineStart = "PIPELINE_START"
+// PGVPipelineStart is the type of the node PGV lists, named "System
+// Generated" (localized), before a run enters its first stage.
+const PGVPipelineStart = "PIPELINE_START"
 
 func walkPGV(stages []PGVStage, parentID, parentType string, out *[]Stage) {
 	// Branches inside a PARALLEL_BLOCK all point back to the block id — no
@@ -24,7 +26,7 @@ func walkPGV(stages []PGVStage, parentID, parentType string, out *[]Stage) {
 		// when no real stage exists yet, so that its UI can show the log. It
 		// is no stage: listed, it reads as a running stage before the first
 		// one starts.
-		if s.Type == pgvPipelineStart {
+		if s.Type == PGVPipelineStart {
 			continue
 		}
 		var fp string

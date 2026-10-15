@@ -50,6 +50,56 @@ func ParseJenkinsURL(raw string) (*ParsedURL, error) {
 	return nil, fmt.Errorf("not a Jenkins URL (no /job/ or /blue/ path)")
 }
 
+// ParseJenkinsURLUnder is ParseJenkinsURL for a Jenkins that may be served
+// under a context path, such as https://x/jenkins/. The path alone cannot say
+// where that root ends: a classic URL may carry /view/<name>/ before /job/, and
+// Blue Ocean's /blue/ sits under the root too. So roots lists the Jenkins roots
+// raw may lie under, and the longest one holding it on a path segment boundary
+// becomes Host, without its trailing slash. With no such root it is
+// ParseJenkinsURL.
+func ParseJenkinsURLUnder(raw string, roots []string) (*ParsedURL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ParseJenkinsURL(raw)
+	}
+	path := u.EscapedPath()
+	host, prefix, found := "", "", false
+	for _, r := range roots {
+		r = strings.TrimRight(r, "/")
+		ru, err := url.Parse(r)
+		if err != nil || ru.Host == "" || !strings.EqualFold(ru.Scheme, u.Scheme) || !strings.EqualFold(ru.Host, u.Host) {
+			continue
+		}
+		p := ru.EscapedPath()
+		if p != "" && path != p && !strings.HasPrefix(path, p+"/") {
+			continue
+		}
+		if !found || len(p) > len(prefix) || (len(p) == len(prefix) && preferRoot(r, host, u.Scheme+"://"+u.Host+p)) {
+			host, prefix, found = r, p, true
+		}
+	}
+	if !found {
+		return ParseJenkinsURL(raw)
+	}
+	parsed, err := ParseJenkinsURL(u.Scheme + "://" + u.Host + strings.TrimPrefix(path, prefix))
+	if err != nil {
+		return nil, err
+	}
+	parsed.Host = host
+	return parsed, nil
+}
+
+// preferRoot breaks ties between roots that parse to the same scheme, host and
+// path, such as "https://x" and "https://x#" (url.Parse drops the fragment).
+// The key spelled exactly like the URL's own root wins, else the lexically
+// smallest, so the pick never depends on config map order.
+func preferRoot(cand, cur, exact string) bool {
+	if cand == exact || cur == exact {
+		return cand == exact && cur != exact
+	}
+	return cand < cur
+}
+
 // unescapeJobSegment turns one EscapedPath segment of a classic URL into a job
 // name. Jenkins links a branch job such as "feature%2Fx%234" (branch
 // "feature/x#4") double-encoded, so one decode already yields the job name.

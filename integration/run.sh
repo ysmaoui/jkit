@@ -11,13 +11,14 @@ JK="$PROJECT_DIR/jkit"
 
 export JKIT_CONFIG_DIR=$(mktemp -d)
 export NO_COLOR=1
+WORK_DIR=$(mktemp -d)
 
 PASS=0
 FAIL=0
 ERRORS=""
 
 cleanup() {
-    rm -rf "$JKIT_CONFIG_DIR"
+    rm -rf "$JKIT_CONFIG_DIR" "$WORK_DIR"
     echo ""
     echo "================================"
     echo "Results: $PASS passed, $FAIL failed"
@@ -101,6 +102,13 @@ sleep 10
 echo "Building jkit..."
 (cd "$PROJECT_DIR" && go build -o jkit .)
 
+# export-pipeline runs jkit inside the controller. The chmod undoes a
+# restrictive host umask: the container's jenkins user owns nothing copied in.
+echo "Copying a linux jkit into the Jenkins container..."
+(cd "$PROJECT_DIR" && GOOS=linux CGO_ENABLED=0 go build -o "$WORK_DIR/jkit" .)
+chmod 755 "$WORK_DIR/jkit"
+docker compose -f "$SCRIPT_DIR/docker-compose.yml" cp "$WORK_DIR/jkit" jenkins:/usr/local/bin/jkit
+
 echo ""
 echo "Running integration tests..."
 echo ""
@@ -112,6 +120,12 @@ assert_success "auth login" \
 
 assert_contains "auth status shows valid" "valid" \
     "$JK" auth status
+
+assert_contains "auth status --all shows valid" '"result": "valid"' \
+    "$JK" auth status --all --json
+
+assert_contains "auth prune proposes nothing" "nothing to remove" \
+    "$JK" auth prune
 
 # 2. List jobs
 echo ""
@@ -225,6 +239,68 @@ assert_contains "running --folder test excludes it" "^\[\]$" \
 
 assert_success "abort slow-pipeline" \
     "$JK" abort test-folder/slow-pipeline 1
+
+# 9. Export. export-pipeline exports itself mid-run and archives the result.
+echo ""
+echo "[export]"
+assert_success "run export-pipeline --wait (exports itself mid-run)" \
+    "$JK" run export-pipeline --wait
+
+assert_success "export html export-pipeline 1" \
+    "$JK" export html export-pipeline 1 -o "$WORK_DIR/export.html"
+
+assert_success "export file is non-empty" \
+    test -s "$WORK_DIR/export.html"
+
+assert_success "fetch PGV allSteps of export-pipeline 1" \
+    curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" -o "$WORK_DIR/allSteps.json" \
+    "$JENKINS_URL/job/export-pipeline/1/stages/allSteps"
+
+assert_success "finished export holds every stage, step and log" \
+    go -C "$PROJECT_DIR" run ./integration/exportcheck finished "$WORK_DIR/export.html" "$WORK_DIR/allSteps.json"
+
+assert_success "run console-pipeline --wait" \
+    "$JK" run console-pipeline --wait
+
+# Both log sources give the same page. The console export must not have
+# fallen back to steps, or the comparison proves nothing.
+for job in export-pipeline console-pipeline; do
+    assert_success "export html $job 1 from the annotated console, no fallback" \
+        sh -c '"$1" export html "$2" 1 --log-source=console -o "$3" 2>"$3.err" && grep -q "reading step logs from the annotated console" "$3.err" && ! grep -q unusable "$3.err"' \
+        _ "$JK" "$job" "$WORK_DIR/$job-console.html"
+    assert_success "export html $job 1 step by step" \
+        "$JK" export html "$job" 1 --log-source=steps -o "$WORK_DIR/$job-steps.html"
+    assert_success "$job: same step logs and console from both log sources" \
+        go -C "$PROJECT_DIR" run ./integration/exportcheck same "$WORK_DIR/$job-console.html" "$WORK_DIR/$job-steps.html"
+done
+
+assert_fail "run compile-error-pipeline --wait" \
+    "$JK" run compile-error-pipeline --wait
+
+assert_success "export html compile-error-pipeline 1: finished, compile error as build error" \
+    sh -c '"$1" export html compile-error-pipeline 1 -o "$2" 2>"$2.err" && ! grep -q "still in progress" "$2.err" && grep -qF "$3" "$2"' \
+    _ "$JK" "$WORK_DIR/compile-error.html" \
+    "\"buildErrorMessage\":\"org.codehaus.groovy.control.MultipleCompilationErrorsException: startup failed: WorkflowScript: 7: expecting '}', found '' @ line 7, column 1.\""
+
+assert_success "download in-pipeline snapshot artifact" \
+    "$JK" artifacts export-pipeline 1 -d snapshot.html -o "$WORK_DIR/snapshot.html"
+
+assert_success "in-pipeline snapshot is partial, exporting step running" \
+    go -C "$PROJECT_DIR" run ./integration/exportcheck live "$WORK_DIR/snapshot.html"
+
+assert_success "download in-pipeline step-by-step snapshot and its stderr" \
+    sh -c '"$1" artifacts export-pipeline 1 -d snapshot-steps.html -o "$2/snapshot-steps.html" && "$1" artifacts export-pipeline 1 -d snapshot.err -o "$2/snapshot.err"' \
+    _ "$JK" "$WORK_DIR"
+
+# The console stops inside Long Log: Build's three steps and Race's sh and
+# two echos come from it; Race's sleeps and the steps from Long Log on are
+# read one by one.
+assert_success "in-pipeline snapshot took logs from the annotated console and read the rest one by one" \
+    sh -c 'grep -q "build running: 6 step logs whole in the annotated console, reading the other 8 one by one" "$1" && ! grep -q unusable "$1"' \
+    _ "$WORK_DIR/snapshot.err"
+
+assert_success "in-pipeline snapshot: finished steps match the step-by-step snapshot" \
+    go -C "$PROJECT_DIR" run ./integration/exportcheck ended "$WORK_DIR/snapshot.html" "$WORK_DIR/snapshot-steps.html"
 
 echo ""
 echo "Done."

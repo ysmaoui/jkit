@@ -1,4 +1,4 @@
-.PHONY: test lint lint-fix integration-test integration-up integration-down
+.PHONY: test lint lint-fix integration-test integration-up integration-down browser-test
 
 test:
 	go test ./... -count=1
@@ -18,3 +18,7 @@ integration-down:
 
 integration-test: integration-up
 	bash integration/run.sh; s=$$?; $(MAKE) integration-down; exit $$s
+
+# Export viewer checks in Chromium and Firefox; needs docker. See tests/browser/run.sh.
+browser-test:
+	bash tests/browser/run.sh

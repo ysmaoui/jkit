@@ -1,0 +1,115 @@
+[
+ {
+  "id": "5",
+  "name": "Parallel",
+  "type": "PARALLEL_BLOCK",
+  "state": "FAILURE",
+  "startTimeMillis": 1791875007811,
+  "children": [
+   {
+    "id": "7",
+    "name": "A",
+    "type": "PARALLEL",
+    "state": "FAILURE",
+    "startTimeMillis": 1791875007816,
+    "children": [
+     {
+      "id": "9",
+      "name": "Parallel",
+      "type": "PARALLEL_BLOCK",
+      "state": "FAILURE",
+      "startTimeMillis": 1791875007829,
+      "children": [
+       {
+        "id": "11",
+        "name": "B",
+        "type": "PARALLEL",
+        "state": "FAILURE",
+        "startTimeMillis": 1791875007834,
+        "children": [
+         {
+          "id": "15",
+          "name": "Parallel",
+          "type": "PARALLEL_BLOCK",
+          "state": "FAILURE",
+          "startTimeMillis": 1791875007859,
+          "children": [
+           {
+            "id": "17",
+            "name": "X",
+            "type": "PARALLEL",
+            "state": "FAILURE",
+            "startTimeMillis": 1791875007863,
+            "children": [
+             {
+              "id": "23",
+              "name": "X1",
+              "type": "STAGE",
+              "state": "FAILURE",
+              "startTimeMillis": 1791875007899,
+              "children": []
+             }
+            ]
+           },
+           {
+            "id": "18",
+            "name": "C",
+            "type": "PARALLEL",
+            "state": "SUCCESS",
+            "startTimeMillis": 1791875007865,
+            "children": [
+             {
+              "id": "25",
+              "name": "C1",
+              "type": "STAGE",
+              "state": "SUCCESS",
+              "startTimeMillis": 1791875007909,
+              "children": []
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "12",
+        "name": "D",
+        "type": "PARALLEL",
+        "state": "SUCCESS",
+        "startTimeMillis": 1791875007836,
+        "children": [
+         {
+          "id": "20",
+          "name": "D1",
+          "type": "STAGE",
+          "state": "SUCCESS",
+          "startTimeMillis": 1791875007876,
+          "children": []
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "8",
+    "name": "E",
+    "type": "PARALLEL",
+    "state": "FAILURE",
+    "startTimeMillis": 1791875007818,
+    "children": [
+     {
+      "id": "14",
+      "name": "E1",
+      "type": "STAGE",
+      "state": "FAILURE",
+      "startTimeMillis": 1791875007846,
+      "children": []
+     }
+    ]
+   }
+  ]
+ }
+]

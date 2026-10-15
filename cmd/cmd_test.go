@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -52,33 +54,32 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
+// resetFlagsRecursive restores every flag on c and all descendants to its
+// default. Cobra keeps flag values and Changed state on the package-level
+// command tree, so they leak between executeCmd calls otherwise. Inherited
+// persistent flags are shared *pflag.Flag pointers, so they reset too.
+func resetFlagsRecursive(c *cobra.Command) {
+	reset := func(f *pflag.Flag) {
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			_ = sv.Replace(nil)
+		} else {
+			_ = f.Value.Set(f.DefValue)
+		}
+		f.Changed = false
+	}
+	c.Flags().VisitAll(reset)
+	c.PersistentFlags().VisitAll(reset)
+	for _, sub := range c.Commands() {
+		resetFlagsRecursive(sub)
+	}
+}
+
 // executeCmd runs rootCmd with given args, returns stdout and error.
 func executeCmd(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var cmdErr error
 	cmd := rootCmd
-	// Reset persistent flags to defaults between test runs
-	cmd.ResetFlags()
-	registerRootFlags(cmd)
-	// Reset subcommand local flags to avoid state leaking between tests
-	for _, sub := range cmd.Commands() {
-		sub.ResetFlags()
-	}
-	// Re-register subcommand flags
-	runCmd.Flags().StringArrayP("param", "p", nil, "Build parameter (KEY=VALUE)")
-	runCmd.Flags().Bool("wait", false, "Wait for build to complete")
-	runCmd.Flags().Bool("log", false, "Stream build log (implies --wait)")
-	registerLogFlags(logCmd)
-	listCmd.Flags().String("folder", "", "Folder path to list")
-	statusCmd.Flags().Int("limit", 10, "Number of recent builds to show")
-	registerInspectFlags(inspectCmd)
-	registerScanFlags(scanCmd)
-	registerInputFlags(inputCmd)
-	registerSourcesFlags(sourcesCmd)
-	registerWaitFlags(waitCmd)
-	registerRebuildFlags(rebuildCmd)
-	registerRunningFlags(runningCmd)
-	registerAPIFlags(apiCmd)
+	resetFlagsRecursive(cmd)
 	cmd.SetArgs(args)
 	out := captureStdout(t, func() {
 		cmdErr = cmd.Execute()
@@ -241,6 +242,31 @@ func TestStatusURLTargetBuildNumber(t *testing.T) {
 			assert.Contains(t, out, "#42")
 		})
 	}
+}
+
+// A URL pasted from a Jenkins served under a context path takes the configured
+// host holding it, so its credentials apply and its routes keep the prefix.
+func TestStatusURLTargetUnderContextPath(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/jenkins/job/a/job/b/12/api/json" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"number": 12, "result": "SUCCESS", "building": false,
+				"duration": 45000, "timestamp": 1700000000000,
+				"url": "http://jenkins/jenkins/job/a/job/b/12/",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL+"/jenkins")
+
+	out, err := executeCmd(t, "status", srv.URL+"/jenkins/view/all/job/a/job/b/12/")
+	require.NoError(t, err)
+	assert.Contains(t, paths, "/jenkins/job/a/job/b/12/api/json")
+	assert.Contains(t, out, "#12")
 }
 
 func TestStatusURLTargetBadBuildNumber(t *testing.T) {
@@ -1697,4 +1723,21 @@ func TestScanBranchDoesNotRewriteTheJobPath(t *testing.T) {
 	for _, p := range paths {
 		assert.NotContains(t, p, "/job/develop", "scan filters the container's log; it must not append the branch to the path")
 	}
+}
+
+func TestAuthLoginStripsFragmentFromHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{})
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	t.Setenv("JKIT_CONFIG_DIR", dir)
+
+	_, err := executeCmd(t, "auth", "login", "--host", srv.URL+"/#", "--user", "u", "--token", "t")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), srv.URL+":")
+	assert.NotContains(t, string(data), "#")
 }

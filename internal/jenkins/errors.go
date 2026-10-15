@@ -64,6 +64,22 @@ func (e *ContainerBuildError) Error() string {
 	return b.String()
 }
 
+// PluginMissingError reports a plugin's route answering 404 for a build that
+// exists: the plugin is not installed, or too old to serve the route.
+type PluginMissingError struct {
+	Plugin string
+	Route  string
+	Host   string
+	// Cause is the 404 the route answered.
+	Cause error
+}
+
+func (e *PluginMissingError) Error() string {
+	return fmt.Sprintf("%s not served on %s — the %s plugin is not installed or too old", e.Route, e.Host, e.Plugin)
+}
+
+func (e *PluginMissingError) Unwrap() error { return e.Cause }
+
 type PermissionError struct {
 	Resource string
 	Host     string

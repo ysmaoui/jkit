@@ -1,0 +1,61 @@
+Started by user <a href='/user/admin' class='jenkins-table__link model-link model-link--float'>admin</a>
+<span class="pipeline-new-node" nodeId="2" startId="2">[Pipeline] Start of Pipeline
+</span><span class="pipeline-new-node" nodeId="3" startId="3" enclosingId="2">[Pipeline] node
+</span><span class="pipeline-node-3">Running on <a href='/computer/(built-in)/' class='jenkins-table__link model-link model-link--float'>Jenkins</a> in /var/jenkins_home/workspace/p17
+</span><span class="pipeline-new-node" nodeId="4" startId="4" enclosingId="3">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="5" startId="5" enclosingId="4">[Pipeline] parallel
+</span><span class="pipeline-new-node" nodeId="7" startId="7" enclosingId="5" label="Branch: A">[Pipeline] { (Branch: A)
+</span><span class="pipeline-new-node" nodeId="8" startId="8" enclosingId="5" label="Branch: E">[Pipeline] { (Branch: E)
+</span><span class="pipeline-new-node" nodeId="9" startId="9" enclosingId="7">[Pipeline] parallel
+</span><span class="pipeline-new-node" nodeId="11" startId="11" enclosingId="9" label="Branch: B">[Pipeline] { (Branch: B)
+</span><span class="pipeline-new-node" nodeId="12" startId="12" enclosingId="9" label="Branch: D">[Pipeline] { (Branch: D)
+</span><span class="pipeline-new-node" nodeId="13" startId="13" enclosingId="8">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="14" startId="14" enclosingId="13" label="E1">[Pipeline] { (E1)
+</span><span class="pipeline-new-node" nodeId="15" startId="15" enclosingId="11">[Pipeline] parallel
+</span><span class="pipeline-new-node" nodeId="17" startId="17" enclosingId="15" label="Branch: X">[Pipeline] { (Branch: X)
+</span><span class="pipeline-new-node" nodeId="18" startId="18" enclosingId="15" label="Branch: C">[Pipeline] { (Branch: C)
+</span><span class="pipeline-new-node" nodeId="19" startId="19" enclosingId="12">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="20" startId="20" enclosingId="19" label="D1">[Pipeline] { (D1)
+</span><span class="pipeline-new-node" nodeId="21" enclosingId="14">[Pipeline] sleep
+</span><span class="pipeline-node-21">Sleeping for 1 sec
+</span><span class="pipeline-new-node" nodeId="22" startId="22" enclosingId="17">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="23" startId="23" enclosingId="22" label="X1">[Pipeline] { (X1)
+</span><span class="pipeline-new-node" nodeId="24" startId="24" enclosingId="18">[Pipeline] stage
+</span><span class="pipeline-new-node" nodeId="25" startId="25" enclosingId="24" label="C1">[Pipeline] { (C1)
+</span><span class="pipeline-new-node" nodeId="26" enclosingId="20">[Pipeline] echo
+</span><span class="pipeline-node-26">d
+</span><span class="pipeline-new-node" nodeId="27" startId="20">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="28" enclosingId="23">[Pipeline] sleep
+</span><span class="pipeline-node-28">Sleeping for 3 sec
+</span><span class="pipeline-new-node" nodeId="29" enclosingId="25">[Pipeline] echo
+</span><span class="pipeline-node-29">c
+</span><span class="pipeline-new-node" nodeId="30" startId="25">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="31" startId="19">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="32" startId="12">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="33" startId="24">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="34" startId="18">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="35" enclosingId="14">[Pipeline] error
+</span><span class="pipeline-new-node" nodeId="36" startId="14">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="37" startId="13">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="38" startId="8">[Pipeline] }
+</span><span class="pipeline-node-38">Failed in branch E
+</span><span class="pipeline-new-node" nodeId="39" startId="39" enclosingId="23">[Pipeline] catchError
+</span><span class="pipeline-new-node" nodeId="40" startId="40" enclosingId="39">[Pipeline] {
+</span><span class="pipeline-new-node" nodeId="41" enclosingId="40">[Pipeline] error
+</span><span class="pipeline-new-node" nodeId="42" startId="40">[Pipeline] }
+</span><span class="pipeline-node-42">ERROR: caught
+Setting overall build result to FAILURE
+</span><span class="pipeline-new-node" nodeId="43" startId="39">[Pipeline] // catchError
+</span><span class="pipeline-new-node" nodeId="44" startId="23">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="45" startId="22">[Pipeline] // stage
+</span><span class="pipeline-new-node" nodeId="46" startId="17">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="47" startId="15">[Pipeline] // parallel
+</span><span class="pipeline-new-node" nodeId="48" startId="11">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="49" startId="9">[Pipeline] // parallel
+</span><span class="pipeline-new-node" nodeId="50" startId="7">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="51" startId="5">[Pipeline] // parallel
+</span><span class="pipeline-new-node" nodeId="52" startId="4">[Pipeline] }
+</span><span class="pipeline-new-node" nodeId="53" startId="3">[Pipeline] // node
+</span><span class="pipeline-new-node" nodeId="54" startId="2">[Pipeline] End of Pipeline
+</span>ERROR: real
+Finished: FAILURE

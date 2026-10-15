@@ -25,6 +25,7 @@ jkit env my-app                  # a build's injected env vars
 jkit input my-app --approve      # answer a paused "Promote to prod?" gate
 jkit disable my-app              # stop it building, without touching its config
 jkit lint                        # validate ./Jenkinsfile
+jkit export html my-app 42       # offline HTML of a run, survives Jenkins cleanup
 jkit open my-app                 # open in browser
 jkit api /api/json               # raw authenticated API request, like gh api
 ```
@@ -55,6 +56,8 @@ jkit auth login                                              # interactive
 jkit auth login --host https://jenkins.example.com \
               --user me --token "$JENKINS_TOKEN"           # non-interactive
 jkit auth status
+jkit auth status --all                                       # check every configured host
+jkit auth prune                                              # dry run: list redundant keys; --yes removes them
 ```
 
 Credentials are stored in `~/.config/jkit/config.yml`. Multiple hosts are

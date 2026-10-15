@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 
@@ -227,4 +228,59 @@ func TestNormalizeJobPathSpecialChars(t *testing.T) {
 			assert.Equal(t, tt.want, NormalizeJobPath(tt.input))
 		})
 	}
+}
+
+func TestNewBaseTransport(t *testing.T) {
+	tr := newBaseTransport()
+	assert.GreaterOrEqual(t, tr.MaxIdleConnsPerHost, 8)
+	assert.NotNil(t, tr.Proxy)
+}
+
+func TestSendsCredentials(t *testing.T) {
+	tests := []struct {
+		name, home, target string
+		want               bool
+	}{
+		{"same", "https://ci.example.com", "https://ci.example.com/api/json", true},
+		{"explicit 443 in config", "https://ci.example.com:443", "https://ci.example.com/api/json", true},
+		{"explicit 443 in target", "https://ci.example.com", "https://ci.example.com:443/api/json", true},
+		{"hostname case", "https://CI.Example.com", "https://ci.example.com/api/json", true},
+		{"http upgraded to https", "http://ci.example.com", "https://ci.example.com/api/json", true},
+		{"https downgraded to http", "https://ci.example.com", "http://ci.example.com/api/json", false},
+		{"other host", "https://ci.example.com", "https://other.example.com/api/json", false},
+		{"other port", "https://ci.example.com", "https://ci.example.com:8443/api/json", false},
+		{"http upgraded on non-default port", "http://ci.example.com:8080", "https://ci.example.com:8443/", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home, err := url.Parse(tc.home)
+			require.NoError(t, err)
+			target, err := url.Parse(tc.target)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, (&authTransport{home: home}).sendsCredentials(target))
+		})
+	}
+}
+
+func TestCredentialsNotSentAcrossHostRedirect(t *testing.T) {
+	var sawAuth atomic.Bool
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			sawAuth.Store(true)
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer other.Close()
+	var homeAuth atomic.Bool
+	home := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		homeAuth.Store(r.Header.Get("Authorization") != "")
+		http.Redirect(w, r, other.URL+"/api/json", http.StatusFound)
+	}))
+	defer home.Close()
+
+	resp, err := NewClient(home.URL, "jane", "tok").Get("/api/json", nil)
+	require.NoError(t, err)
+	CloseBody(resp)
+	assert.True(t, homeAuth.Load(), "configured host gets credentials")
+	assert.False(t, sawAuth.Load(), "redirect target must not get credentials")
 }

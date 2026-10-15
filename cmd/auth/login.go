@@ -39,7 +39,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		h, _ := reader.ReadString('\n')
 		host = strings.TrimSpace(h)
 	}
-	host = strings.TrimRight(host, "/")
+	host = config.NormalizeHost(host)
 	if host == "" {
 		return fmt.Errorf("host is required")
 	}

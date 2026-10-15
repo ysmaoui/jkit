@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 
 	"github.com/ysmaoui/jkit/internal/jenkins"
 )
@@ -110,6 +111,69 @@ func (c *Client) listStageStepsPGV(ctx context.Context, jobPath string, number i
 	return steps, nil
 }
 
+// ListAllSteps returns every step of a run, each tagged with its stageId, and
+// whether the run is complete. State is PGV's raw value; map it with
+// jenkins.MapPGVState. Only PGV serves this route, but a 404 is a
+// PluginMissingError only once the run answers as a pipeline run.
+func (c *Client) ListAllSteps(ctx context.Context, jobPath string, number int) (steps []jenkins.PGVStep, runComplete bool, err error) {
+	path := fmt.Sprintf("%s/%d/stages/allSteps", NormalizeJobPath(jobPath), number)
+	resp, err := c.getContext(ctx, path, nil, nil)
+	if err != nil {
+		var nfe *jenkins.NotFoundError
+		if errors.As(err, &nfe) {
+			return nil, false, c.explainPGV404(ctx, jobPath, number, "stages/allSteps", err)
+		}
+		return nil, false, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var pgv jenkins.PGVResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pgv); err != nil {
+		return nil, false, fmt.Errorf("decoding PGV all steps: %w", err)
+	}
+	if pgv.Status != "ok" {
+		return nil, false, fmt.Errorf("PGV status %q", pgv.Status)
+	}
+	return pgv.Data.Steps, pgv.Data.RunIsComplete, nil
+}
+
+// explainPGV404 tells apart the failures behind a 404 from a PGV route under a
+// run: a container job, a missing job or build, a build that is not a pipeline
+// run, and a server without PGV. Only the run itself answering as a pipeline
+// run leaves the plugin as the cause.
+func (c *Client) explainPGV404(ctx context.Context, jobPath string, number int, route string, cause error) error {
+	if hint := c.ContainerHint(jobPath); hint != nil {
+		return hint
+	}
+	resp, err := c.getContext(ctx, fmt.Sprintf("%s/%d/api/json", NormalizeJobPath(jobPath), number), url.Values{"tree": {"_class"}}, nil)
+	if err != nil {
+		var nfe *jenkins.NotFoundError
+		if !errors.As(err, &nfe) {
+			return fmt.Errorf("checking build %s #%d after its %s 404'd: %w", jobPath, number, route, err)
+		}
+		job, err := c.getContext(ctx, NormalizeJobPath(jobPath)+"/api/json", url.Values{"tree": {"_class"}}, nil)
+		if err == nil {
+			_ = job.Body.Close()
+			return &jenkins.NotFoundError{Resource: "build", Name: fmt.Sprintf("%s #%d", jobPath, number), Host: c.host}
+		}
+		if errors.As(err, &nfe) {
+			return &jenkins.NotFoundError{Resource: "job", Name: jobPath, Host: c.host}
+		}
+		return fmt.Errorf("checking job %s after its %s 404'd: %w", jobPath, route, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var run struct {
+		Class string `json:"_class"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
+		return fmt.Errorf("decoding build class: %w", err)
+	}
+	if !strings.HasSuffix(run.Class, ".WorkflowRun") {
+		return fmt.Errorf("%s #%d is not a pipeline build (%s) on %s, so it has no %s", jobPath, number, run.Class, c.host, route)
+	}
+	return &jenkins.PluginMissingError{Plugin: "Pipeline Graph View", Route: route, Host: c.host, Cause: cause}
+}
+
 // stepLog reads a pipeline step's log through core's progressiveText. A step
 // that has written nothing has no log action, so its route 404s.
 func (c *Client) stepLog(jobPath string, number int, stepID string) *ProgressiveLog {
@@ -123,27 +187,6 @@ func (c *Client) stepLog(jobPath string, number int, stepID string) *Progressive
 		return fmt.Errorf("reading step %s log: %w", stepID, err)
 	}
 	return l
-}
-
-// GetStepExceptionText returns the error text PGV's stage log appends after a
-// failed step: the message of a build failure, or a stack trace. It is "" when
-// the step has none or PGV does not serve the route.
-func (c *Client) GetStepExceptionText(ctx context.Context, jobPath string, number int, stepID string) (string, error) {
-	path := fmt.Sprintf("%s/%d/stages/exceptionText", NormalizeJobPath(jobPath), number)
-	resp, err := c.getContext(ctx, path, url.Values{"nodeId": {stepID}}, nil)
-	if err != nil {
-		var nfe *jenkins.NotFoundError
-		if errors.As(err, &nfe) {
-			return "", nil
-		}
-		return "", fmt.Errorf("getting step %s exception text: %w", stepID, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	text, err := io.ReadAll(io.LimitReader(resp.Body, maxExceptionText))
-	if err != nil {
-		return "", fmt.Errorf("reading step %s exception text: %w", stepID, err)
-	}
-	return string(text), nil
 }
 
 // flowNodeExists reports whether core serves a flow node's page. It tells a
@@ -288,9 +331,14 @@ func (f *StageStepFollower) listSteps(ctx context.Context, final bool) ([]StageS
 }
 
 // writeException appends a failed step's exception text the way PGV's stage
-// log does: after the step's log, ending in a newline.
+// log does: after the step's log, ending in a newline. A 404 writes nothing,
+// as the stage log has no exception text to show then either.
 func (f *StageStepFollower) writeException(ctx context.Context, w io.Writer, stepID string) error {
-	text, err := f.c.GetStepExceptionText(ctx, f.jobPath, f.number, stepID)
+	text, err := f.c.readExceptionText(ctx, f.jobPath, f.number, stepID)
+	var nfe *jenkins.NotFoundError
+	if errors.As(err, &nfe) {
+		return nil
+	}
 	if err != nil || text == "" {
 		return err
 	}

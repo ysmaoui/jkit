@@ -27,6 +27,11 @@ Commands documented below as `[job] [build#]` also take a full Jenkins URL in
 place of the job path. The build number may sit in the URL or follow it as a
 separate argument; passing both with different numbers is an error.
 
+The URL's host is the longest configured host that holds it, so a Jenkins
+served under a context path (`https://x/jenkins/view/all/job/a/12/` with
+`https://x/jenkins` logged in) uses that host's credentials and routes. With no
+configured host holding it, the host is the URL's scheme and host.
+
 ```bash
 jkit status my-app 47
 jkit status https://jenkins.company.com/job/my-app/47/
@@ -81,15 +86,145 @@ jkit auth login --host https://ci.co --user me --token abc --alias prod
 Show authentication status.
 
 ```
-jkit auth status [--host HOST]
+jkit auth status [--host HOST | --all]
 ```
 
-Exits 0 if valid, 1 if invalid.
+| Flag | Description |
+|------|-------------|
+| `--all` | Check every configured host, one row per config key |
+
+Without `--all`, checks the default host, or `--host`. `--host` takes a
+configured key, the same URL with a trailing slash, query or fragment, or an
+alias. A URL that matches several keys only after normalising is an error
+naming them. Exits 0 if valid, 1 if invalid.
 
 ```
-Host:  https://jenkins.company.com
+Host:  https://jenkins.example.com
 User:  jane
 Auth:  valid
+```
+
+With `--all`, every host in `config.yml` gets one `GET /whoAmI/api/json`,
+8 at a time, with a 10 second timeout, no retry and no redirect following. A
+2xx answer counts as valid only when it names a non-anonymous user. The table
+goes to stdout, progress and warnings to stderr. Tokens are never printed.
+
+```
+HOST                     ALIAS  USER  DEFAULT  RESULT               NOTES
+https://ci.example.com   prod   jane  yes      valid                duplicate of https://ci.example.com/; alias 'prod' shared with https://qa.example.com
+https://ci.example.com/  -      jane           valid                not normalised: https://ci.example.com; duplicate of https://ci.example.com
+https://qa.example.com   prod   jane           invalid token (401)  alias 'prod' shared with https://ci.example.com
+https://st.example.com   -      jane           timeout
+```
+
+RESULT is `valid`, `invalid token (401)`, `forbidden (403)`, `anonymous` (a
+2xx answer that is anonymous or not whoAmI JSON, e.g. a login page),
+`unreachable`, `timeout` or `HTTP <code>` (a redirect shows as its 3xx code).
+NOTES lists key problems found without a request: a key that `jkit auth login`
+would have written differently (trailing slash, query, fragment, spaces), keys
+that name the same host, an alias shared by several keys, and more than one key
+marked default. It also notes `authenticated as NAME` when Jenkins reports a
+user other than the configured one; that note alone does not fail the run.
+
+Exit code 1 if any host answers 401 or 403, is `anonymous`, or has a key
+problem. Hosts that are unreachable, time out or answer any other status do not
+fail the run; a warning on stderr gives their count.
+
+`--json` prints an array sorted by host. `result` is `valid`, `invalid`,
+`forbidden`, `anonymous`, `unreachable`, `timeout` or `http_<code>`;
+`status_code` is 0 when no answer came back.
+
+```json
+[
+  {
+    "host": "https://ci.example.com",
+    "alias": "prod",
+    "user": "jane",
+    "default": true,
+    "result": "valid",
+    "status_code": 200,
+    "problems": []
+  }
+]
+```
+
+`--format` applies a Go template to the same array, e.g.
+`--format '{{range .}}{{.Host}} {{.Result}}{{"\n"}}{{end}}'`.
+
+---
+
+## `jkit auth prune`
+
+Remove config keys that another key of the same host proves redundant.
+
+```
+jkit auth prune [--yes]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--yes` | Apply the removals, after copying `config.yml` to `config.yml.bak` |
+
+Runs the same check as `auth status --all`, once. Without `--yes` it only
+prints what it would do and writes nothing. A key goes only when another key
+that normalises to the same host stays, is configured for the same user
+(ignoring case), answers `valid` as that user, and is usable as written, which
+means it differs from the normalised host by trailing slashes at most. A key
+with a query, fragment or spaces checks valid against the normalised URL but
+breaks every other command, so it never stands in for another key. Removed:
+
+- a key not in normal form (trailing slash, query, fragment, spaces) whose
+  normalised twin is such a key;
+- a key whose token gets 401 while such a key exists for the same host.
+
+Nothing else is removed: not a host that is unreachable, times out, answers
+403, 5xx or any other code, or is `anonymous`; not a 401 key without a valid
+twin; not a key whose valid twin belongs to another user; never the last key
+for a host. Those keys get a `keep` line with a command to fix them by hand. A
+key that is not a URL at all (e.g. `/`) gets `jkit config remove`.
+
+If a removed key was the default, the key that justified the removal becomes
+the default. An alias moves the same way unless that key has its own, which it
+keeps; a `note` line names the dropped alias.
+
+With `--yes` and something to remove, the current `config.yml` is copied to
+`config.yml.bak` (replacing an older one), then the new config is written.
+Both files are mode 0600 and each is written through a rename. A symlinked
+`config.yml` stays a symlink: its target is rewritten and the backup sits next
+to the link. The rewrite keeps only the `hosts` entries, so comments and other
+top-level keys are gone from `config.yml`; the backup still has them. If
+`config.yml` changed while hosts were checked, nothing is written and the
+command fails. Exit code 0 unless the config cannot be read or written;
+proposals are not failures.
+
+```
+$ jkit auth prune
+remove https://ci.example.com#  (not normalised; twin https://ci.example.com is valid)
+move   default https://ci.example.com# -> https://ci.example.com
+keep   https://qa.example.com  (invalid token, no valid twin; run: jkit auth login --host https://qa.example.com)
+keep   https://st.example.com/  (not normalised, no twin; run: jkit auth login --host https://st.example.com, then jkit config remove 'https://st.example.com/')
+dry run: re-run with --yes to apply
+```
+
+The last line goes to stderr, with progress. Tokens are never printed.
+
+`--json` prints one object; `backup` is present only when a backup was
+written. `field` is `default` or `alias`. `--format` applies a Go template to
+the same object, e.g. `--format '{{range .Removals}}{{.Host}}{{"\n"}}{{end}}'`.
+
+```json
+{
+  "dry_run": true,
+  "removals": [
+    {"host": "https://ci.example.com#", "reason": "not normalised; twin https://ci.example.com is valid"}
+  ],
+  "reports": [
+    {"host": "https://qa.example.com", "reason": "invalid token, no valid twin", "suggestion": "jkit auth login --host https://qa.example.com"}
+  ],
+  "moves": [
+    {"from": "https://ci.example.com#", "to": "https://ci.example.com", "field": "default"}
+  ]
+}
 ```
 
 ---
@@ -1350,6 +1485,118 @@ jkit diagnose my-app 42
 jkit diagnose https://jenkins.example.com/job/team/job/svc/42/
 jkit diagnose my-app --json
 ```
+
+---
+
+## `jkit export html`
+
+Write a pipeline run as one self-contained HTML file: stage graph, steps, every step log and the console. The file opens offline, so the run stays readable after the Jenkins instance is gone. Needs the Pipeline Graph View plugin.
+
+```
+jkit export html [job] [build#] [-o FILE] [--max-log-bytes N] [--concurrency N]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-o, --output FILE` | File to write. Default `<job>-<build#>.html` in the current directory, with `/` in the job path written as `_`. `-` writes the page to stdout |
+| `--max-log-bytes N` | Keep at most `N` bytes of each log (plain bytes), half from the head and half from the tail, with a marker line where the middle was cut. `0` (default) keeps every log whole. Shrinks the file, not the download: each log is still read in full |
+| `--concurrency N` | Downloads to run at once: step logs when they are read one by one (steps of a running build that the annotated console does not hold whole, or after the fallback below), and error texts of failed steps. Default `4`. Values below `1` count as `1`, above `8` as `8`. The page is the same whatever `N` is |
+
+Defaults to the latest build. With no arguments and `BUILD_URL` set, as inside a Jenkins build, it exports that build; arguments win over `BUILD_URL`. The host is the longest configured host or `JENKINS_URL` (also set by Jenkins, and including any context path such as `/jenkins`) that `BUILD_URL` lies under, else the scheme and host of `BUILD_URL`; `--host` overrides either.
+
+On a running build the file is a snapshot of what exists at call time, and a warning on stderr says so.
+
+Unless `--timeout` is given, the HTTP timeout is `10m` instead of `30s`: each log is one response, and the timeout covers downloading all of it.
+
+The file is written beside its destination under a temporary name and renamed when complete, so a failed or interrupted export leaves no partial file (with `-o -`, stdout may hold a partial page).
+
+Step logs come from one download of the annotated console (`logText/progressiveHtml`), which marks each line with the step that wrote it. The plain console downloads beside it. Only failed and aborted steps cost another request each, for their error text. Measured on finished builds: 1733 steps took 70s read one at a time and 1.65s this way. 3142 steps took 163s one at a time, 51s four at a time (the default for step-by-step reads), and 2.3s this way. On a running build that download can stop short (at 10000 lines on Jenkins 2.509 and later) or end mid-line, so only the logs of steps it proves whole come from it: a finished `echo`, `sh`, `bat`, `powershell` or `pwsh` step whose next `[Pipeline]` line in the same block, or its block's end, arrived, that wrote nothing after that line, and whose output is empty or ends a line. Other steps can write from an agent up to about 10s after they ended. The other steps, running ones included, are read one by one, and stderr says how many: `build running: 6 step logs whole in the annotated console, reading the other 8 one by one` (`run not complete` instead of `build running` for a finished build whose Pipeline Graph View data is not complete yet). When the annotated console marks no steps (log storage other than Jenkins' own files, such as a cloud log plugin), fails to download, times out or, for a finished build, comes back cut short, the export says why in one line on stderr and reads the steps one by one. Authentication, permission, missing-plugin and unreachable-host errors stop the export instead. The page is the same either way.
+
+stderr gets `fetching console log` and `reading step logs from the annotated console`. Read step by step, it reports each log as its download starts, in step order (`fetching step 12/58: Build › make all`), then `fetching console log`. Notices (`reading step logs from the annotated console`, the reason for a fallback, the count for a running build) always print as their own lines. The `fetching step` and `fetching console log` messages are the progress: on a terminal (not `TERM=dumb`, not with `--verbose`) they share one status line, rewritten in place, each replacing the last, and the line is cleared before any notice, warning or the total. Otherwise (stderr redirected, `TERM=dumb`, `--verbose`) progress prints the first and last step and every ceil(N/15)th step between them, so a 7000-step build writes 16 step lines (16 is the most any build writes), not 7000. After a fallback from the annotated console, or for the steps of a running build it does not hold whole, `fetching console log` comes first, because the plain console already downloads beside it, and the step lines follow. Both end with a total. With `--concurrency` above 1, several steps download at once, so a line can appear before the steps above it finish. stdout gets the written path; `--json` prints `{"path", "bytes", "complete", "stepErrors", "consoleError"}` instead, and `--format` takes a template over the same fields (neither with `-o -`).
+
+A log that cannot be read does not stop the export: the step or console is marked in the page and named in a warning on stderr, and the exit code stays 0. Authentication, permission, unreachable host and a missing plugin end it with exit code 1, as does any other error. Ctrl+C and SIGTERM (what Jenkins sends when the build is aborted) both exit 130 and remove the temporary file.
+
+| Exit | Meaning |
+|------|---------|
+| 0 | File written, including when some step or console logs were recorded as unreadable (`stepErrors`, `consoleError`) |
+| 1 | Fatal error, no file written (with `-o -`, stdout may hold a partial page) |
+| 130 | Interrupted (Ctrl+C or SIGTERM) |
+
+The console log is included in full next to the step logs. The step listing omits steps outside any stage and block steps such as `node` or `catchError`, so their output is only in the console.
+
+```bash
+jkit export html my-app 42
+jkit export html https://jenkins.example.com/job/team/job/svc/42/ -o svc-42.html
+jkit export html                                  # in a pipeline step: this build
+jkit export html my-app 42 -o - > run.html        # page on stdout, progress on stderr
+jkit export html my-app 42 --max-log-bytes 20000000
+```
+
+### Viewer
+
+The page works offline and has no server side.
+
+- **Panes.** Drag the bars between the stage graph, the steps and the log, or use the arrow keys on a focused bar. Double-click resets. Sizes, and the Graph or List choice, are remembered per browser.
+- **Graph and List.** Graph draws the stage graph. List shows the same stages as a collapsible tree, with a filter box and a Failed only checkbox. A narrow window opens in List. The list is one Tab stop: up and down arrows move between the shown rows, Home and End jump to the first and last, Right opens a row or moves to its first nested stage, Left closes it or moves to its parent, and Enter or Space selects.
+- **Parallel branches.** Each branch collapses to a row of squares, one per nested stage, so a failure inside stays visible. Branches start collapsed when the graph is more than three times wider than its pane. Collapse branches and Expand branches act on all of them. Selecting a stage opens its branch.
+- **Off-screen stages.** When the graph is wider than its pane, a `N more →` button at the right edge counts the top-level stages not fully in view and scrolls the graph right. A `← N more` button does the same on the left once the graph is scrolled. Both buttons are keyboard reachable and hide at the ends.
+- **Failures.** The header shows `N failed` with up and down buttons that step through the failed stages. The page opens on the stage that failed the build, not the first stage in state FAILURE, since `catchError` marks a stage failed and goes on. When a stage or parallel branch threw after another stage's error was caught, it opens on the one that threw. The stage's error line shows above its steps under "Stage error". When the build itself threw, its error shows in the header under "Build error", alongside the stage's error when both exist. In a build still running at export, `catchError` may have caught that stage's failure and a later one may end the build, so the page labels the stage it opens on "Latest failed stage so far", and the header's build error is not called the error that stopped the build.
+- **History.** Each selection of a stage, step or the full console log is a history entry, so Back undoes it. The first up or down failure step after a selection adds one entry and later steps replace it, so a walk through many failures takes one Back to undo. The address fragment names the selection, so a link reopens it.
+
+### Size
+
+Logs are stored gzip-compressed inside the page. The console repeats the step output and is stored too. In one measured export, 229 MB of step logs plus the same amount of console gave a 70 MB file: about 30% of the step logs' size, or about 15% of everything embedded. Random or binary-like content does not compress, so such a log costs close to its full size.
+
+Memory does not grow with the file: logs wait in temporary files (one per concurrent download) beside the output (in `TMPDIR` with `-o -`) until the page is written, so a 320 MB export peaks at about 20 MB. Read from the annotated console, the step output also waits uncompressed in a temporary file until the download ends, since parallel branches interleave. While exporting, the output directory needs about twice the HTML size free, plus that file: the log spool plus the temporary output file, renamed onto the destination at the end. Both are removed if the export fails or is interrupted. With `-o -` the spool, about the HTML size, goes to `TMPDIR` instead. A file over 250 MB gets a warning that browsers are slow to open it (over 25s), and over 500 MB that browsers cannot open it. Re-export with `--max-log-bytes` to shrink it.
+
+### `--json` output
+
+```json
+{
+  "path": "my-app-42.html",
+  "bytes": 1048576,
+  "complete": true,
+  "stepErrors": 0,
+  "consoleError": false
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `path` | Destination written |
+| `bytes` | Size of the HTML written |
+| `complete` | `false` when the run was still going, so the file is a snapshot |
+| `stepErrors` | Number of steps whose log or error text could not be read. A log cut short by the line cap (Jenkins 2.509 to 2.533, running steps) is marked in the page but not counted |
+| `consoleError` | `true` when the console log could not be read in full |
+
+### Use from a pipeline
+
+A Jenkins build exports itself with no arguments, since Jenkins sets `BUILD_URL` and `JENKINS_URL`. jkit reads credentials only from its config file, so log in first. A private `JKIT_CONFIG_DIR` keeps the token off the agent's home directory, and the `trap` removes it even when a command fails (Jenkins runs `sh` with `-e`).
+
+```groovy
+post {
+    always {
+        catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+            withCredentials([usernamePassword(credentialsId: 'jenkins-api-token',
+                                              usernameVariable: 'JENKINS_USER',
+                                              passwordVariable: 'JENKINS_TOKEN')]) {
+                sh '''
+                    set +x
+                    export JKIT_CONFIG_DIR=$(mktemp -d)
+                    trap 'rm -rf "$JKIT_CONFIG_DIR"' EXIT
+                    jkit auth login --host "$JENKINS_URL" --user "$JENKINS_USER" --token "$JENKINS_TOKEN"
+                    jkit export html -o run.html
+                '''
+            }
+        }
+        archiveArtifacts artifacts: 'run.html', allowEmptyArchive: true
+    }
+}
+```
+
+`post` needs a node, so use a top-level `agent` rather than `agent none`, and put `jkit` on the agent's `PATH`. A failing export inside `post { always }` would fail the build. `catchError` with `SUCCESS` for both results only logs the error and leaves the result as the pipeline set it, so a failed build stays failed and a green one stays green. `jkit auth login` takes the token only as a flag or a TTY prompt, so `--token` is visible in the process list on shared agents.
+
+The export runs inside the build, so the exporting step and the `post` block always show as unfinished in their own export, and the file has `complete: false`. For a final view, export again from a downstream job or after the build ends.
 
 ---
 

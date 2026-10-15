@@ -23,6 +23,15 @@ make integration-test      # up → run tests → down (cleanup on failure)
 
 Port defaults to 9090. Override with `JENKINS_PORT=8888 make integration-test`.
 
+### Export viewer browser tests
+
+```bash
+make browser-test                      # all suites, Chromium + Firefox
+bash tests/browser/run.sh panes list   # some suites
+```
+
+Run it after changing `internal/export/template.html` or the snapshot JSON the page reads. Needs Docker and Go. It renders test pages with `export.Render` (`TestBrowserPages` in `internal/export/browserpages_test.go`: the golden fixture, four failure-message variants, and two synthetic wide builds), then runs the Playwright suites in `tests/browser/` inside `mcr.microsoft.com/playwright:v1.50.0-noble` with `--network none`. The first run installs `playwright` into `tests/browser/node_modules` with `npm ci`, the only step that uses the network; proxy variables pass through. Logs and screenshots go to `tests/browser/out/`. Not run in CI.
+
 ## Project Structure
 
 ```
@@ -45,6 +54,7 @@ cmd/
   diff.go                   # jkit diff
   queue.go                  # jkit queue / jkit queue cancel
   wait.go                   # jkit wait
+  export.go                 # jkit export html
   config.go                 # jkit config list/set-default/remove/set-alias
   completion.go             # jkit completion
   factory.go                # clientFromCmd — creates API client from cobra flags
@@ -63,6 +73,12 @@ internal/
     steplog.go              # StageStepFollower: --stage -f, each step read from its last offset
     progressive.go          # ProgressiveLog: progressiveText followed poll by poll
     consoletail.go          # GetBuildLogTail, ConsoleTailLines: console tail per Stapler version
+    consolehtml.go          # CopyConsoleHTML: progressiveHtml, every node's output in one download
+  export/
+    export.go               # Collect: run, stage tree, steps and logs into a Snapshot
+    log.go                  # per-log sanitize, head/tail cap, gzip + base64
+    consolehtml.go          # consoleSplitter: progressiveHtml streamed into per-node text
+    render.go               # Render: Snapshot embedded in template.html
   config/
     config.go               # YAML config load/save, XDG path resolution
   context/
@@ -73,6 +89,10 @@ internal/
     errors.go               # Typed errors: AuthError, NotFoundError, PermissionError, etc.
     stage_tree.go           # BuildStageTree — flat stages to depth-annotated tree
     branchname.go           # BranchJobName: branch name to the job name branch-api gives it
+  export/
+    export.go               # Collect: a run's PGV stage tree, steps, step logs and console as one Snapshot
+    log.go                  # Log encoding: sanitize line-wise, head/tail cap, gzip, base64
+    render.go               # Render: Snapshot as one offline HTML page (template.html, embedded)
   output/
     formatter.go            # Table, JSON, Go template output
     color.go                # ANSI color for build statuses
@@ -89,6 +109,9 @@ integration/
     plugins.txt             # Required Jenkins plugins
     casc.yml                # Jenkins Configuration as Code
     init.groovy.d/          # Groovy scripts to seed test jobs
+tests/browser/
+  run.sh                    # make browser-test: render pages, run suites in the Playwright image
+  *.test.js                 # viewer suites: panes, branches, list, small, wide (scroll buttons)
 ```
 
 ## Adding a Command
@@ -134,6 +157,7 @@ Return typed errors from `internal/jenkins/errors.go`:
 |-------|------|---------|
 | `AuthError` | 401 | `not authenticated to {host} — run 'jkit auth login'` |
 | `NotFoundError` | 404 | `{resource} not found on {host} — run 'jkit list'` |
+| `PluginMissingError` | 404 on a plugin route, pipeline build exists | `{route} not served on {host} — the {plugin} plugin is not installed or too old` |
 | `PermissionError` | 403 | `access denied for {resource} on {host}` |
 | `UnreachableError` | network | `cannot reach {host} — check network or VPN` |
 | `ServerError` | 5xx | `Jenkins error HTTP {code} on {path}` |
