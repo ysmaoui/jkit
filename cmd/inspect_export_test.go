@@ -104,8 +104,8 @@ func TestInspectExportMirrorsTheFolderTree(t *testing.T) {
 	// asserts the directory layout and the wire encoding at the same time.
 	for wantDir, wantPath := range map[string]string{
 		"":                                     "/job/team/config.xml",
-		"svc":                           "/job/team/job/svc/config.xml",
-		"svc/feature%2Fbuild":           "/job/team/job/svc/job/feature%252Fbuild/config.xml",
+		"svc":                                  "/job/team/job/svc/config.xml",
+		"svc/feature%2Fbuild":                  "/job/team/job/svc/job/feature%252Fbuild/config.xml",
 		"team folder":                          "/job/team/job/team%20folder/config.xml",
 		filepath.Join("team folder", "my app"): "/job/team/job/team%20folder/job/my%20app/config.xml",
 	} {
