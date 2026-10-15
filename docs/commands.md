@@ -34,8 +34,8 @@ configured host holding it, the host is the URL's scheme and host.
 
 ```bash
 jkit status my-app 47
-jkit status https://jenkins.company.com/job/my-app/47/
-jkit status https://jenkins.company.com/job/my-app/ 47
+jkit status https://jenkins.example.com/job/my-app/47/
+jkit status https://jenkins.example.com/job/my-app/ 47
 ```
 
 Omitting the job path falls back to `.jkit.yml`, then the git remote, then the
@@ -49,7 +49,7 @@ scan instead.
 
 ```bash
 jkit log team/svc 42 --branch feature/x
-jkit log https://jenkins.company.com/job/team/job/svc/job/feature%2Fx/42/
+jkit log https://jenkins.example.com/job/team/job/svc/job/feature%2Fx/42/
 ```
 
 ---
@@ -70,13 +70,15 @@ jkit auth login [--host HOST] [--user USER] [--token TOKEN] [--alias ALIAS]
 | `--alias` | Short alias for host (e.g., `prod`, `staging`) |
 
 - Validates credentials before saving
+- Saves the host without whitespace, query, fragment or trailing slashes, so
+  `https://ci.example.com/#` and `https://ci.example.com` are one key
 - First host configured becomes the default
 - Config stored at `~/.config/jkit/config.yml` (see [configuration](configuration.md))
 
 ```bash
-jkit auth login                                        # interactive
-jkit auth login --host https://ci.co --user me --token abc  # non-interactive
-jkit auth login --host https://ci.co --user me --token abc --alias prod
+jkit auth login                                                      # interactive
+jkit auth login --host https://ci.example.com --user me --token abc  # non-interactive
+jkit auth login --host https://ci.example.com --user me --token abc --alias prod
 ```
 
 ---
@@ -306,7 +308,7 @@ Build:    #47
 Result:   SUCCESS
 Duration: 2m31s
 Started:  Jan 02 15:04:05
-URL:      https://jenkins.company.com/job/my-app/47
+URL:      https://jenkins.example.com/job/my-app/47
 
 Stages:
   Build       SUCCESS   45s
@@ -1378,7 +1380,7 @@ jkit sources my-app 42 --show-secrets   # reveal a credential embedded in a chec
 ```
 
 ```
-Job:          team/svc/feature%2Fbuild-with-build-tools
+Job:          team/svc/feature%2Fbuild-cache
 Build:        #24
 
 Pipeline revision
@@ -1386,15 +1388,15 @@ Pipeline revision
   Recorded by:        jenkins.plugins.git.AbstractGitSCMSource$SCMRevisionImpl
 
 Shared libraries (3)
-  global-pipeline-lib @ develop  (trusted)
+  pipeline-lib @ develop  (trusted)
       commit  e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  (matched to a checkout by branch name)
-      repo    https://git.example.com/platform/sdk-pipeline-lib.git
-  build-tools @ feature/bazel-remote-exec  (untrusted)
-      SHA not resolvable: no git checkout recorded the branch "feature/bazel-remote-exec"
+      repo    https://git.example.com/platform/pipeline-lib.git
+  build-tools @ feature/remote-exec  (untrusted)
+      SHA not resolvable: no git checkout recorded the branch "feature/remote-exec"
 
 Git checkouts (2, last built revision only)
-  https://git.example.com/platform/sdk-pipeline-lib.git
-      e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  branch develop  -> shared library global-pipeline-lib
+  https://git.example.com/platform/pipeline-lib.git
+      e3fc9e5c9c9ab32e6318ea088d67c6c2b29b7aa0  branch develop  -> shared library pipeline-lib
 ```
 
 ### Which commits are reported, and which are not
@@ -1423,8 +1425,8 @@ When the join above cannot settle a library, `jkit` falls back to the build's
 own console, where the library retriever recorded what it did:
 
 ```
-Loading library global-pipeline-lib@master
- > git ls-remote -- https://git.example.com/platform/global-lib-src.git
+Loading library pipeline-lib@master
+ > git ls-remote -- https://git.example.com/platform/pipeline-lib.git
 Found match: refs/heads/master revision 327b5c22a40ee9ef448b917b2b4a5b22e8d63239
 ```
 
@@ -1530,6 +1532,7 @@ jkit export html https://jenkins.example.com/job/team/job/svc/42/ -o svc-42.html
 jkit export html                                  # in a pipeline step: this build
 jkit export html my-app 42 -o - > run.html        # page on stdout, progress on stderr
 jkit export html my-app 42 --max-log-bytes 20000000
+jkit export html my-app 42 --concurrency 1        # one log at a time
 ```
 
 ### Viewer
@@ -1656,6 +1659,42 @@ jkit queue cancel 12345
 
 ---
 
+## `jkit running`
+
+List builds currently running on the instance, oldest first.
+
+```
+jkit running [--folder PATH]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--folder` | Only builds of jobs in this folder, or of this job. Takes the job path as printed in the JOB column, so a branch job is named in its encoded form, e.g. `team/svc/feature%2Fx`. Matches whole path segments: `team` matches `team/svc` but not `team-b/app` |
+
+Reads every executor on every node, including the flyweight executors pipelines
+run on, and lists each build once. Columns: JOB, BUILD, ELAPSED, URL. The URL is
+printed as Jenkins returned it. ELAPSED is `-` when Jenkins reports no start time,
+and those builds sort last.
+
+Only executables whose URL names a job and a build number are listed. Other work
+holding an executor, such as multibranch or organization folder indexing, is
+skipped because it is not a build.
+
+With `--json` the output is an array of `{job, number, url, timestamp}`, with
+`timestamp` the build start in epoch milliseconds. No running builds prints
+`No running builds` to stderr in table mode, and `[]` with `--json`.
+
+Some instances restrict the executor list beyond Overall/Read; a 403 then fails
+with an access-denied error naming that.
+
+```bash
+jkit running                          # everything running
+jkit running --folder team/svc        # one job or folder
+jkit running --json | jq -r '.[].url'
+```
+
+---
+
 ## `jkit config`
 
 Manage CLI configuration.
@@ -1673,7 +1712,7 @@ jkit config list
 Set the default Jenkins host.
 
 ```bash
-jkit config set-default https://jenkins.prod.com
+jkit config set-default https://jenkins-prod.example.com
 jkit config set-default prod    # by alias
 ```
 
@@ -1682,7 +1721,7 @@ jkit config set-default prod    # by alias
 Remove a configured host.
 
 ```bash
-jkit config remove https://jenkins.staging.com
+jkit config remove https://jenkins-staging.example.com
 jkit config remove staging    # by alias
 ```
 
@@ -1691,7 +1730,7 @@ jkit config remove staging    # by alias
 Set or change an alias for a host.
 
 ```bash
-jkit config set-alias https://jenkins.prod.com prod
+jkit config set-alias https://jenkins-prod.example.com prod
 ```
 
 ---
@@ -1711,6 +1750,65 @@ jkit lint [file]
 ```bash
 jkit lint                         # validate ./Jenkinsfile
 jkit lint path/to/Jenkinsfile     # validate specific file
+```
+
+---
+
+## `jkit api`
+
+Send an authenticated request to the Jenkins API and print the response body,
+like `gh api`. It covers what no other command does, without curl and a token.
+
+```
+jkit api <path|url> [-X METHOD] [-H "Key: Value"]... [-i]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-X`, `--method` | HTTP method (default `GET`). Any other method than `GET`, `HEAD` or `OPTIONS` sends a CSRF crumb, re-fetched once on 403, and does not follow redirects |
+| `-H`, `--header` | Request header `"Key: Value"`, repeatable |
+| `-i`, `--include` | Print the status line and response headers before the body |
+
+A path is relative to the host root (leading slash optional) and goes to
+`--host`, an alias, or the default host. A full `http(s)` URL is sent to the
+configured host with the same scheme and host; a host that is not configured is
+an error naming `jkit auth login`. With `--host` as well, the URL must lie under
+that host, or it is an error. This is also how to reach a host configured with
+a context path (`--host https://example.com/jenkins
+https://example.com/jenkins/api/json`).
+
+The query string is sent byte for byte, so `tree=jobs[name,color]` needs no
+escaping. There is no request body flag.
+
+`GET`, `HEAD` and `OPTIONS` follow redirects. Other methods do not, so
+`jkit api -X POST /job/my-app/build -i` shows the `201` or `302` Jenkins
+answered with its `Location` header, not the page it points to. When the crumb
+cannot be fetched the request goes out without one and the server's own answer
+is shown.
+
+Output:
+
+- Default: the body as received. When stdout is a terminal, a JSON body is
+  indented.
+- `--json`: indented JSON; an error if the body is not JSON.
+- `--format`: a Go template applied to the decoded JSON body.
+- HTTP 400 and above: the body is still printed, without `--json` or
+  `--format` (a JSON body is indented when stdout is a terminal). The error
+  goes to stderr and the exit code is 1: 401 not authenticated, 403 access
+  denied, 404 not found (check the path), anything else a server error with
+  its status.
+
+`-X` sends exactly what you write, with your own permissions. A `POST` to
+`/job/NAME/doDelete` deletes the job. Prefer the dedicated commands where one
+exists.
+
+```bash
+jkit api /api/json
+jkit api '/computer/api/json?tree=computer[displayName,offline]'
+jkit api https://jenkins.example.com/job/my-app/lastBuild/api/json --format '{{.result}}'
+jkit api /api/json --include               # X-Jenkins header carries the version
+jkit api -X POST /job/my-app/build         # same as jkit run, without its checks
+jkit api /job/my-app/api/xml -H 'Accept: application/xml'
 ```
 
 ---

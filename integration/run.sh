@@ -192,6 +192,18 @@ echo "[json]"
 assert_contains "list --json has name field" '"name"' \
     "$JK" list --json
 
+# api
+echo ""
+echo "[api]"
+assert_contains "api --include shows X-Jenkins" "^X-Jenkins: " \
+    "$JK" api /api/json --include
+
+assert_contains "api query with brackets reaches Jenkins" '"name" *: *"test-pipeline"' \
+    "$JK" api '/api/json?tree=jobs[name]' --json
+
+assert_fail "api 404 path exits non-zero" \
+    "$JK" api /job/no-such-job-xyz/api/json
+
 # 8. Pipeline stages
 echo ""
 echo "[stages]"
@@ -203,6 +215,30 @@ assert_contains "stages test-pipeline 1 lists Deploy stage" "Deploy *STAGE *SUCC
 
 assert_success "wait on finished test-pipeline Build stage" \
     "$JK" wait test-pipeline 1 --stage Build --max-wait 1m
+
+# Running builds
+echo ""
+echo "[running]"
+"$JK" run test-folder/slow-pipeline > /dev/null 2>&1 || true
+for i in $(seq 1 30); do
+    "$JK" running --json 2>/dev/null | grep -q 'slow-pipeline/1/' && break
+    sleep 2
+done
+
+assert_contains "running lists slow-pipeline" "test-folder/slow-pipeline *#1" \
+    "$JK" running
+
+assert_success "running lists slow-pipeline once" \
+    bash -c "[ \"\$('$JK' running --json | grep -c 'slow-pipeline/1/')\" -eq 1 ]"
+
+assert_contains "running --folder test-folder keeps it" "slow-pipeline" \
+    "$JK" running --folder test-folder
+
+assert_contains "running --folder test excludes it" "^\[\]$" \
+    "$JK" running --json --folder test
+
+assert_success "abort slow-pipeline" \
+    "$JK" abort test-folder/slow-pipeline 1
 
 # 9. Export. export-pipeline exports itself mid-run and archives the result.
 echo ""

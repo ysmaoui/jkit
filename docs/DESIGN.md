@@ -52,6 +52,8 @@ jkit/
 │   ├── queue.go               # jkit queue
 │   ├── list.go                # jkit list [--folder]
 │   ├── artifacts.go           # jkit artifacts <job> [build#]
+│   ├── running.go             # jkit running [--folder PATH]
+│   ├── api.go                 # jkit api <path|url> [-X METHOD] [-H HEADER] [-i]
 │   └── export.go              # jkit export html [job] [build#] [-o FILE] [--max-log-bytes N]
 ├── internal/
 │   ├── api/
@@ -298,6 +300,14 @@ GET /queue/api/json?tree=items[id,task[name,url],why,inQueueSince]
 GET /queue/item/{id}/api/json   # poll one item; `executable` appears once it starts
 POST /queue/cancelItem?id={id}  # requires crumb
 
+# Running builds (every executor on every node)
+GET /computer/api/json?tree=computer[oneOffExecutors[currentExecutable[url,timestamp]],
+#     executors[currentExecutable[url,timestamp]]]
+# Pipeline builds run on flyweight oneOffExecutors. A build holding an agent
+# through node{}, and any freestyle build, shows under executors, so a pipeline
+# inside node{} is listed twice and is deduplicated by URL. An idle executor has
+# currentExecutable null. Some instances restrict /computer beyond Overall/Read.
+
 # Jenkinsfile validation (linting)
 POST /pipeline-model-converter/validate  # body: jenkinsfile=<contents>
 
@@ -541,7 +551,7 @@ The current git branch is used to resolve the specific branch build within a mul
 ```yaml
 # .jkit.yml — optional per-repo config
 jenkins:
-  host: jenkins.company.com     # override default host
+  host: jenkins.example.com     # override default host
   job: /folder/team-backend/my-service
 ```
 
@@ -552,11 +562,11 @@ Config location follows XDG: `~/.config/jkit/config.yml` (or `$JKIT_CONFIG_DIR`)
 ```yaml
 # ~/.config/jkit/config.yml
 hosts:
-  jenkins.company.com:
+  jenkins.example.com:
     user: jane.doe
     token: "encrypted-or-plaintext-api-token"
     default: true
-  jenkins.staging.com:
+  jenkins-staging.example.com:
     user: jane.doe
     token: "..."
 
@@ -732,7 +742,7 @@ in place of the whole-response one would lift the limit, but would change what
 
 #### 1. `jkit auth login`
 ```
-Usage: jkit auth login [--host HOST] [--user USER] [--token TOKEN]
+Usage: jkit auth login [--host HOST] [--user USER] [--token TOKEN] [--alias ALIAS]
 
 Interactive flow (no flags):
   1. Prompt for Jenkins URL
@@ -743,6 +753,10 @@ Interactive flow (no flags):
   6. Print success message
 
 Non-interactive: all three flags provided, skip prompts.
+
+The host is saved as config.NormalizeHost(host): no surrounding whitespace,
+query, fragment or trailing slashes. A fragment or query key would be a second
+key for the same Jenkins that url.Parse cannot tell apart from the first.
 ```
 
 #### 2. `jkit auth status`
@@ -811,7 +825,7 @@ Trigger a build. If no job specified, resolve from git context.
 --log: implies --wait, stream logs while waiting
 --branch: trigger for a specific branch (multibranch pipelines)
 
-Output: "Build #47 triggered: https://jenkins.company.com/job/..."
+Output: "Build #47 triggered: https://jenkins.example.com/job/..."
 With --wait: "Build #47 completed: SUCCESS (2m 31s)"
 Exit codes with --wait: 0=SUCCESS, 1=FAILURE, 2=UNSTABLE, 3=ABORTED, 4=other, 5=queue or build timeout, 6=error, 130=interrupted
 ```
@@ -998,6 +1012,12 @@ engineer is a supported user. Writing a job's definition is still out: `config.x
 writes, job creation and seed-job pushes belong in jobDSL, not a CLI. `jkit inspect
 --xml` reads the file; nothing writes it. Replay is the useful boundary case, and
 it clears the line because it runs an edited script once and persists nothing.
+
+**`jkit api` is the one exception.** It is a raw escape hatch: it sends exactly
+the request the user writes, with the user's own credentials, so `-X POST` and
+other mutating methods work. jkit offers no command of its own that mutates a
+job definition. The warning in `docs/commands.md` tells users to prefer the
+dedicated commands.
 
 **A refusal must name what is missing.** Once commands need different rights, a
 failure stops being unambiguous, and the three causes look identical from the
