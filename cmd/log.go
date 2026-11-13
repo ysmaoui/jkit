@@ -375,6 +375,55 @@ func warnStageLogTruncated(w io.Writer, label string, window int, truncated bool
 	_, _ = io.WriteString(w, msg)
 }
 
+// stageLagQuiet is how recent a running stage's last stamped line must be for
+// noteStageRunning to stay silent.
+const stageLagQuiet = time.Minute
+
+// noteStageRunning warns that a running stage's log may lag the console.
+// Jenkins can serve a running step's per-node log frozen at an older point
+// while the console keeps growing, which reads like a hung stage. log is the
+// raw stage text; atEnd says its last line is the real end, not a cap. Best
+// effort: a failed status read prints nothing.
+func noteStageRunning(client *api.Client, jobPath string, buildNum int, nodeID, label, log string, atEnd bool, now time.Time, w io.Writer) {
+	if building, err := client.IsBuilding(jobPath, buildNum); err != nil || !building {
+		return
+	}
+	if running, _, err := stageRunning(client, jobPath, buildNum, nodeID); err != nil || !running {
+		return
+	}
+	last := ""
+	if atEnd {
+		if t, ok := lastStamp(log); ok {
+			age := now.Sub(t)
+			if age < stageLagQuiet {
+				return
+			}
+			last = fmt.Sprintf("; its last line is from %s, %s ago", t.UTC().Format("15:04:05Z"), age.Round(time.Second))
+		}
+	}
+	_, _ = fmt.Fprintf(w, "note: stage %s is still running and Jenkins may serve its log late%s\n"+
+		"  'jkit log --tail N' without --stage reads the newest console lines\n", label, last)
+}
+
+// lastStamp parses the timestamper prefix ("[2006-01-02T15:04:05.000Z] ") of
+// the last non-empty line of log.
+func lastStamp(log string) (time.Time, bool) {
+	lines := splitLogLines(output.SanitizeLog(log))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		end := strings.IndexByte(line, ']')
+		if !strings.HasPrefix(line, "[") || end < 0 {
+			return time.Time{}, false
+		}
+		t, err := time.Parse(time.RFC3339Nano, line[1:end])
+		return t, err == nil
+	}
+	return time.Time{}, false
+}
+
 // stageLabel names a stage in messages as the user addressed it: the --stage
 // value when there is one, else the node ID.
 func stageLabel(name, nodeID string) string {
@@ -625,6 +674,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 		text := applyTailHead(filterLines(output.SanitizeLog(log), grepPattern, grepI), tail, head)
 		fmt.Print(text)
 		warnStageLogTruncated(os.Stderr, label, client.StageLogCap(), truncated, tail, head, grepPattern != "", len(splitLogLines(text)), func() { endLine(os.Stdout, text) })
+		noteStageRunning(client, jobPath, buildNum, nodeID, label, log, !truncated || tail > 0, time.Now(), os.Stderr)
 		return nil
 	}
 
@@ -660,8 +710,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Auto-follow if build in progress (unless grep/tail/head active)
-	if !follow && grepPattern == "" && tail == 0 && head == 0 && build.Building {
+	// Auto-follow a running build only for a person at a terminal. A script
+	// redirecting stdout waits for exit and would block until the build ends.
+	if !follow && grepPattern == "" && tail == 0 && head == 0 && build.Building && stdoutIsTerminal() {
 		follow = true
 	}
 

@@ -37,7 +37,13 @@ jkit wait URL --stage Deploy --max-wait 9m
 - Don't check progress with `--grep`, `--max-bytes 0` or a plain `jkit log`.
   `--grep` and a full dump download the whole console in one response, which
   must arrive within `--timeout` (30s by default). A plain `jkit log` on a
-  running build follows from the first line until the build ends.
+  running build follows until the build ends when stdout is a terminal. With
+  stdout redirected it prints the console as it is now and exits.
+- A stage log of a running stage can lag the console: Jenkins may serve it
+  frozen at an older point. jkit then notes `stage X is still running and
+  Jenkins may serve its log late` on stderr, with the last line's age. Read
+  the newest output with `jkit log URL --tail N`, not `--stage`. An old last
+  line there does not prove a hang.
 - To search a huge console, raise `--timeout` (e.g. `--timeout 10m`) and the
   shell timeout together. For repeated searches, download it once with
   `jkit log URL --max-bytes 0 > build.log` and grep the file.

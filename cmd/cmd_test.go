@@ -1741,3 +1741,39 @@ func TestAuthLoginStripsFragmentFromHost(t *testing.T) {
 	assert.Contains(t, string(data), srv.URL+":")
 	assert.NotContains(t, string(data), "#")
 }
+
+// A running stage notes that Jenkins may serve its log late, with the age of
+// its last stamped line. A finished stage or a fresh last line gets no note.
+func TestLogStageRunningNote(t *testing.T) {
+	old := "[2020-01-02T03:04:05.000Z] old line\n"
+	fresh := fmt.Sprintf("[%s] fresh line\n", time.Now().UTC().Format(time.RFC3339Nano))
+	for _, tc := range []struct {
+		name, log string
+		running   bool
+		want      string
+	}{
+		{"stale", old, true, "its last line is from 03:04:05Z"},
+		{"unstamped", "plain\n", true, "may serve its log late\n"},
+		{"fresh", fresh, true, ""},
+		{"finished", old, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := stageLogServer(t, func(int) string { return tc.log }, func(int) bool { return tc.running })
+			defer srv.Close()
+			setupTestConfig(t, srv.URL)
+
+			var out string
+			var err error
+			stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4") })
+			require.NoError(t, err)
+			assert.Equal(t, tc.log, out)
+			if tc.want == "" {
+				assert.Empty(t, stderr)
+				return
+			}
+			assert.Contains(t, stderr, "note: stage 4 is still running")
+			assert.Contains(t, stderr, tc.want)
+			assert.Contains(t, stderr, "'jkit log --tail N' without --stage")
+		})
+	}
+}

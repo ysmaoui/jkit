@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- `jkit log` on a running build auto-follows only when stdout is a terminal.
+  With stdout redirected or piped it prints the console as it is now and
+  exits. `-f` still follows.
+
+### Added
+- A non-follow `jkit log --stage`/`--stage-id` read of a running stage notes on
+  stderr that Jenkins may serve the stage log late, with the time and age of
+  its last stamped line.
+
 ## [0.10.1] - 2026-10-15
 
 ### Changed

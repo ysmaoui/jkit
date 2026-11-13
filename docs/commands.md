@@ -802,8 +802,10 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 | `--slowest N` | Report the N log lines with the largest time gap to the next line |
 
 - Defaults to latest build if no build# given
-- Auto-follows if the build is in progress, unless `--grep`, `--tail` or `--head`
-  is given. `--grep` with `-f` reads the console, or the `--stage` log, once and
+- Auto-follows if the build is in progress and stdout is a terminal, unless
+  `--grep`, `--tail` or `--head` is given. With stdout redirected or piped, a
+  running build's console is printed as it is now and `log` exits; pass `-f`
+  to follow. `--grep` with `-f` reads the console, or the `--stage` log, once and
   does not follow, with `note: --follow is ignored with --grep; searched the log
   as it is now` on stderr
 - A build still in the queue is waited for under `-f`, with one note on stderr
@@ -882,6 +884,12 @@ The console is never buffered whole in memory.
   parallel branches), the command errors and lists each candidate's qualified
   path and ID. Pass a qualified path (`--stage "RemoteExec/Run Bazel Build"`) or
   the ID
+- Jenkins can serve a running step's stage log frozen at an older point while
+  the console keeps growing. A non-follow read of a running stage therefore
+  prints a note on stderr: `note: stage <stage> is still running and Jenkins
+  may serve its log late`, plus the time and age of the last line when the
+  log has timestamper prefixes. No note when that line is under a minute old.
+  `jkit log --tail N` without `--stage` reads the newest console lines
 - The stage log endpoints take no start offset, so every non-follow stage log
   read starts at byte 0
   - Without `--tail`, a stage log over 10 MB shows its first 10 MB and a
