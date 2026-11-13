@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -16,8 +18,8 @@ import (
 // caller sees what Jenkins answered rather than the page it points to. It
 // carries a crumb when one can be had, and one rejected with 403 is re-fetched
 // once. Without a crumb the request is still sent and the server's answer
-// returned.
-func (c *Client) Raw(ctx context.Context, method, target string, header http.Header) (*http.Response, error) {
+// returned. body, nil for none, is resent as is on that retry.
+func (c *Client) Raw(ctx context.Context, method, target string, header http.Header, body []byte) (*http.Response, error) {
 	u := target
 	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
 		if target != c.host && !strings.HasPrefix(target, c.host+"/") && !strings.HasPrefix(target, c.host+"?") {
@@ -26,8 +28,12 @@ func (c *Client) Raw(ctx context.Context, method, target string, header http.Hea
 	} else {
 		u = c.host + "/" + strings.TrimLeft(target, "/")
 	}
+	var bodyFn func() io.Reader
+	if body != nil {
+		bodyFn = func() io.Reader { return bytes.NewReader(body) }
+	}
 	if isIdempotent(method) {
-		return c.send(ctx, method, u, nil, header)
+		return c.send(ctx, method, u, bodyFn, header)
 	}
 
 	hc := *c.httpClient
@@ -43,7 +49,7 @@ func (c *Client) Raw(ctx context.Context, method, target string, header http.Hea
 		if crumb != nil {
 			h.Set(crumb.CrumbRequestField, crumb.Crumb)
 		}
-		resp, err := c.sendWith(ctx, &hc, method, u, nil, h)
+		resp, err := c.sendWith(ctx, &hc, method, u, bodyFn, h)
 		return resp, crumb != nil, err
 	}
 	resp, sentCrumb, err := withCrumb()
