@@ -80,8 +80,11 @@ func (f *formFlag) Type() string   { return "string" }
 
 func (f *formFlag) Set(v string) error {
 	if f.encode {
-		if name, value, ok := strings.Cut(v, "="); ok {
+		// As in curl, "=value" sends the encoded value without a name.
+		if name, value, ok := strings.Cut(v, "="); ok && name != "" {
 			v = name + "=" + url.QueryEscape(value)
+		} else if ok {
+			v = url.QueryEscape(value)
 		} else {
 			v = url.QueryEscape(v)
 		}

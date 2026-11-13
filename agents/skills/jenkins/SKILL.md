@@ -235,6 +235,8 @@ jkit auth status --all              # every configured host; flags duplicate or 
 jkit api '/computer/api/json?tree=computer[displayName,offline]'   # query sent as written
 jkit api URL/api/json --format '{{.result}}'   # full URL picks the configured host
 jkit api /api/json -i               # status line + headers (X-Jenkins = version)
+jkit api /manage/log/newLogRecorder --data-urlencode name=my-recorder   # form POST (body makes POST the default)
+jkit api /job/my-app/config.xml --input config.xml -H 'Content-Type: application/xml'   # raw body from file, - for stdin
 # HTTP >= 400: body still on stdout, error on stderr, exit 1
 ```
 

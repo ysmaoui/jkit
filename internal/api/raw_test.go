@@ -84,6 +84,36 @@ func TestRawPostSendsCrumbAndRefetchesStale(t *testing.T) {
 	assert.Equal(t, []string{"stale", "fresh"}, posted)
 }
 
+func TestRawPostResendsBodyAfterStaleCrumb(t *testing.T) {
+	crumbFetches := 0
+	var crumbs, bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/crumbIssuer/api/json" {
+			crumbFetches++
+			if crumbFetches == 1 {
+				_, _ = w.Write([]byte(`{"crumb":"stale","crumbRequestField":"Jenkins-Crumb"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"crumb":"fresh","crumbRequestField":"Jenkins-Crumb"}`))
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		crumbs = append(crumbs, r.Header.Get("Jenkins-Crumb"))
+		bodies = append(bodies, string(b))
+		if r.Header.Get("Jenkins-Crumb") != "fresh" {
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer srv.Close()
+
+	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/manage/log/newLogRecorder", nil, []byte("name=my-recorder"))
+	require.NoError(t, err)
+	defer CloseBody(resp)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, []string{"stale", "fresh"}, crumbs)
+	assert.Equal(t, []string{"name=my-recorder", "name=my-recorder"}, bodies)
+}
+
 func TestRawGetSendsNoCrumb(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.NotEqual(t, "/crumbIssuer/api/json", r.URL.Path)

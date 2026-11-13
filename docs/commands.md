@@ -1770,6 +1770,7 @@ like `gh api`. It covers what no other command does, without curl and a token.
 
 ```
 jkit api <path|url> [-X METHOD] [-H "Key: Value"]... [-i]
+         [-d DATA]... [--data-urlencode NAME=VALUE]... [--input FILE|-]
 ```
 
 | Flag | Description |
@@ -1777,6 +1778,9 @@ jkit api <path|url> [-X METHOD] [-H "Key: Value"]... [-i]
 | `-X`, `--method` | HTTP method (default `GET`). Any other method than `GET`, `HEAD` or `OPTIONS` sends a CSRF crumb, re-fetched once on 403, and does not follow redirects |
 | `-H`, `--header` | Request header `"Key: Value"`, repeatable |
 | `-i`, `--include` | Print the status line and response headers before the body |
+| `-d`, `--data` | Form field sent as given, e.g. `name=value`, repeatable |
+| `--data-urlencode` | Form field `name=value` with the value URL-encoded, repeatable. `=value` sends only the encoded value. Without `=` the whole string is encoded |
+| `--input` | File to send as the request body, `-` for stdin |
 
 A path is relative to the host root (leading slash optional) and goes to
 `--host`, an alias, or the default host. A full `http(s)` URL is sent to the
@@ -1787,7 +1791,15 @@ a context path (`--host https://example.com/jenkins
 https://example.com/jenkins/api/json`).
 
 The query string is sent byte for byte, so `tree=jobs[name,color]` needs no
-escaping. There is no request body flag.
+escaping.
+
+`-d` and `--data-urlencode` build a form body. The fields are joined with `&`
+in the order given, across both flags. The form body is sent with
+`Content-Type: application/x-www-form-urlencoded` unless `-H` sets
+`Content-Type`. `--input` sends a file, or stdin with `-`, as the body. It sets
+no `Content-Type`, so pass one with `-H`. `--input` cannot be used with `-d` or
+`--data-urlencode`. A body makes `POST` the default method. A body with
+`-X GET` or `-X HEAD` is an error.
 
 `GET`, `HEAD` and `OPTIONS` follow redirects. Other methods do not, so
 `jkit api -X POST /job/my-app/build -i` shows the `201` or `302` Jenkins
@@ -1818,6 +1830,9 @@ jkit api https://jenkins.example.com/job/my-app/lastBuild/api/json --format '{{.
 jkit api /api/json --include               # X-Jenkins header carries the version
 jkit api -X POST /job/my-app/build         # same as jkit run, without its checks
 jkit api /job/my-app/api/xml -H 'Accept: application/xml'
+jkit api /manage/log/newLogRecorder --data-urlencode name=my-recorder
+jkit api /manage/log/my-recorder/configSubmit --data-urlencode 'json={"name":"my-recorder","loggers":[{"name":"hudson.model.Run","level":"FINE"}]}'
+jkit api /job/my-app/config.xml --input config.xml -H 'Content-Type: application/xml'
 ```
 
 ---
