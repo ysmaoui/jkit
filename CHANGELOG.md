@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   DNS. The hint points to `auth status --all` and `config set-default`.
 
 ### Changed
+- `jkit auth status` runs the same single `whoAmI` check as `--all`, with no
+  retry. A dead host fails at once, not after about 3.5 seconds of retries. An
+  anonymous answer or a redirect to another host now counts as invalid.
+- `jkit auth status` and `auth status --all` follow a redirect on the same host,
+  such as http to https. A same-host redirect to a login page now reports
+  `anonymous` and exits 1, where `--all` reported `HTTP 302` and exited 0.
 - `jkit log` on a running build auto-follows only when stdout is a terminal.
   With stdout redirected or piped it prints the console as it is now and
   exits. `-f` still follows.

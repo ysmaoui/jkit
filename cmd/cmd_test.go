@@ -1379,7 +1379,7 @@ func TestStagesCommandJSON(t *testing.T) {
 
 func TestAuthStatusValid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": "admin", "anonymous": false})
 	}))
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)
@@ -1405,11 +1405,11 @@ func TestAuthStatusInvalid(t *testing.T) {
 
 func TestAuthStatusHostOverride(t *testing.T) {
 	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": "admin", "anonymous": false})
 	}))
 	defer srv1.Close()
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": "admin", "anonymous": false})
 	}))
 	defer srv2.Close()
 

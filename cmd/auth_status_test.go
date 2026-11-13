@@ -245,7 +245,78 @@ func TestAuthStatusSingleHostNoTokenOnFailure(t *testing.T) {
 	writeAuthConfig(t, authHost{key: authServer(t, 401), isDefault: true})
 	out, _, err := runAuthStatus(t)
 	requireExit1(t, err)
+	assert.Contains(t, out, "Auth:  invalid (invalid token (401); run 'jkit auth login')")
 	assert.NotContains(t, out, "Hint:")
+}
+
+func TestAuthStatusSingleHostAnonymousExit1(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"name":"anonymous","anonymous":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	writeAuthConfig(t, authHost{key: srv.URL, isDefault: true})
+
+	out, _, err := runAuthStatus(t)
+	requireExit1(t, err)
+	assert.Contains(t, out, "Auth:  invalid (anonymous)")
+}
+
+func TestAuthStatusSingleHostRedirectExit1(t *testing.T) {
+	login := authServer(t, 200)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, login+"/login", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	writeAuthConfig(t, authHost{key: srv.URL, isDefault: true})
+
+	out, _, err := runAuthStatus(t)
+	requireExit1(t, err)
+	assert.Contains(t, out, "Auth:  invalid (HTTP 302)")
+}
+
+func TestAuthStatusSingleHostFollowsSameHostRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/jenkins/whoAmI/api/json" {
+			_, _ = w.Write([]byte(`{"name":"admin","anonymous":false}`))
+			return
+		}
+		http.Redirect(w, r, "/jenkins"+r.URL.Path, http.StatusMovedPermanently)
+	}))
+	t.Cleanup(srv.Close)
+	writeAuthConfig(t, authHost{key: srv.URL, isDefault: true})
+
+	out, _, err := runAuthStatus(t)
+	require.NoError(t, err)
+	assert.Contains(t, out, "Auth:  valid")
+}
+
+func TestAuthStatusSingleHostMatchesAll(t *testing.T) {
+	for _, code := range []int{401, 403, 404, 500} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			writeAuthConfig(t, authHost{key: authServer(t, code), isDefault: true})
+			all, _, _ := runAuthStatus(t, "--all", "--json")
+			out, _, err := runAuthStatus(t)
+			requireExit1(t, err)
+			assert.Contains(t, out, "Auth:  invalid (")
+			want := map[int]string{401: "invalid", 403: "forbidden", 404: "http_404", 500: "http_500"}[code]
+			assert.Contains(t, all, `"result": "`+want+`"`)
+			assert.Contains(t, out, map[int]string{401: "invalid token (401)", 403: "forbidden (403)", 404: "HTTP 404", 500: "HTTP 500"}[code])
+		})
+	}
+}
+
+func TestAuthStatusSingleHostTimeoutFlag(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+	writeAuthConfig(t, authHost{key: srv.URL, isDefault: true})
+
+	out, _, err := runAuthStatus(t, "--timeout", "50ms")
+	requireExit1(t, err)
+	assert.Contains(t, out, "Auth:  invalid (timeout: ")
 }
 
 func TestAuthStatusDNSFailureHint(t *testing.T) {

@@ -36,15 +36,32 @@ func TestWhoAmIStatusUndecodableBody(t *testing.T) {
 	assert.Nil(t, who)
 }
 
-func TestWhoAmIStatusDoesNotFollowRedirect(t *testing.T) {
-	var loginHits atomic.Int32
+func TestWhoAmIStatusFollowsSameHostRedirect(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/login" {
-			loginHits.Add(1)
-			_, _ = w.Write([]byte(`<html>login</html>`))
+		if r.URL.Path == "/jenkins/whoAmI/api/json" {
+			user, _, _ := r.BasicAuth()
+			_, _ = w.Write([]byte(`{"name":"` + user + `","anonymous":false}`))
 			return
 		}
-		http.Redirect(w, r, "/login", http.StatusFound)
+		http.Redirect(w, r, "/jenkins"+r.URL.Path, http.StatusMovedPermanently)
+	}))
+	defer srv.Close()
+
+	code, who, err := NewClient(srv.URL, "jane", "tok").WhoAmIStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 200, code)
+	assert.Equal(t, &WhoAmI{Name: "jane"}, who)
+}
+
+func TestWhoAmIStatusStopsAtCrossHostRedirect(t *testing.T) {
+	var loginHits atomic.Int32
+	login := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		loginHits.Add(1)
+		_, _ = w.Write([]byte(`<html>login</html>`))
+	}))
+	defer login.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, login.URL+"/login", http.StatusFound)
 	}))
 	defer srv.Close()
 

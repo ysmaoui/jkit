@@ -98,9 +98,12 @@ jkit auth status [--host HOST | --all]
 Without `--all`, checks the default host, or `--host`. `--host` takes a
 configured key, the same URL with a trailing slash, query or fragment, or an
 alias. A URL that matches several keys only after normalising is an error
-naming them. Exits 0 if valid, 1 if invalid. If the default host (no `--host`)
-does not resolve in DNS, a `Hint:` line suggests `auth status --all` and
-`config set-default`.
+naming them. It runs the same check as `--all` (below) on that one host, with a
+10 second timeout or `--timeout` if given. Any RESULT other than `valid` prints
+`Auth:  invalid (<RESULT>)`, with the network error for `unreachable` and
+`timeout`, and `run 'jkit auth login'` for a 401. Exits 0 if valid, 1 if
+invalid. If the default host (no `--host`) does not resolve in DNS, a `Hint:`
+line suggests `auth status --all` and `config set-default`.
 
 ```
 Host:  https://jenkins.example.com
@@ -109,8 +112,9 @@ Auth:  valid
 ```
 
 With `--all`, every host in `config.yml` gets one `GET /whoAmI/api/json`,
-8 at a time, with a 10 second timeout, no retry and no redirect following. A
-2xx answer counts as valid only when it names a non-anonymous user. The table
+8 at a time, with a 10 second timeout and no retry. It follows a redirect only
+where the credentials go: the same host, or http to https on the default
+ports. A 2xx answer counts as valid only when it names a non-anonymous user. The table
 goes to stdout, progress and warnings to stderr. Tokens are never printed.
 
 ```
@@ -123,7 +127,8 @@ https://st.example.com   -      jane           timeout
 
 RESULT is `valid`, `invalid token (401)`, `forbidden (403)`, `anonymous` (a
 2xx answer that is anonymous or not whoAmI JSON, e.g. a login page),
-`unreachable`, `timeout` or `HTTP <code>` (a redirect shows as its 3xx code).
+`unreachable`, `timeout` or `HTTP <code>` (a redirect to another host shows as
+its 3xx code).
 NOTES lists key problems found without a request: a key that `jkit auth login`
 would have written differently (trailing slash, query, fragment, spaces), keys
 that name the same host, an alias shared by several keys, and more than one key
