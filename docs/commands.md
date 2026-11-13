@@ -236,19 +236,20 @@ the same object, e.g. `--format '{{range .Removals}}{{.Host}}{{"\n"}}{{end}}'`.
 List Jenkins jobs.
 
 ```
-jkit list [--folder FOLDER] [-r|--recursive]
+jkit list [folder] [--folder FOLDER] [-r|--recursive]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--folder` | Folder path to list jobs within |
+| `--folder` | Folder path to list jobs within. Same as the `folder` argument; giving both with different values is an error |
 | `-r, --recursive` | List jobs recursively across all folders |
 
 Table columns: NAME, STATUS, LAST BUILD. Folders shown with trailing `/`.
 
 ```bash
 jkit list                          # all top-level jobs
-jkit list --folder team/frontend   # jobs in folder
+jkit list team/frontend            # jobs in folder
+jkit list --folder team/frontend   # same
 jkit list -r                       # all jobs recursively
 jkit list --json                   # JSON output
 jkit list --format '{{range .}}{{.Name}}{{"\n"}}{{end}}'

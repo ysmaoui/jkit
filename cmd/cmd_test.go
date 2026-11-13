@@ -145,6 +145,33 @@ func TestListCommandFolder(t *testing.T) {
 	assert.Contains(t, out, "svc-a")
 }
 
+func TestListCommandPositionalFolder(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(map[string]any{"jobs": []map[string]any{
+			{"name": "svc-a", "url": "http://jenkins/job/team/job/svc/job/svc-a/", "color": "blue"},
+		}})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	for _, args := range [][]string{{"team/svc"}, {"team/svc", "--folder", "team/svc"}} {
+		gotPath = ""
+		out, err := executeCmd(t, append([]string{"list"}, args...)...)
+		require.NoError(t, err, args)
+		assert.Contains(t, gotPath, "/job/team/job/svc/api/json", args)
+		assert.Contains(t, out, "svc-a", args)
+	}
+
+	_, err := executeCmd(t, "list", "team/svc", "--folder", "team")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "folder given twice")
+
+	_, err = executeCmd(t, "list", "team", "svc")
+	require.Error(t, err)
+}
+
 func TestListCommandNoConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("JKIT_CONFIG_DIR", dir)

@@ -11,11 +11,13 @@ import (
 )
 
 var listCmd = &cobra.Command{
-	Use:   "list",
+	Use:   "list [folder]",
 	Short: "List Jenkins jobs",
 	Example: `  jkit list
+  jkit list team/frontend
   jkit list --folder team/frontend
   jkit list --json`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runList,
 }
 
@@ -31,6 +33,12 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	folder, _ := cmd.Flags().GetString("folder")
+	if len(args) == 1 {
+		if folder != "" && folder != args[0] {
+			return fmt.Errorf("folder given twice: %q and --folder %q", args[0], folder)
+		}
+		folder = args[0]
+	}
 	recursive, _ := cmd.Flags().GetBool("recursive")
 
 	var jobs []jenkins.Job
