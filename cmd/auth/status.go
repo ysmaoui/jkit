@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -41,8 +43,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	var host string
 	var hc *config.HostConfig
-	if h, _ := cmd.Flags().GetString("host"); h != "" {
-		host, hc, err = cfg.ResolveHost(h)
+	hostFlag, _ := cmd.Flags().GetString("host")
+	if hostFlag != "" {
+		host, hc, err = cfg.ResolveHost(hostFlag)
 	} else {
 		host, hc, err = cfg.DefaultHost()
 	}
@@ -60,6 +63,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stdout, "Auth:  invalid (%s)\n", err)
+		// UnreachableError unwraps to the *net.DNSError from the transport
+		var dnsErr *net.DNSError
+		if hostFlag == "" && errors.As(err, &dnsErr) {
+			_, _ = fmt.Fprintf(os.Stdout, "Hint:  the default host does not resolve; run 'jkit auth status --all' to check the other hosts, and 'jkit config set-default <host>' to change the default\n")
+		}
 		return &jenkins.ExitError{Code: 1, Message: "auth invalid"}
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "Auth:  valid\n")

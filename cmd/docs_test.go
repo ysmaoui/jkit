@@ -28,6 +28,9 @@ var skillExemptions = map[string]string{
 var rootFlagNames []string
 
 func TestMain(m *testing.M) {
+	// net/http reads the proxy variables once per process. A proxy answers for
+	// unresolvable names itself, which hides the DNS error some tests need.
+	_ = os.Setenv("NO_PROXY", "*")
 	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
 		if !f.Hidden && f.Name != "help" {
 			rootFlagNames = append(rootFlagNames, "--"+f.Name)

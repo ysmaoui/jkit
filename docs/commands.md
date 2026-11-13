@@ -98,7 +98,9 @@ jkit auth status [--host HOST | --all]
 Without `--all`, checks the default host, or `--host`. `--host` takes a
 configured key, the same URL with a trailing slash, query or fragment, or an
 alias. A URL that matches several keys only after normalising is an error
-naming them. Exits 0 if valid, 1 if invalid.
+naming them. Exits 0 if valid, 1 if invalid. If the default host (no `--host`)
+does not resolve in DNS, a `Hint:` line suggests `auth status --all` and
+`config set-default`.
 
 ```
 Host:  https://jenkins.example.com

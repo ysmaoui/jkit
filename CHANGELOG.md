@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `jkit api` sends a request body. `-d` and `--data-urlencode` send form
   fields, `--input` sends a file or stdin. A body makes `POST` the default
   method.
+- `jkit auth status` prints a hint when the default host does not resolve in
+  DNS. The hint points to `auth status --all` and `config set-default`.
 
 ### Changed
 - `jkit log` on a running build auto-follows only when stdout is a terminal.

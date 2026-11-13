@@ -243,6 +243,27 @@ func TestAuthStatusHostNormalized(t *testing.T) {
 
 func TestAuthStatusSingleHostNoTokenOnFailure(t *testing.T) {
 	writeAuthConfig(t, authHost{key: authServer(t, 401), isDefault: true})
-	_, _, err := runAuthStatus(t)
+	out, _, err := runAuthStatus(t)
 	requireExit1(t, err)
+	assert.NotContains(t, out, "Hint:")
+}
+
+func TestAuthStatusDNSFailureHint(t *testing.T) {
+	writeAuthConfig(t, authHost{key: "http://jenkins.invalid", isDefault: true})
+
+	out, _, err := runAuthStatus(t)
+	requireExit1(t, err)
+	assert.Contains(t, out, "Auth:  invalid")
+	assert.Contains(t, out, "Hint:  the default host does not resolve")
+	assert.Contains(t, out, "jkit auth status --all")
+	assert.Contains(t, out, "jkit config set-default")
+}
+
+func TestAuthStatusDNSFailureWithHostFlagNoHint(t *testing.T) {
+	writeAuthConfig(t, authHost{key: "http://jenkins.invalid", isDefault: true})
+
+	out, _, err := runAuthStatus(t, "--host", "http://jenkins.invalid")
+	requireExit1(t, err)
+	assert.Contains(t, out, "Auth:  invalid")
+	assert.NotContains(t, out, "Hint:")
 }
