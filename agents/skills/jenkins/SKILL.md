@@ -214,6 +214,7 @@ jkit running --json                 # [{job, number, url, timestamp}]
 
 # List jobs
 jkit list                           # current folder
+jkit list team/svc                  # one folder (same as --folder team/svc)
 jkit list -r                        # recursive
 
 # Find jobs by name (case-insensitive substring, whole instance)
@@ -228,7 +229,7 @@ jkit lint path/to/Jenkinsfile
 jkit open my-job 42
 
 # Check credentials
-jkit auth status                    # default host (or --host)
+jkit auth status                    # default host (or --host); exit 1 when invalid, anonymous or sent to a login page
 jkit auth status --all              # every configured host; flags duplicate or malformed keys
 
 # Raw API request, when no command covers it (instead of curl; auth and crumb handled)
@@ -263,7 +264,8 @@ jkit api /job/my-app/config.xml --input config.xml -H 'Content-Type: application
   It checks every configured key and names duplicate keys (e.g. `https://x` and
   `https://x/`), shared aliases and anonymous answers. `jkit auth prune` lists
   keys that can go; it changes `config.yml` only with `--yes`, so ask the user
-  before you pass it.
+  before you pass it. If the default host does not resolve, `jkit auth status`
+  says so; pick a working host from `--all` and pass it with `--host`.
 
 ---
 
@@ -361,7 +363,7 @@ jkit diagnose team/svc 42 --branch feature/x
 Don't hand-encode the branch into the `job` arg (`team/svc/feature%2Fx`) — pass
 `--branch` instead. If you target the container without a branch, the command
 returns an error **listing the available branches** — pick one and re-run with
-`--branch`. To browse branches up front: `jkit list --folder team/svc`.
+`--branch`. To browse branches up front: `jkit list team/svc`.
 
 `jkit run team/svc` without `--branch` does not fail: it starts a branch-indexing
 scan, prints a notice, and exits 0. On an organization folder, branch jobs sit at
