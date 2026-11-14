@@ -2,13 +2,15 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ysmaoui/jkit/internal/api"
 	"github.com/ysmaoui/jkit/internal/authcheck"
 	"github.com/ysmaoui/jkit/internal/config"
 	"github.com/ysmaoui/jkit/internal/jenkins"
@@ -41,8 +43,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	var host string
 	var hc *config.HostConfig
-	if h, _ := cmd.Flags().GetString("host"); h != "" {
-		host, hc, err = cfg.ResolveHost(h)
+	hostFlag, _ := cmd.Flags().GetString("host")
+	if hostFlag != "" {
+		host, hc, err = cfg.ResolveHost(hostFlag)
 	} else {
 		host, hc, err = cfg.DefaultHost()
 	}
@@ -53,13 +56,27 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	_, _ = fmt.Fprintf(os.Stdout, "Host:  %s\n", host)
 	_, _ = fmt.Fprintf(os.Stdout, "User:  %s\n", hc.User)
 
-	client := api.NewClient(host, hc.User, hc.Token)
-	resp, err := client.Get("/api/json", nil)
-	if err == nil {
-		api.CloseBody(resp)
+	timeout := authcheck.DefaultTimeout
+	if cmd.Flags().Changed("timeout") {
+		t, _ := cmd.Flags().GetString("timeout")
+		if timeout, err = time.ParseDuration(t); err != nil {
+			return fmt.Errorf("invalid --timeout %q: %w", t, err)
+		}
 	}
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stdout, "Auth:  invalid (%s)\n", err)
+	result, code, _, err := authcheck.Check(context.Background(), config.NormalizeHost(host), hc.User, hc.Token, timeout)
+	if result != authcheck.ResultValid {
+		label := resultLabel(authcheck.Entry{Result: result, StatusCode: code})
+		if err != nil {
+			label += ": " + err.Error()
+		}
+		if result == authcheck.ResultInvalid {
+			label += "; run 'jkit auth login'"
+		}
+		_, _ = fmt.Fprintf(os.Stdout, "Auth:  invalid (%s)\n", label)
+		var dnsErr *net.DNSError
+		if hostFlag == "" && errors.As(err, &dnsErr) {
+			_, _ = fmt.Fprintf(os.Stdout, "Hint:  the default host does not resolve; run 'jkit auth status --all' to check the other hosts, and 'jkit config set-default <host>' to change the default\n")
+		}
 		return &jenkins.ExitError{Code: 1, Message: "auth invalid"}
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "Auth:  valid\n")

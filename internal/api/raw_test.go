@@ -27,7 +27,7 @@ func TestRawKeepsQueryBytes(t *testing.T) {
 		"computer/api/json?tree=computer[displayName,offline]{0,2}",
 		srv.URL + "/computer/api/json?tree=computer[displayName,offline]{0,2}",
 	} {
-		resp, err := c.Raw(context.Background(), "GET", target, nil)
+		resp, err := c.Raw(context.Background(), "GET", target, nil, nil)
 		require.NoError(t, err, target)
 		CloseBody(resp)
 		assert.Equal(t, "/computer/api/json", gotPath, target)
@@ -41,7 +41,7 @@ func TestRawReturnsErrorResponses(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "GET", "/nope", nil)
+	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "GET", "/nope", nil, nil)
 	require.NoError(t, err)
 	defer CloseBody(resp)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -77,11 +77,41 @@ func TestRawPostSendsCrumbAndRefetchesStale(t *testing.T) {
 
 	h := http.Header{}
 	h.Set("X-Extra", "yes")
-	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/quietDown", h)
+	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/quietDown", h, nil)
 	require.NoError(t, err)
 	defer CloseBody(resp)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, []string{"stale", "fresh"}, posted)
+}
+
+func TestRawPostResendsBodyAfterStaleCrumb(t *testing.T) {
+	crumbFetches := 0
+	var crumbs, bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/crumbIssuer/api/json" {
+			crumbFetches++
+			if crumbFetches == 1 {
+				_, _ = w.Write([]byte(`{"crumb":"stale","crumbRequestField":"Jenkins-Crumb"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"crumb":"fresh","crumbRequestField":"Jenkins-Crumb"}`))
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		crumbs = append(crumbs, r.Header.Get("Jenkins-Crumb"))
+		bodies = append(bodies, string(b))
+		if r.Header.Get("Jenkins-Crumb") != "fresh" {
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer srv.Close()
+
+	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/manage/log/newLogRecorder", nil, []byte("name=my-recorder"))
+	require.NoError(t, err)
+	defer CloseBody(resp)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, []string{"stale", "fresh"}, crumbs)
+	assert.Equal(t, []string{"name=my-recorder", "name=my-recorder"}, bodies)
 }
 
 func TestRawGetSendsNoCrumb(t *testing.T) {
@@ -91,7 +121,7 @@ func TestRawGetSendsNoCrumb(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "GET", "/api/json", nil)
+	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "GET", "/api/json", nil, nil)
 	require.NoError(t, err)
 	CloseBody(resp)
 }
@@ -104,7 +134,7 @@ func TestRawRefusesURLOffHost(t *testing.T) {
 		"https://jenkins.example.com/cifoo/api/json",
 		"http://jenkins.example.com/ci/api/json",
 	} {
-		_, err := c.Raw(context.Background(), "GET", target, nil)
+		_, err := c.Raw(context.Background(), "GET", target, nil, nil)
 		require.Error(t, err, target)
 		assert.Contains(t, err.Error(), "is not on", target)
 	}
@@ -126,13 +156,13 @@ func TestRawPostDoesNotFollowRedirects(t *testing.T) {
 	defer srv.Close()
 	c := NewClient(srv.URL, "u", "t")
 
-	resp, err := c.Raw(context.Background(), "POST", "/stop", nil)
+	resp, err := c.Raw(context.Background(), "POST", "/stop", nil, nil)
 	require.NoError(t, err)
 	CloseBody(resp)
 	assert.Equal(t, http.StatusFound, resp.StatusCode)
 	assert.Equal(t, "/landing", resp.Header.Get("Location"))
 
-	resp, err = c.Raw(context.Background(), "GET", "/old", nil)
+	resp, err = c.Raw(context.Background(), "GET", "/old", nil, nil)
 	require.NoError(t, err)
 	CloseBody(resp)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -151,7 +181,7 @@ func TestRawPostWithoutCrumbIsNotRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/x", nil)
+	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/x", nil, nil)
 	require.NoError(t, err)
 	defer CloseBody(resp)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
@@ -170,7 +200,7 @@ func TestRawPostSentWhenCrumbFetchFails(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/x", nil)
+	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/x", nil, nil)
 	require.NoError(t, err)
 	defer CloseBody(resp)
 	body, _ := io.ReadAll(resp.Body)
@@ -192,7 +222,7 @@ func TestRawPostForbiddenTwice(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/x", nil)
+	resp, err := NewClient(srv.URL, "u", "t").Raw(context.Background(), "POST", "/x", nil, nil)
 	require.NoError(t, err)
 	defer CloseBody(resp)
 	assert.Equal(t, []string{"c", "c"}, posted)

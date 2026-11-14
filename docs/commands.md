@@ -98,7 +98,12 @@ jkit auth status [--host HOST | --all]
 Without `--all`, checks the default host, or `--host`. `--host` takes a
 configured key, the same URL with a trailing slash, query or fragment, or an
 alias. A URL that matches several keys only after normalising is an error
-naming them. Exits 0 if valid, 1 if invalid.
+naming them. It runs the same check as `--all` (below) on that one host, with a
+10 second timeout or `--timeout` if given. Any RESULT other than `valid` prints
+`Auth:  invalid (<RESULT>)`, with the network error for `unreachable` and
+`timeout`, and `run 'jkit auth login'` for a 401. Exits 0 if valid, 1 if
+invalid. If the default host (no `--host`) does not resolve in DNS, a `Hint:`
+line suggests `auth status --all` and `config set-default`.
 
 ```
 Host:  https://jenkins.example.com
@@ -107,8 +112,9 @@ Auth:  valid
 ```
 
 With `--all`, every host in `config.yml` gets one `GET /whoAmI/api/json`,
-8 at a time, with a 10 second timeout, no retry and no redirect following. A
-2xx answer counts as valid only when it names a non-anonymous user. The table
+8 at a time, with a 10 second timeout and no retry. It follows a redirect only
+where the credentials go: the same host, or http to https on the default
+ports. A 2xx answer counts as valid only when it names a non-anonymous user. The table
 goes to stdout, progress and warnings to stderr. Tokens are never printed.
 
 ```
@@ -121,7 +127,8 @@ https://st.example.com   -      jane           timeout
 
 RESULT is `valid`, `invalid token (401)`, `forbidden (403)`, `anonymous` (a
 2xx answer that is anonymous or not whoAmI JSON, e.g. a login page),
-`unreachable`, `timeout` or `HTTP <code>` (a redirect shows as its 3xx code).
+`unreachable`, `timeout` or `HTTP <code>` (a redirect to another host shows as
+its 3xx code).
 NOTES lists key problems found without a request: a key that `jkit auth login`
 would have written differently (trailing slash, query, fragment, spaces), keys
 that name the same host, an alias shared by several keys, and more than one key
@@ -236,19 +243,20 @@ the same object, e.g. `--format '{{range .Removals}}{{.Host}}{{"\n"}}{{end}}'`.
 List Jenkins jobs.
 
 ```
-jkit list [--folder FOLDER] [-r|--recursive]
+jkit list [folder] [--folder FOLDER] [-r|--recursive]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--folder` | Folder path to list jobs within |
+| `--folder` | Folder path to list jobs within. Same as the `folder` argument; giving both with different values is an error |
 | `-r, --recursive` | List jobs recursively across all folders |
 
 Table columns: NAME, STATUS, LAST BUILD. Folders shown with trailing `/`.
 
 ```bash
 jkit list                          # all top-level jobs
-jkit list --folder team/frontend   # jobs in folder
+jkit list team/frontend            # jobs in folder
+jkit list --folder team/frontend   # same
 jkit list -r                       # all jobs recursively
 jkit list --json                   # JSON output
 jkit list --format '{{range .}}{{.Name}}{{"\n"}}{{end}}'
@@ -802,8 +810,10 @@ jkit log [job] [build#] [-f|--follow] [--stage STAGE] [--stage-id ID] [--grep PA
 | `--slowest N` | Report the N log lines with the largest time gap to the next line |
 
 - Defaults to latest build if no build# given
-- Auto-follows if the build is in progress, unless `--grep`, `--tail` or `--head`
-  is given. `--grep` with `-f` reads the console, or the `--stage` log, once and
+- Auto-follows if the build is in progress and stdout is a terminal, unless
+  `--grep`, `--tail` or `--head` is given. With stdout redirected or piped, a
+  running build's console is printed as it is now and `log` exits; pass `-f`
+  to follow. `--grep` with `-f` reads the console, or the `--stage` log, once and
   does not follow, with `note: --follow is ignored with --grep; searched the log
   as it is now` on stderr
 - A build still in the queue is waited for under `-f`, with one note on stderr
@@ -882,6 +892,12 @@ The console is never buffered whole in memory.
   parallel branches), the command errors and lists each candidate's qualified
   path and ID. Pass a qualified path (`--stage "RemoteExec/Run Bazel Build"`) or
   the ID
+- Jenkins can serve a running step's stage log frozen at an older point while
+  the console keeps growing. A non-follow read of a running stage therefore
+  prints a note on stderr: `note: stage <stage> is still running and Jenkins
+  may serve its log late`, plus the time and age of the last line when the
+  log has timestamper prefixes. No note when that line is under a minute old.
+  `jkit log --tail N` without `--stage` reads the newest console lines
 - The stage log endpoints take no start offset, so every non-follow stage log
   read starts at byte 0
   - Without `--tail`, a stage log over 10 MB shows its first 10 MB and a
@@ -1761,6 +1777,7 @@ like `gh api`. It covers what no other command does, without curl and a token.
 
 ```
 jkit api <path|url> [-X METHOD] [-H "Key: Value"]... [-i]
+         [-d DATA]... [--data-urlencode NAME=VALUE]... [--input FILE|-]
 ```
 
 | Flag | Description |
@@ -1768,6 +1785,9 @@ jkit api <path|url> [-X METHOD] [-H "Key: Value"]... [-i]
 | `-X`, `--method` | HTTP method (default `GET`). Any other method than `GET`, `HEAD` or `OPTIONS` sends a CSRF crumb, re-fetched once on 403, and does not follow redirects |
 | `-H`, `--header` | Request header `"Key: Value"`, repeatable |
 | `-i`, `--include` | Print the status line and response headers before the body |
+| `-d`, `--data` | Form field sent as given, e.g. `name=value`, repeatable |
+| `--data-urlencode` | Form field `name=value` with the value URL-encoded, repeatable. `=value` sends only the encoded value. Without `=` the whole string is encoded |
+| `--input` | File to send as the request body, `-` for stdin |
 
 A path is relative to the host root (leading slash optional) and goes to
 `--host`, an alias, or the default host. A full `http(s)` URL is sent to the
@@ -1778,7 +1798,15 @@ a context path (`--host https://example.com/jenkins
 https://example.com/jenkins/api/json`).
 
 The query string is sent byte for byte, so `tree=jobs[name,color]` needs no
-escaping. There is no request body flag.
+escaping.
+
+`-d` and `--data-urlencode` build a form body. The fields are joined with `&`
+in the order given, across both flags. The form body is sent with
+`Content-Type: application/x-www-form-urlencoded` unless `-H` sets
+`Content-Type`. `--input` sends a file, or stdin with `-`, as the body. It sets
+no `Content-Type`, so pass one with `-H`. `--input` cannot be used with `-d` or
+`--data-urlencode`. A body makes `POST` the default method. A body with
+`-X GET` or `-X HEAD` is an error.
 
 `GET`, `HEAD` and `OPTIONS` follow redirects. Other methods do not, so
 `jkit api -X POST /job/my-app/build -i` shows the `201` or `302` Jenkins
@@ -1809,6 +1837,9 @@ jkit api https://jenkins.example.com/job/my-app/lastBuild/api/json --format '{{.
 jkit api /api/json --include               # X-Jenkins header carries the version
 jkit api -X POST /job/my-app/build         # same as jkit run, without its checks
 jkit api /job/my-app/api/xml -H 'Accept: application/xml'
+jkit api /manage/log/newLogRecorder --data-urlencode name=my-recorder
+jkit api /manage/log/my-recorder/configSubmit --data-urlencode 'json={"name":"my-recorder","loggers":[{"name":"hudson.model.Run","level":"FINE"}]}'
+jkit api /job/my-app/config.xml --input config.xml -H 'Content-Type: application/xml'
 ```
 
 ---

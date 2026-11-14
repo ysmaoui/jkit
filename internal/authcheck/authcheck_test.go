@@ -41,7 +41,7 @@ func TestCheckResultKinds(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.wantResult, func(t *testing.T) {
 			srv, hits := statusServer(t, tc.code)
-			result, code, _ := Check(context.Background(), srv.URL, "admin", "tok", time.Second)
+			result, code, _, _ := Check(context.Background(), srv.URL, "admin", "tok", time.Second)
 			assert.Equal(t, tc.wantResult, result)
 			assert.Equal(t, tc.code, code)
 			assert.Equal(t, int32(1), hits.Load(), "one attempt, no retry")
@@ -54,7 +54,7 @@ func TestCheckUnreachable(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 
-	result, code, _ := Check(context.Background(), url, "admin", "tok", time.Second)
+	result, code, _, _ := Check(context.Background(), url, "admin", "tok", time.Second)
 	assert.Equal(t, ResultUnreachable, result)
 	assert.Zero(t, code)
 }
@@ -69,7 +69,7 @@ func TestCheckTimeout(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	start := time.Now()
-	result, _, _ := Check(context.Background(), srv.URL, "admin", "tok", 50*time.Millisecond)
+	result, _, _, _ := Check(context.Background(), srv.URL, "admin", "tok", 50*time.Millisecond)
 	assert.Equal(t, ResultTimeout, result)
 	assert.Less(t, time.Since(start), 2*time.Second)
 }
@@ -83,23 +83,23 @@ func TestCheckUnprovenAuthentication(t *testing.T) {
 		{"anonymous", `{"name":"anonymous","anonymous":true}`, 200, ResultAnonymous},
 		{"no name", `{"anonymous":false}`, 200, ResultAnonymous},
 		{"html page", `<html>login</html>`, 200, ResultAnonymous},
-		{"redirect", "", http.StatusFound, "http_302"},
+		{"cross-host redirect", "", http.StatusFound, "http_302"},
 	}
+	login := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html>login</html>`))
+	}))
+	t.Cleanup(login.Close)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/login" {
-					_, _ = w.Write([]byte(`<html>login</html>`))
-					return
-				}
 				if tc.code == http.StatusFound {
-					http.Redirect(w, r, "/login", tc.code)
+					http.Redirect(w, r, login.URL+"/login", tc.code)
 					return
 				}
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			t.Cleanup(srv.Close)
-			result, code, _ := Check(context.Background(), srv.URL, "admin", "tok", time.Second)
+			result, code, _, _ := Check(context.Background(), srv.URL, "admin", "tok", time.Second)
 			assert.Equal(t, tc.wantResult, result)
 			assert.Equal(t, tc.code, code)
 		})

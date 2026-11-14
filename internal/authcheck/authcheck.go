@@ -70,29 +70,30 @@ type Options struct {
 }
 
 // Check asks host who the credentials belong to, once, within timeout. name is
-// the identity Jenkins reports when result is ResultValid.
-func Check(ctx context.Context, host, user, token string, timeout time.Duration) (result string, statusCode int, name string) {
+// the identity Jenkins reports when result is ResultValid. err is the
+// transport error behind ResultTimeout or ResultUnreachable, nil otherwise.
+func Check(ctx context.Context, host, user, token string, timeout time.Duration) (result string, statusCode int, name string, err error) {
 	client := api.NewClient(host, user, token, api.WithTimeout(timeout))
 	code, who, err := client.WhoAmIStatus(ctx)
 	if err != nil {
 		var ne net.Error
 		if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &ne) && ne.Timeout() {
-			return ResultTimeout, 0, ""
+			return ResultTimeout, 0, "", err
 		}
-		return ResultUnreachable, 0, ""
+		return ResultUnreachable, 0, "", err
 	}
 	switch {
 	case code >= 200 && code < 300:
 		if who == nil || who.Anonymous || who.Name == "" {
-			return ResultAnonymous, code, ""
+			return ResultAnonymous, code, "", nil
 		}
-		return ResultValid, code, who.Name
+		return ResultValid, code, who.Name, nil
 	case code == http.StatusUnauthorized:
-		return ResultInvalid, code, ""
+		return ResultInvalid, code, "", nil
 	case code == http.StatusForbidden:
-		return ResultForbidden, code, ""
+		return ResultForbidden, code, "", nil
 	}
-	return fmt.Sprintf("http_%d", code), code, ""
+	return fmt.Sprintf("http_%d", code), code, "", nil
 }
 
 // CheckAll checks every config key concurrently and returns one entry per
@@ -130,7 +131,7 @@ func CheckAll(ctx context.Context, cfg *config.Config, opts Options) []Entry {
 			defer func() { <-sem }()
 			// A fragment or query left in the key would swallow the request path,
 			// so the credentials are checked against the normalised host.
-			result, code, name := Check(ctx, config.NormalizeHost(entries[i].Host), hc.User, hc.Token, opts.Timeout)
+			result, code, name, _ := Check(ctx, config.NormalizeHost(entries[i].Host), hc.User, hc.Token, opts.Timeout)
 			entries[i].Result, entries[i].StatusCode, entries[i].Identity = result, code, name
 			if result == ResultValid && !strings.EqualFold(name, hc.User) {
 				entries[i].Problems = append(entries[i].Problems, "authenticated as "+name)

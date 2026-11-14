@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,4 +183,94 @@ func TestAPIFullURL(t *testing.T) {
 	_, err = executeCmd(t, "api", "--host", srv.URL, "https://jenkins.example.com/api/json")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "is not on")
+}
+
+// sentRequest is what bodyServer saw on the last non-crumb request.
+type sentRequest struct {
+	method, contentType, crumb, body string
+}
+
+func bodyServer(t *testing.T) *sentRequest {
+	t.Helper()
+	got := &sentRequest{}
+	apiServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/crumbIssuer/api/json" {
+			_, _ = w.Write([]byte(`{"crumb":"abc","crumbRequestField":"Jenkins-Crumb"}`))
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		*got = sentRequest{r.Method, r.Header.Get("Content-Type"), r.Header.Get("Jenkins-Crumb"), string(b)}
+	})
+	return got
+}
+
+func TestAPIFormBody(t *testing.T) {
+	withTerminal(t, false)
+	got := bodyServer(t)
+
+	_, err := executeCmd(t, "api", "/manage/log/newLogRecorder",
+		"-d", "a=1",
+		"--data-urlencode", "name=my recorder&x=y+z",
+		"-d", "raw=p+q",
+		"--data-urlencode", "only value",
+		"--data-urlencode", "=a b=c")
+	require.NoError(t, err)
+	assert.Equal(t, "POST", got.method)
+	assert.Equal(t, "abc", got.crumb)
+	assert.Equal(t, "application/x-www-form-urlencoded", got.contentType)
+	assert.Equal(t, "a=1&name=my+recorder%26x%3Dy%2Bz&raw=p+q&only+value&a+b%3Dc", got.body)
+}
+
+func TestAPIFormBodyKeepsContentTypeHeader(t *testing.T) {
+	withTerminal(t, false)
+	got := bodyServer(t)
+
+	_, err := executeCmd(t, "api", "/x", "-d", "a=1", "-H", "content-type: text/plain")
+	require.NoError(t, err)
+	assert.Equal(t, "text/plain", got.contentType)
+	assert.Equal(t, "a=1", got.body)
+}
+
+func TestAPIInputFile(t *testing.T) {
+	withTerminal(t, false)
+	got := bodyServer(t)
+	path := filepath.Join(t.TempDir(), "config.xml")
+	require.NoError(t, os.WriteFile(path, []byte("<project/>"), 0o600))
+
+	_, err := executeCmd(t, "api", "/job/my-app/config.xml", "--input", path, "-H", "Content-Type: application/xml")
+	require.NoError(t, err)
+	assert.Equal(t, "POST", got.method)
+	assert.Equal(t, "abc", got.crumb)
+	assert.Equal(t, "application/xml", got.contentType)
+	assert.Equal(t, "<project/>", got.body)
+}
+
+func TestAPIInputStdin(t *testing.T) {
+	withTerminal(t, false)
+	got := bodyServer(t)
+	rootCmd.SetIn(strings.NewReader("raw & body"))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+
+	_, err := executeCmd(t, "api", "-X", "PUT", "/x", "--input", "-")
+	require.NoError(t, err)
+	assert.Equal(t, "PUT", got.method)
+	assert.Empty(t, got.contentType)
+	assert.Equal(t, "raw & body", got.body)
+}
+
+func TestAPIBodyErrors(t *testing.T) {
+	got := bodyServer(t)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-X", "GET", "-d", "a=1"}, "cannot be sent with GET"},
+		{[]string{"-X", "head", "--data-urlencode", "a=1"}, "cannot be sent with HEAD"},
+		{[]string{"--input", "-", "-d", "a=1"}, "--input cannot be used"},
+	} {
+		_, err := executeCmd(t, append([]string{"api", "/x"}, tc.args...)...)
+		require.Error(t, err, tc.args)
+		assert.Contains(t, err.Error(), tc.want, tc.args)
+	}
+	assert.Empty(t, got.method, "no request may reach the server")
 }

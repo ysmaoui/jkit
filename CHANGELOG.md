@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-11-14
+
+### Added
+- A non-follow `jkit log --stage`/`--stage-id` read of a running stage notes on
+  stderr that Jenkins may serve the stage log late, with the time and age of
+  its last stamped line.
+- `jkit api` sends a request body. `-d` and `--data-urlencode` send form
+  fields, `--input` sends a file or stdin. A body makes `POST` the default
+  method.
+- `jkit auth status` prints a hint when the default host does not resolve in
+  DNS. The hint points to `auth status --all` and `config set-default`.
+
+### Changed
+- `jkit auth status` runs the same single `whoAmI` check as `--all`, with no
+  retry. A dead host fails at once, not after about 3.5 seconds of retries. An
+  anonymous answer or a redirect to another host now counts as invalid.
+- `jkit auth status` and `auth status --all` follow a redirect on the same host,
+  such as http to https. A same-host redirect to a login page now reports
+  `anonymous` and exits 1, where `--all` reported `HTTP 302` and exited 0.
+- `jkit log` on a running build auto-follows only when stdout is a terminal.
+  With stdout redirected or piped it prints the console as it is now and
+  exits. `-f` still follows.
+
+### Fixed
+- `jkit list <folder>` lists that folder. Before, it ignored the argument and
+  listed the top level.
+
 ## [0.10.1] - 2026-10-15
 
 ### Changed

@@ -37,7 +37,13 @@ jkit wait URL --stage Deploy --max-wait 9m
 - Don't check progress with `--grep`, `--max-bytes 0` or a plain `jkit log`.
   `--grep` and a full dump download the whole console in one response, which
   must arrive within `--timeout` (30s by default). A plain `jkit log` on a
-  running build follows from the first line until the build ends.
+  running build follows until the build ends when stdout is a terminal. With
+  stdout redirected it prints the console as it is now and exits.
+- A stage log of a running stage can lag the console: Jenkins may serve it
+  frozen at an older point. jkit then notes `stage X is still running and
+  Jenkins may serve its log late` on stderr, with the last line's age. Read
+  the newest output with `jkit log URL --tail N`, not `--stage`. An old last
+  line there does not prove a hang.
 - To search a huge console, raise `--timeout` (e.g. `--timeout 10m`) and the
   shell timeout together. For repeated searches, download it once with
   `jkit log URL --max-bytes 0 > build.log` and grep the file.
@@ -208,6 +214,7 @@ jkit running --json                 # [{job, number, url, timestamp}]
 
 # List jobs
 jkit list                           # current folder
+jkit list team/svc                  # one folder (same as --folder team/svc)
 jkit list -r                        # recursive
 
 # Find jobs by name (case-insensitive substring, whole instance)
@@ -222,13 +229,15 @@ jkit lint path/to/Jenkinsfile
 jkit open my-job 42
 
 # Check credentials
-jkit auth status                    # default host (or --host)
+jkit auth status                    # default host (or --host); exit 1 when invalid, anonymous or sent to a login page
 jkit auth status --all              # every configured host; flags duplicate or malformed keys
 
 # Raw API request, when no command covers it (instead of curl; auth and crumb handled)
 jkit api '/computer/api/json?tree=computer[displayName,offline]'   # query sent as written
 jkit api URL/api/json --format '{{.result}}'   # full URL picks the configured host
 jkit api /api/json -i               # status line + headers (X-Jenkins = version)
+jkit api /manage/log/newLogRecorder --data-urlencode name=my-recorder   # form POST (body makes POST the default)
+jkit api /job/my-app/config.xml --input config.xml -H 'Content-Type: application/xml'   # raw body from file, - for stdin
 # HTTP >= 400: body still on stdout, error on stderr, exit 1
 ```
 
@@ -255,7 +264,8 @@ jkit api /api/json -i               # status line + headers (X-Jenkins = version
   It checks every configured key and names duplicate keys (e.g. `https://x` and
   `https://x/`), shared aliases and anonymous answers. `jkit auth prune` lists
   keys that can go; it changes `config.yml` only with `--yes`, so ask the user
-  before you pass it.
+  before you pass it. If the default host does not resolve, `jkit auth status`
+  says so; pick a working host from `--all` and pass it with `--host`.
 
 ---
 
@@ -353,7 +363,7 @@ jkit diagnose team/svc 42 --branch feature/x
 Don't hand-encode the branch into the `job` arg (`team/svc/feature%2Fx`) — pass
 `--branch` instead. If you target the container without a branch, the command
 returns an error **listing the available branches** — pick one and re-run with
-`--branch`. To browse branches up front: `jkit list --folder team/svc`.
+`--branch`. To browse branches up front: `jkit list team/svc`.
 
 `jkit run team/svc` without `--branch` does not fail: it starts a branch-indexing
 scan, prints a notice, and exits 0. On an organization folder, branch jobs sit at

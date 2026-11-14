@@ -177,3 +177,23 @@ func TestLogTailConsoleTruncatedWarns(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, stderr)
 }
+
+// TestLogRunningBuildFollowsOnlyAtTerminal: a script reading stdout through a
+// pipe waits for exit, so a running build is followed only at a terminal.
+func TestLogRunningBuildFollowsOnlyAtTerminal(t *testing.T) {
+	old := consolePollInterval
+	consolePollInterval = time.Millisecond
+	t.Cleanup(func() { consolePollInterval = old })
+
+	withTerminal(t, false)
+	newConsoleServer(t, staplertest.Streaming, true, "l1\n")
+	out, err := executeCmd(t, "log", "my-app", "5")
+	require.NoError(t, err)
+	assert.Equal(t, "l1\n", out)
+
+	withTerminal(t, true)
+	newConsoleServer(t, staplertest.Streaming, false, "l1\n", "l1\nl2\n")
+	out, err = executeCmd(t, "log", "my-app", "5")
+	require.NoError(t, err)
+	assert.Equal(t, "l1\nl2\n", out)
+}

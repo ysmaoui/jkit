@@ -35,13 +35,20 @@ string is sent exactly as written, so tree=jobs[name] needs no escaping.
 A JSON body is pretty-printed when stdout is a terminal or with --json, and
 printed as received otherwise. --format applies a Go template to the decoded
 JSON body. On HTTP 400 and above the body is still printed and the command
-exits non-zero.`,
+exits non-zero.
+
+-d and --data-urlencode send a form body (application/x-www-form-urlencoded
+unless -H sets Content-Type), joined with & in the order given. --input sends
+a file, or stdin with -, as the body; set its Content-Type with -H. A body
+makes POST the default method.`,
 	Example: `  jkit api /api/json
   jkit api '/computer/api/json?tree=computer[displayName,offline]'
   jkit api https://jenkins.example.com/job/my-app/lastBuild/api/json
   jkit api /api/json --include
   jkit api /job/my-app/api/json --format '{{.color}}'
-  jkit api -X POST /job/my-app/build`,
+  jkit api -X POST /job/my-app/build
+  jkit api /manage/log/newLogRecorder --data-urlencode name=my-recorder
+  jkit api /job/my-app/config.xml --input config.xml -H 'Content-Type: application/xml'`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAPI,
 }
@@ -55,6 +62,73 @@ func registerAPIFlags(c *cobra.Command) {
 	c.Flags().StringP("method", "X", "GET", "HTTP method; methods other than GET, HEAD and OPTIONS send a CSRF crumb")
 	c.Flags().StringArrayP("header", "H", nil, `Request header "Key: Value" (repeatable)`)
 	c.Flags().BoolP("include", "i", false, "Print the status line and response headers before the body")
+	var fields []string
+	c.Flags().VarP(&formFlag{fields: &fields}, "data", "d", "Form field sent as given, e.g. name=value (repeatable)")
+	c.Flags().Var(&formFlag{fields: &fields, encode: true}, "data-urlencode", "Form field name=value with value URL-encoded (repeatable)")
+	c.Flags().String("input", "", "File to send as the request body, - for stdin")
+}
+
+// formFlag collects -d and --data-urlencode into one shared list, so the body
+// keeps the order the fields were given in across both flags, as curl does.
+type formFlag struct {
+	fields *[]string
+	encode bool
+}
+
+func (f *formFlag) String() string { return strings.Join(*f.fields, "&") }
+func (f *formFlag) Type() string   { return "string" }
+
+func (f *formFlag) Set(v string) error {
+	if f.encode {
+		// As in curl, "=value" sends the encoded value without a name.
+		if name, value, ok := strings.Cut(v, "="); ok && name != "" {
+			v = name + "=" + url.QueryEscape(value)
+		} else if ok {
+			v = url.QueryEscape(value)
+		} else {
+			v = url.QueryEscape(v)
+		}
+	}
+	*f.fields = append(*f.fields, v)
+	return nil
+}
+
+func (f *formFlag) Append(v string) error { return f.Set(v) }
+func (f *formFlag) GetSlice() []string    { return *f.fields }
+
+func (f *formFlag) Replace(vs []string) error {
+	*f.fields = nil
+	for _, v := range vs {
+		if err := f.Set(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requestBody returns the body that -d, --data-urlencode or --input ask for,
+// nil for none, and sets the form Content-Type unless header has one.
+func requestBody(cmd *cobra.Command, header http.Header) ([]byte, error) {
+	fields := cmd.Flags().Lookup("data").Value.(*formFlag).GetSlice()
+	input, _ := cmd.Flags().GetString("input")
+	switch {
+	case input != "" && len(fields) > 0:
+		return nil, fmt.Errorf("--input cannot be used with -d or --data-urlencode")
+	case input == "-":
+		body, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return nil, fmt.Errorf("reading stdin: %w", err)
+		}
+		return body, nil
+	case input != "":
+		return os.ReadFile(input)
+	case len(fields) > 0:
+		if header.Get("Content-Type") == "" {
+			header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		return []byte(strings.Join(fields, "&")), nil
+	}
+	return nil, nil
 }
 
 // stdoutIsTerminal is a variable so tests can take the terminal path.
@@ -73,12 +147,24 @@ func runAPI(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	reqBody, err := requestBody(cmd, header)
+	if err != nil {
+		return err
+	}
+	if reqBody != nil {
+		if !cmd.Flags().Changed("method") {
+			method = http.MethodPost
+		}
+		if method == http.MethodGet || method == http.MethodHead {
+			return fmt.Errorf("a request body cannot be sent with %s; use -X POST", method)
+		}
+	}
 	client, err := apiClient(cmd, target)
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.Raw(context.Background(), method, target, header)
+	resp, err := client.Raw(context.Background(), method, target, header, reqBody)
 	if err != nil {
 		return err
 	}

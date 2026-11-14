@@ -145,6 +145,33 @@ func TestListCommandFolder(t *testing.T) {
 	assert.Contains(t, out, "svc-a")
 }
 
+func TestListCommandPositionalFolder(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(map[string]any{"jobs": []map[string]any{
+			{"name": "svc-a", "url": "http://jenkins/job/team/job/svc/job/svc-a/", "color": "blue"},
+		}})
+	}))
+	defer srv.Close()
+	setupTestConfig(t, srv.URL)
+
+	for _, args := range [][]string{{"team/svc"}, {"team/svc", "--folder", "team/svc"}} {
+		gotPath = ""
+		out, err := executeCmd(t, append([]string{"list"}, args...)...)
+		require.NoError(t, err, args)
+		assert.Contains(t, gotPath, "/job/team/job/svc/api/json", args)
+		assert.Contains(t, out, "svc-a", args)
+	}
+
+	_, err := executeCmd(t, "list", "team/svc", "--folder", "team")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "folder given twice")
+
+	_, err = executeCmd(t, "list", "team", "svc")
+	require.Error(t, err)
+}
+
 func TestListCommandNoConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("JKIT_CONFIG_DIR", dir)
@@ -1352,7 +1379,7 @@ func TestStagesCommandJSON(t *testing.T) {
 
 func TestAuthStatusValid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": "admin", "anonymous": false})
 	}))
 	defer srv.Close()
 	setupTestConfig(t, srv.URL)
@@ -1378,11 +1405,11 @@ func TestAuthStatusInvalid(t *testing.T) {
 
 func TestAuthStatusHostOverride(t *testing.T) {
 	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": "admin", "anonymous": false})
 	}))
 	defer srv1.Close()
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"mode": "NORMAL"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": "admin", "anonymous": false})
 	}))
 	defer srv2.Close()
 
@@ -1740,4 +1767,40 @@ func TestAuthLoginStripsFragmentFromHost(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), srv.URL+":")
 	assert.NotContains(t, string(data), "#")
+}
+
+// A running stage notes that Jenkins may serve its log late, with the age of
+// its last stamped line. A finished stage or a fresh last line gets no note.
+func TestLogStageRunningNote(t *testing.T) {
+	old := "[2020-01-02T03:04:05.000Z] old line\n"
+	fresh := fmt.Sprintf("[%s] fresh line\n", time.Now().UTC().Format(time.RFC3339Nano))
+	for _, tc := range []struct {
+		name, log string
+		running   bool
+		want      string
+	}{
+		{"stale", old, true, "its last line is from 03:04:05Z"},
+		{"unstamped", "plain\n", true, "may serve its log late\n"},
+		{"fresh", fresh, true, ""},
+		{"finished", old, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := stageLogServer(t, func(int) string { return tc.log }, func(int) bool { return tc.running })
+			defer srv.Close()
+			setupTestConfig(t, srv.URL)
+
+			var out string
+			var err error
+			stderr := captureStderr(t, func() { out, err = executeCmd(t, "log", "my-app", "5", "--stage-id", "4") })
+			require.NoError(t, err)
+			assert.Equal(t, tc.log, out)
+			if tc.want == "" {
+				assert.Empty(t, stderr)
+				return
+			}
+			assert.Contains(t, stderr, "note: stage 4 is still running")
+			assert.Contains(t, stderr, tc.want)
+			assert.Contains(t, stderr, "'jkit log --tail N' without --stage")
+		})
+	}
 }

@@ -101,7 +101,7 @@ branch child the rules live on the parent, and inspect names it.
   the build: run `jkit auth status --all` and report which host key fails
 - When no command reads what you need, `jkit api PATH` sends an authenticated
   GET (e.g. `jkit api '/job/my-job/42/api/json?tree=actions[*]'`). Do not
-  send `-X POST` or other methods: this agent analyzes, it does not change
-  Jenkins
+  send `-X POST`, other methods or a body (`-d`, `--data-urlencode`,
+  `--input` make it a POST): this agent analyzes, it does not change Jenkins
 
 Be extremely concise. No pleasantries.
